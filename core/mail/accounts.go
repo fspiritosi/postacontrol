@@ -3,7 +3,6 @@ package mail
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/mail"
 	"strings"
 
@@ -17,15 +16,11 @@ var palette = []string{"#2563eb", "#16a34a", "#ea580c", "#9333ea"}
 
 // parseEmail valida y devuelve la dirección pelada.
 func parseEmail(s string) (string, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "", errors.New("el correo está vacío")
+	a, err := mail.ParseAddress(strings.TrimSpace(s))
+	if err != nil || !strings.Contains(a.Address, "@") {
+		return "", &UserError{Code: "invalid", Msg: "La dirección de correo no es válida.", Err: err}
 	}
-	a, err := mail.ParseAddress(s)
-	if err != nil {
-		return "", fmt.Errorf("el correo no es válido: %w", err)
-	}
-	return a.Address, nil
+	return strings.ToLower(a.Address), nil
 }
 
 // TestAccount verifica las credenciales contra IMAP y SMTP sin guardar nada.
@@ -48,6 +43,20 @@ func (c *Core) AddAccount(ctx context.Context, in model.AccountInput) (model.Acc
 		return model.Account{}, err
 	}
 	in.Email = addr
+	if in.Password == "" {
+		return model.Account{}, &UserError{Code: "invalid", Msg: "Ingresá la contraseña."}
+	}
+	existing, err := c.store.ListAccounts(ctx)
+	if err != nil {
+		return model.Account{}, err
+	}
+	used := map[string]bool{}
+	for _, a := range existing {
+		if strings.EqualFold(a.Email, addr) {
+			return model.Account{}, &UserError{Code: "duplicate", Msg: "Esa cuenta ya está configurada."}
+		}
+		used[a.Color] = true
+	}
 	if in.Username == "" {
 		in.Username = addr
 	}
@@ -57,12 +66,14 @@ func (c *Core) AddAccount(ctx context.Context, in model.AccountInput) (model.Acc
 	if err := c.TestAccount(ctx, in); err != nil {
 		return model.Account{}, err
 	}
-	existing, err := c.store.ListAccounts(ctx)
-	if err != nil {
-		return model.Account{}, err
-	}
 	acc := in.Account
 	acc.Color = palette[len(existing)%len(palette)]
+	for _, col := range palette {
+		if !used[col] {
+			acc.Color = col
+			break
+		}
+	}
 	acc.SaveSentCopy = true
 	id, err := c.store.InsertAccount(ctx, acc)
 	if err != nil {
@@ -90,11 +101,11 @@ func (c *Core) RemoveAccount(ctx context.Context, id int64) error {
 	if err != nil {
 		return asUserError(err)
 	}
-	if err := c.store.DeleteAccount(ctx, id); err != nil {
-		return asUserError(err)
-	}
 	if err := c.cfg.Secrets.Delete(acc.Email); err != nil && !errors.Is(err, secrets.ErrNotFound) {
 		return err
+	}
+	if err := c.store.DeleteAccount(ctx, id); err != nil {
+		return asUserError(err)
 	}
 	c.emit(EventAccountsChanged, nil)
 	return nil
