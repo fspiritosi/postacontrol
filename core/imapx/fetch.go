@@ -53,7 +53,7 @@ func (c *Conn) FetchHeaders(uids []uint32) ([]RemoteHeader, error) {
 	}
 	msgs, err := c.c.Fetch(toUIDs(uids), &imap.FetchOptions{
 		UID: true, Flags: true, Envelope: true, InternalDate: true, RFC822Size: true,
-		BodyStructure: &imap.FetchItemBodyStructure{},
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
 		BodySection:   []*imap.FetchItemBodySection{refs},
 	}).Collect()
 	if err != nil {

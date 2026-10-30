@@ -75,8 +75,10 @@ func (c *Conn) SelectRW(name string) (SelectInfo, error) { return c.selectMailbo
 func (c *Conn) selectMailbox(name string, readOnly bool) (SelectInfo, error) {
 	d, err := c.c.Select(name, &imap.SelectOptions{ReadOnly: readOnly}).Wait()
 	if err != nil {
+		c.rw = false
 		return SelectInfo{}, fmt.Errorf("imapx: select %q: %w", name, err)
 	}
+	c.rw = !readOnly
 	return SelectInfo{UIDValidity: d.UIDValidity, UIDNext: uint32(d.UIDNext), NumMessages: d.NumMessages}, nil
 }
 

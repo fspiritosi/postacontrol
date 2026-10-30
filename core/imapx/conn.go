@@ -32,7 +32,8 @@ const dialTimeout = 30 * time.Second
 
 // Conn es una sesión IMAP autenticada.
 type Conn struct {
-	c *imapclient.Client
+	c  *imapclient.Client
+	rw bool // la carpeta seleccionada se abrió con SelectRW
 }
 
 // Dial conecta (TLS implícito o STARTTLS según s.Security) y hace LOGIN.
@@ -80,8 +81,15 @@ func Dial(ctx context.Context, s model.ServerSettings, username, password string
 	if res.err != nil {
 		return nil, classifyDial(res.err)
 	}
-	if err := res.c.Login(username, password).Wait(); err != nil {
+	// Si ctx termina durante el LOGIN, cerrar el cliente destraba el Wait.
+	stop := context.AfterFunc(ctx, func() { _ = res.c.Close() })
+	err := res.c.Login(username, password).Wait()
+	stop()
+	if err != nil {
 		_ = res.c.Close()
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("%w: %w", ErrNetwork, ctx.Err())
+		}
 		var ierr *imap.Error
 		if errors.As(err, &ierr) {
 			return nil, fmt.Errorf("%w: %w", ErrAuth, err)

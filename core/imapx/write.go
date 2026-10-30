@@ -1,13 +1,20 @@
 package imapx
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/emersion/go-imap/v2"
 )
 
+// ErrReadOnly: la carpeta seleccionada no se abrió para escritura.
+var ErrReadOnly = errors.New("imapx: carpeta abierta en solo lectura")
+
 // AddFlags agrega flags a un mensaje (STORE +FLAGS). Requiere SelectRW.
 func (c *Conn) AddFlags(uid uint32, flags ...imap.Flag) error {
+	if !c.rw {
+		return ErrReadOnly
+	}
 	err := c.c.Store(toUIDs([]uint32{uid}), &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: flags}, nil).Close()
 	if err != nil {
 		return fmt.Errorf("imapx: UID STORE: %w", err)

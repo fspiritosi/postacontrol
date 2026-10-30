@@ -5,7 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/stretchr/testify/assert"
@@ -268,4 +271,85 @@ func TestSelect_Missing(t *testing.T) {
 	c := dial(t, s, tlsc)
 	_, err := c.Select("NoExiste")
 	assert.Error(t, err)
+}
+
+func rawMsg(subject, headers, body string) []byte {
+	return []byte("From: Bea <bea@ej.com>\r\nTo: ana@ej.com\r\nSubject: " + subject +
+		"\r\nDate: Mon, 02 Jan 2006 15:04:05 +0000\r\nMessage-ID: <" + subject + "@ej.com>\r\nMIME-Version: 1.0\r\n" +
+		headers + "\r\n" + body)
+}
+
+func TestFetchHeaders_HasAttachmentsRules(t *testing.T) {
+	s, tlsc := setup(t)
+	// (a) text/plain con disposición attachment
+	s.Deliver(t, "INBOX", rawMsg("a", "Content-Type: multipart/mixed; boundary=B\r\n",
+		"--B\r\nContent-Type: text/plain\r\n\r\ncuerpo\r\n"+
+			"--B\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=nota.txt\r\n\r\nnota\r\n--B--\r\n"))
+	// (b) pdf con filename solo en la disposición, sin name=
+	s.Deliver(t, "INBOX", rawMsg("b", "Content-Type: multipart/mixed; boundary=B\r\n",
+		"--B\r\nContent-Type: text/plain\r\n\r\ncuerpo\r\n"+
+			"--B\r\nContent-Type: application/pdf\r\nContent-Disposition: inline; filename=f.pdf\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERg==\r\n--B--\r\n"))
+	// (c) imagen inline con Content-ID y sin filename
+	s.Deliver(t, "INBOX", rawMsg("c", "Content-Type: multipart/related; boundary=R\r\n",
+		"--R\r\nContent-Type: text/html\r\n\r\n<img src=\"cid:x\">\r\n"+
+			"--R\r\nContent-Type: image/png\r\nContent-ID: <x>\r\nContent-Disposition: inline\r\nContent-Transfer-Encoding: base64\r\n\r\niVBORw==\r\n--R--\r\n"))
+	c := dial(t, s, tlsc)
+	_, err := c.Select("INBOX")
+	require.NoError(t, err)
+	uids, err := c.AllUIDs()
+	require.NoError(t, err)
+	hs, err := c.FetchHeaders(uids)
+	require.NoError(t, err)
+	require.Len(t, hs, 3)
+	assert.True(t, hs[0].HasAttachments, "a: text/plain attachment")
+	assert.True(t, hs[1].HasAttachments, "b: pdf con filename de disposición")
+	assert.False(t, hs[2].HasAttachments, "c: imagen inline sin filename")
+}
+
+func TestSelect_IsReadOnly(t *testing.T) {
+	s, tlsc := setup(t)
+	s.Deliver(t, "INBOX", plainMsg("uno", ""))
+	c := dial(t, s, tlsc)
+	_, err := c.Select("INBOX")
+	require.NoError(t, err)
+	uids, err := c.AllUIDs()
+	require.NoError(t, err)
+
+	err = c.AddFlags(uids[0], imap.FlagSeen)
+	assert.ErrorIs(t, err, imapx.ErrReadOnly)
+	fl, err := c.FetchFlags(uids)
+	require.NoError(t, err)
+	assert.NotContains(t, fl[uids[0]], imap.FlagSeen)
+
+	// Volver a Select tras SelectRW también deja el modo de solo lectura.
+	_, err = c.SelectRW("INBOX")
+	require.NoError(t, err)
+	_, err = c.Select("INBOX")
+	require.NoError(t, err)
+	assert.ErrorIs(t, c.AddFlags(uids[0], imap.FlagSeen), imapx.ErrReadOnly)
+}
+
+func TestDial_StalledServerHonorsContext(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	p, _ := strconv.Atoi(port)
+	for _, sec := range []model.Security{model.SecurityTLS, model.SecuritySTARTTLS} {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		start := time.Now()
+		_, err = imapx.Dial(ctx, model.ServerSettings{Host: "127.0.0.1", Port: p, Security: sec}, user, pass, nil)
+		cancel()
+		assert.True(t, errors.Is(err, imapx.ErrNetwork), "%s: got %v", sec, err)
+		assert.Less(t, time.Since(start), time.Second, sec)
+	}
 }
