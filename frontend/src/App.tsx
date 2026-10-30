@@ -3,6 +3,7 @@ import { Welcome } from "./features/accounts/Welcome";
 import { MailShell } from "./features/layout/MailShell";
 import { useMailEvents } from "./lib/events";
 import { useAccounts } from "./lib/queries";
+import { errorMessage } from "./lib/errors";
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -13,7 +14,7 @@ export default function App() {
   if (accounts.isError) {
     return (
       <div className="flex h-screen items-center justify-center p-6 text-sm text-destructive">
-        {accounts.error.message}
+        {errorMessage(accounts.error)}
       </div>
     );
   }

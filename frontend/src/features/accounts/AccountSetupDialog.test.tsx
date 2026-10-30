@@ -82,4 +82,52 @@ describe("AccountSetupDialog", () => {
       expect.objectContaining({ email: "yo@ejemplo.com", password: "secreta", username: "yo@ejemplo.com" }),
     );
   });
+
+  it("muestra el mensaje de un RuntimeError real de Wails", async () => {
+    vi.mocked(svc.DetectSettings).mockResolvedValue(hostinger as never);
+    vi.mocked(svc.AddAccount).mockRejectedValue(Object.assign(new Error("No pudimos conectar."), { name: "RuntimeError", cause: {} }));
+    const { user } = await openStep2();
+    await user.click(await screen.findByRole("button", { name: "Probar y guardar" }));
+    expect(await screen.findByText("No pudimos conectar.")).toBeInTheDocument();
+  });
+
+  it("deshabilita guardar sin host o con puerto inválido", async () => {
+    vi.mocked(svc.DetectSettings).mockRejectedValue(new Error("x"));
+    const { user } = await openStep2();
+    const save = await screen.findByRole("button", { name: "Probar y guardar" });
+    expect(save).toBeDisabled();
+    await user.type(screen.getByLabelText("Servidor IMAP"), "imap.x.com");
+    await user.type(screen.getByLabelText("Puerto IMAP"), "993");
+    await user.type(screen.getByLabelText("Servidor SMTP"), "smtp.x.com");
+    await user.type(screen.getByLabelText("Puerto SMTP"), "70000");
+    expect(save).toBeDisabled();
+    await user.clear(screen.getByLabelText("Puerto SMTP"));
+    await user.type(screen.getByLabelText("Puerto SMTP"), "465");
+    expect(save).toBeEnabled();
+    expect(svc.AddAccount).not.toHaveBeenCalled();
+  });
+
+  it("muestra los textos de carga", async () => {
+    let resolveDetect!: (v: unknown) => void;
+    vi.mocked(svc.DetectSettings).mockReturnValue(new Promise((r) => (resolveDetect = r)) as never);
+    let rejectAdd!: (e: Error) => void;
+    vi.mocked(svc.AddAccount).mockReturnValue(new Promise((_, r) => (rejectAdd = r)) as never);
+    const { user } = await openStep2();
+    expect(screen.getByText("Buscando la configuración…")).toBeInTheDocument();
+    resolveDetect(hostinger);
+    await user.click(await screen.findByRole("button", { name: "Probar y guardar" }));
+    expect(screen.getByText("Probando conexión…")).toBeInTheDocument();
+    rejectAdd(new Error("fallo"));
+    expect(await screen.findByText("fallo")).toBeInTheDocument();
+  });
+
+  it("no cierra durante la detección y descarta resultados viejos", async () => {
+    let resolveDetect!: (v: unknown) => void;
+    vi.mocked(svc.DetectSettings).mockReturnValue(new Promise((r) => (resolveDetect = r)) as never);
+    const { user, onOpenChange } = await openStep2();
+    await user.keyboard("{Escape}");
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    resolveDetect(hostinger);
+    expect(await screen.findByText("Encontramos la configuración")).toBeInTheDocument();
+  });
 });

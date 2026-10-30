@@ -1,7 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2Icon } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { errorMessage } from "@/lib/errors";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Settings } from "../../../bindings/postacontrol/core/autoconfig/models";
 import type { Security } from "../../../bindings/postacontrol/core/model/models";
@@ -37,6 +38,12 @@ const fromSettings = (s: Settings["imap"]): Server => ({
   port: String(s.port),
   security: s.security,
 });
+
+const validPort = (p: string) => {
+  const n = Number(p);
+  return p.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= 65535;
+};
+const validServer = (s: Server) => s.host.trim() !== "" && validPort(s.port);
 
 function ServerFields({
   label,
@@ -97,38 +104,59 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
   const [displayName, setDisplayName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
+
+  function reset() {
+    requestId.current++;
+    setStep("credentials");
+    setEmail("");
+    setPassword("");
+    setDetected(false);
+    setImap(emptyServer("tls"));
+    setSmtp(emptyServer("starttls"));
+    setUsername("");
+    setDisplayName("");
+    setError(null);
+  }
 
   function handleOpenChange(next: boolean) {
     if (!next) {
-      if (saving) return;
-      setStep("credentials");
-      setPassword("");
-      setError(null);
+      if (saving || step === "detecting") return;
+      reset();
     }
     onOpenChange(next);
   }
 
   async function detect(e: FormEvent) {
     e.preventDefault();
+    const id = ++requestId.current;
     setStep("detecting");
     setError(null);
+    let found: Settings | null;
     try {
-      const s = await svc.DetectSettings(email.trim());
-      setImap(fromSettings(s.imap));
-      setSmtp(fromSettings(s.smtp));
-      setUsername(s.username || email.trim());
-      setDetected(true);
+      found = await svc.DetectSettings(email.trim());
     } catch {
+      found = null;
+    }
+    if (id !== requestId.current) return; // resultado viejo: el diálogo se reseteó
+    if (found) {
+      setImap(fromSettings(found.imap));
+      setSmtp(fromSettings(found.smtp));
+      setUsername(found.username || email.trim());
+    } else {
       setImap(emptyServer("tls"));
       setSmtp(emptyServer("starttls"));
       setUsername(email.trim());
-      setDetected(false);
     }
+    setDetected(found !== null);
     setStep("servers");
   }
 
+  const valid = validServer(imap) && validServer(smtp);
+
   async function save(e: FormEvent) {
     e.preventDefault();
+    if (!valid) return;
     setSaving(true);
     setError(null);
     try {
@@ -148,7 +176,7 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
       setSaving(false);
       handleOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
       setSaving(false);
     }
   }
@@ -233,7 +261,7 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
               <Button type="button" variant="ghost" onClick={() => setStep("credentials")} disabled={saving}>
                 Atrás
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || !valid}>
                 {saving ? (
                   <>
                     <Loader2Icon className="animate-spin" /> Probando conexión…
