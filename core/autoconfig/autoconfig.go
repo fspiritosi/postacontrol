@@ -37,12 +37,23 @@ const defaultISPDBBase = "https://autoconfig.thunderbird.net/v1.1/"
 
 var domainRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 
+// checkRedirect limita a 5 redirecciones y rechaza bajar de https a otro esquema.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("demasiadas redirecciones")
+	}
+	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return errors.New("redirección de https a un esquema no seguro")
+	}
+	return nil
+}
+
 func (o Options) withDefaults() Options {
 	if o.LookupMX == nil {
 		o.LookupMX = net.DefaultResolver.LookupMX
 	}
 	if o.HTTPClient == nil {
-		o.HTTPClient = &http.Client{Timeout: 8 * time.Second}
+		o.HTTPClient = &http.Client{Timeout: 8 * time.Second, CheckRedirect: checkRedirect}
 	}
 	if o.ISPDBBase == "" {
 		o.ISPDBBase = defaultISPDBBase
@@ -62,18 +73,24 @@ func Detect(ctx context.Context, email string, opt Options) (Settings, error) {
 		return Settings{}, err
 	}
 	opt = opt.withDefaults()
+	if err := ctx.Err(); err != nil {
+		return Settings{}, err
+	}
 
 	if s, ok := detectKnown(ctx, opt, domain); ok {
 		s.Username = email
 		return s, nil
 	}
-	if s, ok := fetchConfig(ctx, opt, strings.TrimRight(opt.ISPDBBase, "/")+"/"+domain, email, local); ok {
+	if s, ok := fetchConfig(ctx, opt, strings.TrimRight(opt.ISPDBBase, "/")+"/"+domain, email, local, domain); ok {
 		s.Source = "ispdb"
 		return s, nil
 	}
-	if s, ok := fetchConfig(ctx, opt, opt.DomainAutoconfigURL(domain), email, local); ok {
+	if s, ok := fetchConfig(ctx, opt, opt.DomainAutoconfigURL(domain), email, local, domain); ok {
 		s.Source = "autoconfig"
 		return s, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return Settings{}, err
 	}
 	return Settings{}, ErrNotDetected
 }

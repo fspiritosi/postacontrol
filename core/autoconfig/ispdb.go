@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"postacontrol/core/model"
@@ -25,10 +26,12 @@ type clientConfig struct {
 	} `xml:"emailProvider"`
 }
 
+var placeholderRe = regexp.MustCompile(`%[A-Za-z]+%`)
+
 const maxConfigSize = 1 << 20
 
 // fetchConfig descarga y parsea un XML en formato autoconfig de Mozilla.
-func fetchConfig(ctx context.Context, opt Options, url, email, local string) (Settings, bool) {
+func fetchConfig(ctx context.Context, opt Options, url, email, local, domain string) (Settings, bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return Settings{}, false
@@ -45,10 +48,10 @@ func fetchConfig(ctx context.Context, opt Options, url, email, local string) (Se
 	if err != nil {
 		return Settings{}, false
 	}
-	return parseConfig(body, email, local)
+	return parseConfig(body, email, local, domain)
 }
 
-func parseConfig(data []byte, email, local string) (Settings, bool) {
+func parseConfig(data []byte, email, local, domain string) (Settings, bool) {
 	var cfg clientConfig
 	if err := xml.Unmarshal(data, &cfg); err != nil {
 		return Settings{}, false
@@ -65,8 +68,8 @@ func parseConfig(data []byte, email, local string) (Settings, bool) {
 	if user == "" {
 		user = smtpUser
 	}
-	user = strings.NewReplacer("%EMAILADDRESS%", email, "%EMAILLOCALPART%", local).Replace(user)
-	if user == "" {
+	user = strings.NewReplacer("%EMAILADDRESS%", email, "%EMAILLOCALPART%", local, "%EMAILDOMAIN%", domain).Replace(user)
+	if user == "" || placeholderRe.MatchString(user) {
 		user = email
 	}
 	return Settings{IMAP: imap, SMTP: smtp, Username: user}, true

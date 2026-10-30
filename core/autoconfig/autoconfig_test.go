@@ -122,7 +122,10 @@ func TestDetect_InvalidEmail(t *testing.T) {
 }
 
 func TestSettingsJSONTags(t *testing.T) {
-	assert.Contains(t, jsonOf(t, Settings{}), `"imap"`)
+	out := jsonOf(t, Settings{})
+	for _, k := range []string{`"imap"`, `"smtp"`, `"username"`, `"source"`} {
+		assert.Contains(t, out, k)
+	}
 }
 
 func jsonOf(t *testing.T, v any) string {
@@ -130,4 +133,52 @@ func jsonOf(t *testing.T, v any) string {
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
 	return string(b)
+}
+
+func TestDetect_RedirectDowngradeRejected(t *testing.T) {
+	data, err := os.ReadFile("testdata/ispdb-example.xml")
+	require.NoError(t, err)
+	plain := serveXML(t, string(data))
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plain.URL, http.StatusFound)
+	}))
+	defer tlsSrv.Close()
+	client := tlsSrv.Client()
+	client.CheckRedirect = checkRedirect
+
+	_, err = Detect(context.Background(), "ana@example.com", Options{
+		LookupMX:            mx("m.y."),
+		HTTPClient:          client,
+		ISPDBBase:           tlsSrv.URL + "/",
+		DomainAutoconfigURL: func(string) string { return tlsSrv.URL + "/auto" },
+	})
+	assert.ErrorIs(t, err, ErrNotDetected)
+}
+
+func TestDetect_UnknownPlaceholderFallsBackToEmail(t *testing.T) {
+	srv := serveXML(t, `<clientConfig><emailProvider id="x">
+<incomingServer type="imap"><hostname>imap.x.com</hostname><port>993</port><socketType>SSL</socketType><username>%FOO%</username></incomingServer>
+<outgoingServer type="smtp"><hostname>smtp.x.com</hostname><port>465</port><socketType>SSL</socketType></outgoingServer>
+</emailProvider></clientConfig>`)
+	s, err := Detect(context.Background(), "a@x.com", Options{LookupMX: mx("m.y."), ISPDBBase: srv.URL + "/"})
+	require.NoError(t, err)
+	assert.Equal(t, "a@x.com", s.Username)
+}
+
+func TestDetect_EmailDomainPlaceholder(t *testing.T) {
+	srv := serveXML(t, `<clientConfig><emailProvider id="x">
+<incomingServer type="imap"><hostname>imap.x.com</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILLOCALPART%.%EMAILDOMAIN%</username></incomingServer>
+<outgoingServer type="smtp"><hostname>smtp.x.com</hostname><port>465</port><socketType>SSL</socketType></outgoingServer>
+</emailProvider></clientConfig>`)
+	s, err := Detect(context.Background(), "a@x.com", Options{LookupMX: mx("m.y."), ISPDBBase: srv.URL + "/"})
+	require.NoError(t, err)
+	assert.Equal(t, "a.x.com", s.Username)
+}
+
+func TestDetect_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := Detect(ctx, "a@x.com", Options{LookupMX: mx("m.y.")})
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.False(t, errors.Is(err, ErrNotDetected))
 }
