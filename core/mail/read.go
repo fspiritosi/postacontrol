@@ -54,13 +54,14 @@ func (c *Core) GetMessage(ctx context.Context, messageID int64) (model.MessageDe
 			if cerr := c.ctxErr(ctx); cerr != nil {
 				return model.MessageDetail{}, cerr
 			}
-			if !isConnError(err) {
+			if !seenIsBestEffort(err) {
 				// Error de caché o del mensaje: no se silencia, la caché
 				// quedaría divergente del servidor.
 				return model.MessageDetail{}, asUserError(err)
 			}
-			// Sin red (o servidor caído) el mensaje se lee igual; withConn ya
-			// emitió EventSyncError y la próxima sincronización reconcilia.
+			// Sin red (o servidor caído) o si el servidor rechaza el \Seen,
+			// el mensaje se lee igual y queda no leído en la caché: la
+			// próxima sincronización reconcilia.
 		} else {
 			d.Seen = true
 		}
@@ -68,10 +69,16 @@ func (c *Core) GetMessage(ctx context.Context, messageID int64) (model.MessageDe
 	return normalizeDetail(d), nil
 }
 
-// isConnError dice si err es de los que withConn ya informa por EventSyncError.
-func isConnError(err error) bool {
+// seenIsBestEffort dice si una falla al marcar \Seen se puede ignorar y
+// mostrar igual el mensaje: errores de conexión (withConn ya los informa por
+// EventSyncError) o un NO/BAD del servidor al STORE.
+func seenIsBestEffort(err error) bool {
 	var ue *UserError
-	return errors.As(err, &ue) && (ue.Code == "network" || ue.Code == "auth" || ue.Code == "tls")
+	if errors.As(err, &ue) {
+		return ue.Code == "network" || ue.Code == "auth" || ue.Code == "tls"
+	}
+	var ierr *goimap.Error
+	return errors.As(err, &ierr)
 }
 
 func normalizeDetail(d model.MessageDetail) model.MessageDetail {

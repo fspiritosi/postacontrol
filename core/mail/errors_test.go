@@ -1,9 +1,11 @@
 package mail
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
+	goimap "github.com/emersion/go-imap/v2"
 	"github.com/stretchr/testify/assert"
 
 	"postacontrol/core/autoconfig"
@@ -21,4 +23,17 @@ func TestAsUserError(t *testing.T) {
 	assert.Equal(t, "not_found", asUserError(store.ErrNotFound).(*UserError).Code)
 	assert.Equal(t, autoconfig.ErrNotDetected, asUserError(autoconfig.ErrNotDetected))
 	assert.NoError(t, asUserError(nil))
+}
+
+func TestSeenIsBestEffort(t *testing.T) {
+	refusal := fmt.Errorf("imapx: UID STORE: %w", &goimap.Error{Type: goimap.StatusResponseTypeNo, Text: "no permitido"})
+	assert.True(t, seenIsBestEffort(refusal), "NO del servidor")
+	assert.True(t, seenIsBestEffort(&goimap.Error{Type: goimap.StatusResponseTypeBad, Text: "x"}), "BAD del servidor")
+	assert.True(t, seenIsBestEffort(&UserError{Code: "network"}))
+	assert.True(t, seenIsBestEffort(&UserError{Code: "auth"}))
+	assert.True(t, seenIsBestEffort(&UserError{Code: "tls"}))
+
+	assert.False(t, seenIsBestEffort(&UserError{Code: "stale"}), "UIDVALIDITY cambió: se avisa")
+	assert.False(t, seenIsBestEffort(errors.New("sql: database is locked")), "error de caché")
+	assert.False(t, seenIsBestEffort(&UserError{Code: "not_found"}))
 }
