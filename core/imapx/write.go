@@ -37,3 +37,12 @@ func (c *Conn) Append(mailbox string, raw []byte, flags ...imap.Flag) error {
 	}
 	return nil
 }
+
+// Noop manda NOOP. Sirve para comprobar que la sesión sigue viva antes de un
+// comando que no se puede reintentar.
+func (c *Conn) Noop() error {
+	if err := c.c.Noop().Wait(); err != nil {
+		return opErr("NOOP", err)
+	}
+	return nil
+}

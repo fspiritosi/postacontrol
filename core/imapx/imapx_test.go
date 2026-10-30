@@ -376,6 +376,13 @@ func TestOps_ConnectionDropIsNetworkError(t *testing.T) {
 	assert.ErrorIs(t, err, imapx.ErrNetwork)
 	_, err = c.ListFolders()
 	assert.ErrorIs(t, err, imapx.ErrNetwork)
+	assert.ErrorIs(t, c.Noop(), imapx.ErrNetwork)
+}
+
+func TestNoop_LiveSession(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	require.NoError(t, c.Noop())
 }
 
 func TestOps_ServerRefusalIsNotNetworkError(t *testing.T) {

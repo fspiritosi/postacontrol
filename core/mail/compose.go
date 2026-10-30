@@ -309,6 +309,14 @@ func (c *Core) appendSent(ctx context.Context, acc model.Account, raw []byte) (i
 	if sent == nil {
 		return 0, false
 	}
+	// La conexión del pool puede haber muerto sin que lo sepamos (el servidor
+	// corta las sesiones inactivas). NOOP es idempotente: withConn la valida
+	// o la reemplaza, y recién entonces va el APPEND sin reintento.
+	if err := c.withConn(ctx, acc.ID, func(_ context.Context, conn *imapx.Conn) error {
+		return conn.Noop()
+	}); err != nil {
+		return 0, false
+	}
 	err = c.withConnNoRetry(ctx, acc.ID, func(_ context.Context, conn *imapx.Conn) error {
 		return conn.Append(sent.Name, raw, goimap.FlagSeen)
 	})

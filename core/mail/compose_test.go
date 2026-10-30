@@ -149,6 +149,25 @@ func TestSend_EndToEnd(t *testing.T) {
 	assert.Equal(t, "Información", sent[0].Subject)
 }
 
+// La conexión del pool puede estar muerta (el servidor la cortó mientras la
+// app esperaba). Antes del APPEND sin reintento se valida con un NOOP que sí
+// reintenta: la copia se guarda una sola vez.
+func TestSend_SentCopySurvivesDeadPooledConnection(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	imap.Close()
+	imap.Restart(t)
+
+	res, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "Tras corte", BodyHTML: "<p>x</p>",
+	})
+	require.NoError(t, err)
+	assert.True(t, res.SentCopySaved)
+	assert.Empty(t, res.Warning)
+	sent := sentMessages(t, c, acc.ID)
+	assert.Equal(t, []string{"Tras corte"}, subjects(sent), "una sola copia en Enviados")
+}
+
 func TestSend_ReplySetsThreadingAndAnswered(t *testing.T) {
 	c, imap, smtp, acc, inboxID, m := prepared(t, threadMail())
 	d, err := c.PrepareCompose(context.Background(), m.ID, "reply")
