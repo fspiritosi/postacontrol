@@ -28,12 +28,10 @@ type MailService struct {
 	core *mail.Core
 }
 
-// SetApp se llama una vez, después de application.New y antes de Run: el
-// servicio se registra en las opciones de la app, así que la app no existe
-// todavía cuando se crea.
-func (s *MailService) SetApp(app *application.App) { s.app = app }
+func NewMailService() *MailService { return &MailService{} }
 
 func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	s.app = application.Get()
 	dir, err := DataDir()
 	if err != nil {
 		return err
@@ -108,19 +106,18 @@ func (s *MailService) SaveAttachment(ctx context.Context, messageID int64, index
 	if err != nil {
 		return false, err
 	}
-	var att *model.Attachment
-	for i := range d.Attachments {
-		if d.Attachments[i].Index == index {
-			att = &d.Attachments[i]
-			break
-		}
+	// El núcleo indexa los adjuntos por posición. Si el índice no existe, el
+	// propio núcleo devuelve su not_found (sin escribir nada: destino vacío).
+	if index < 0 || index >= len(d.Attachments) {
+		return false, s.core.SaveAttachment(ctx, messageID, index, "")
 	}
-	if att == nil {
-		return false, errors.New("No encontramos ese adjunto.")
+	dlg := s.app.Dialog.SaveFile().SetFilename(suggestedFilename(d.Attachments[index].Filename))
+	if w := s.app.Window.Current(); w != nil {
+		dlg.AttachToWindow(w) // modal respecto de la ventana
 	}
-	dest, err := s.app.Dialog.SaveFile().SetFilename(suggestedFilename(att.Filename)).PromptForSingleSelection()
+	dest, err := dlg.PromptForSingleSelection()
 	if err != nil {
-		return false, err
+		return false, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
 	}
 	if dest == "" {
 		return false, nil
@@ -143,7 +140,10 @@ func (s *MailService) OpenExternal(link string) error {
 	if err := validateExternalURL(link); err != nil {
 		return err
 	}
-	return s.app.Browser.OpenURL(link)
+	if err := s.app.Browser.OpenURL(link); err != nil {
+		return &mail.UserError{Code: "ui", Msg: "No pudimos abrir el enlace.", Err: err}
+	}
+	return nil
 }
 
 // validateExternalURL acepta solo http, https y mailto (con host o destinatario).

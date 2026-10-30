@@ -14,9 +14,6 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as application$0 from "../../github.com/wailsapp/wails/v3/pkg/application/models.js";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
 import * as autoconfig$0 from "../core/autoconfig/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -79,15 +76,6 @@ export function SaveAttachment(messageID: number, index: number): $CancellablePr
 
 export function Send(req: model$0.SendRequest): $CancellablePromise<model$0.SendResult> {
     return $Call.ByID(2176208561, req);
-}
-
-/**
- * SetApp se llama una vez, después de application.New y antes de Run: el
- * servicio se registra en las opciones de la app, así que la app no existe
- * todavía cuando se crea.
- */
-export function SetApp(app: application$0.App | null): $CancellablePromise<void> {
-    return $Call.ByID(2286066068, app);
 }
 
 export function SyncAccount(accountID: number): $CancellablePromise<void> {
