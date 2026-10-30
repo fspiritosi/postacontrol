@@ -1,0 +1,26 @@
+From: Ana <ana@ej.com>
+To: bob@ej.com
+Subject: Factura
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="MIX"
+
+--MIX
+Content-Type: multipart/alternative; boundary="ALT"
+
+--ALT
+Content-Type: text/plain; charset=utf-8
+
+Hola texto
+--ALT
+Content-Type: text/html; charset=utf-8
+
+<p>Hola html</p>
+--ALT--
+
+--MIX
+Content-Type: application/pdf; name="factura.pdf"
+Content-Disposition: attachment; filename="factura.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQK
+--MIX--

@@ -1,0 +1,18 @@
+From: Ana <ana@ej.com>
+To: bob@ej.com
+Subject: Logo
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="REL"
+
+--REL
+Content-Type: text/html; charset=utf-8
+
+<p><img src="cid:logo@x"></p>
+--REL
+Content-Type: image/png; name="logo.png"
+Content-ID: <logo@x>
+Content-Disposition: inline; filename="logo.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgo=
+--REL--
