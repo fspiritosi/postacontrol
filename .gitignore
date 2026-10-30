@@ -1,0 +1,7 @@
+.superpowers/
+node_modules/
+bin/
+build/bin/
+frontend/dist/
+*.db
+*.db-*
