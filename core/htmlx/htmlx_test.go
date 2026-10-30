@@ -114,3 +114,18 @@ func TestSanitize_RemoteCSSSetsFlag(t *testing.T) {
 	_, has := Sanitize(`<p style="background:url(data:image/png;base64,AAA)">x</p>`)
 	assert.False(t, has)
 }
+
+func TestTightParagraphs(t *testing.T) {
+	cases := map[string]string{
+		"<p>uno</p><p>dos</p>":                      `<p style="margin:0">uno</p><p style="margin:0">dos</p>`,
+		"<p>uno</p><p></p><p>dos</p>":               `<p style="margin:0">uno</p><p style="margin:0"><br/></p><p style="margin:0">dos</p>`,
+		"<p> </p>":                                  `<p style="margin:0"><br/></p>`,
+		"<p><br></p>":                               `<p style="margin:0"><br/></p>`,
+		`<p style="color:red">x</p>`:                `<p style="margin:0;color:red">x</p>`,
+		"<ul><li><p>a</p></li></ul><p><b>b</b></p>": `<ul><li><p style="margin:0">a</p></li></ul><p style="margin:0"><b>b</b></p>`,
+		"": "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, TightParagraphs(in), in)
+	}
+}

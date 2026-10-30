@@ -77,10 +77,12 @@ func subjectFor(mode model.ComposeMode, subject string) string {
 	return subject
 }
 
-// originalBodyHTML es el cuerpo del original listo para citar.
+// originalBodyHTML es el cuerpo del original listo para citar. Es el HTML
+// saneado, con las imágenes remotas bloqueadas (data-remote-src): así se
+// muestra en el redactor; Send las restaura recién en el correo que sale.
 func originalBodyHTML(d model.MessageDetail) string {
 	if d.HTML != "" {
-		return htmlx.RestoreRemoteImages(d.HTML)
+		return d.HTML
 	}
 	return "<pre>" + html.EscapeString(d.Text) + "</pre>"
 }
@@ -199,9 +201,11 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 		orig = &d
 	}
 
-	body := bodyWrapperOpen + req.BodyHTML + "</div>"
+	body := bodyWrapperOpen + htmlx.TightParagraphs(req.BodyHTML) + "</div>"
 	if orig != nil {
-		body += quotedHTML(req.Reply.Mode, *orig)
+		// En la vista previa la cita tiene las imágenes remotas bloqueadas; el
+		// destinatario las recibe como en el original.
+		body += htmlx.RestoreRemoteImages(quotedHTML(req.Reply.Mode, *orig))
 	}
 	out := mimex.Outgoing{
 		From:      model.Address{Name: acc.DisplayName, Email: acc.Email},

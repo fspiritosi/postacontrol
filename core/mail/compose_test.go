@@ -46,6 +46,25 @@ func parseEnvelope(t *testing.T, e testenv.Envelope) *gomail.Reader {
 	return r
 }
 
+// envelopePart devuelve, decodificada, la parte en línea ctype del correo.
+func envelopePart(t *testing.T, e testenv.Envelope, ctype string) string {
+	t.Helper()
+	r := parseEnvelope(t, e)
+	for {
+		p, err := r.NextPart()
+		if err != nil {
+			return ""
+		}
+		if ih, ok := p.Header.(*gomail.InlineHeader); ok {
+			if ct, _, _ := ih.ContentType(); ct == ctype {
+				b, err := io.ReadAll(p.Body)
+				require.NoError(t, err)
+				return string(b)
+			}
+		}
+	}
+}
+
 func sentMessages(t *testing.T, c *Core, accID int64) []model.MessageSummary {
 	t.Helper()
 	require.NoError(t, c.SyncFolder(context.Background(), folderID(t, c, accID, "Sent")))
@@ -98,12 +117,27 @@ func TestPrepareCompose_SubjectPrefixNotDoubled(t *testing.T) {
 	assert.Equal(t, "Fwd: RV: Hola", d.Subject)
 }
 
-func TestPrepareCompose_QuoteRestoresRemoteImages(t *testing.T) {
-	c, _, _, _, _, m := prepared(t, mailWith("img", "text/html; charset=utf-8",
+// La cita que ve el redactor mantiene bloqueadas las imágenes remotas; el
+// correo que sale las lleva restauradas, como en el original.
+func TestPrepareCompose_QuoteBlocksRemoteImagesUntilSent(t *testing.T) {
+	c, _, smtp, acc, _, m := prepared(t, mailWith("img", "text/html; charset=utf-8",
 		`<p>Hola</p><img src="https://x.com/a.png">`+"\r\n"))
 	d, err := c.PrepareCompose(context.Background(), m.ID, "reply")
 	require.NoError(t, err)
-	assert.Contains(t, d.QuotedHTML, `src="https://x.com/a.png"`)
+	assert.Contains(t, d.QuotedHTML, `data-remote-src="https://x.com/a.png"`)
+	assert.NotContains(t, d.QuotedHTML, ` src="https://x.com/a.png"`)
+
+	_, err = c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: d.To, Subject: d.Subject, BodyHTML: "<p>ok</p>",
+		Reply: &model.ReplyContext{Mode: "reply", OriginalMessageID: m.ID},
+	})
+	require.NoError(t, err)
+	envs := smtp.Received()
+	require.Len(t, envs, 1)
+	sentHTML := envelopePart(t, envs[0], "text/html")
+	assert.Contains(t, sentHTML, `<img src="https://x.com/a.png"`)
+	assert.NotContains(t, sentHTML, "data-remote-src")
+
 	assert.Contains(t, d.QuotedHTML, "escribió:")
 	assert.Contains(t, d.QuotedHTML, `<blockquote type="cite"`)
 	assert.Regexp(t, `El \d{1,2} de [a-z]+ de \d{4}, \d{2}:\d{2}, `, d.QuotedHTML)
@@ -166,6 +200,19 @@ func TestSend_SentCopySurvivesDeadPooledConnection(t *testing.T) {
 	assert.Empty(t, res.Warning)
 	sent := sentMessages(t, c, acc.ID)
 	assert.Equal(t, []string{"Tras corte"}, subjects(sent), "una sola copia en Enviados")
+}
+
+// Lo que sale se ve como en el redactor: un Enter es un renglón y un
+// párrafo vacío es una línea en blanco.
+func TestSend_BodyParagraphsAreTight(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	_, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "s", BodyHTML: "<p>uno</p><p></p><p>dos</p>",
+	})
+	require.NoError(t, err)
+	html := envelopePart(t, smtp.Received()[0], "text/html")
+	assert.Contains(t, html, `<p style="margin:0">uno</p><p style="margin:0"><br/></p><p style="margin:0">dos</p>`)
 }
 
 func TestSend_ReplySetsThreadingAndAnswered(t *testing.T) {
@@ -307,20 +354,7 @@ func TestSend_PlainTextAlternativeQuotesOriginal(t *testing.T) {
 		Reply: &model.ReplyContext{Mode: "reply", OriginalMessageID: m.ID},
 	})
 	require.NoError(t, err)
-	r := parseEnvelope(t, smtp.Received()[0])
-	var text string
-	for {
-		p, err := r.NextPart()
-		if err != nil {
-			break
-		}
-		if ih, ok := p.Header.(*gomail.InlineHeader); ok {
-			if ct, _, _ := ih.ContentType(); ct == "text/plain" {
-				b, _ := io.ReadAll(p.Body)
-				text = string(b)
-			}
-		}
-	}
+	text := envelopePart(t, smtp.Received()[0], "text/plain")
 	require.NotEmpty(t, text)
 	assert.Contains(t, text, "escribió:")
 	assert.Contains(t, text, "\n> cuerpo")

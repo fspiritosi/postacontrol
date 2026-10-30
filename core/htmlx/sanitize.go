@@ -183,3 +183,58 @@ func cssHasRemote(css string) bool {
 	}
 	return false
 }
+
+// TightParagraphs prepara el HTML del redactor para enviarlo: cada <p> lleva
+// margin:0 en línea (como componen Gmail y Outlook: un Enter es un renglón) y
+// los párrafos vacíos pasan a <p><br></p>, que si no colapsarían en el
+// cliente del destinatario.
+func TightParagraphs(fragment string) string {
+	nodes, err := parseFragment(fragment)
+	if err != nil {
+		return fragment
+	}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.DataAtom == atom.P {
+			setMarginZero(n)
+			if isBlankParagraph(n) {
+				for c := n.FirstChild; c != nil; {
+					next := c.NextSibling
+					n.RemoveChild(c)
+					c = next
+				}
+				n.AppendChild(&html.Node{Type: html.ElementNode, Data: "br", DataAtom: atom.Br})
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	for _, n := range nodes {
+		walk(n)
+	}
+	return render(nodes)
+}
+
+func setMarginZero(n *html.Node) {
+	for i, a := range n.Attr {
+		if a.Key == "style" {
+			n.Attr[i].Val = "margin:0;" + a.Val
+			return
+		}
+	}
+	n.Attr = append(n.Attr, html.Attribute{Key: "style", Val: "margin:0"})
+}
+
+// isBlankParagraph: sin hijos, solo espacios o solo un <br>.
+func isBlankParagraph(n *html.Node) bool {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		switch {
+		case c.Type == html.TextNode && strings.TrimSpace(c.Data) == "":
+		case c.Type == html.ElementNode && c.DataAtom == atom.Br:
+		default:
+			return false
+		}
+	}
+	return true
+}
