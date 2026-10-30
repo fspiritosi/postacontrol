@@ -1,8 +1,10 @@
 package htmlx
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -128,4 +130,36 @@ func TestTightParagraphs(t *testing.T) {
 	for in, want := range cases {
 		assert.Equal(t, want, TightParagraphs(in), in)
 	}
+}
+
+func manyParagraphs(n int) string {
+	var sb strings.Builder
+	for i := range n {
+		fmt.Fprintf(&sb, "<p>párrafo número %d con algo de texto</p>", i)
+	}
+	return sb.String()
+}
+
+// ToText es lineal: no copia el texto acumulado en cada cambio de bloque.
+func TestToText_LinearOnManyParagraphs(t *testing.T) {
+	// 20000 párrafos: la versión cuadrática tardaba ~1,4 s; con -race la
+	// lineal anda por 0,2 s (casi todo es el parseo del HTML).
+	for n, budget := range map[int]time.Duration{5000: 200 * time.Millisecond, 20000: 800 * time.Millisecond} {
+		in := manyParagraphs(n)
+		start := time.Now()
+		out := ToText(in)
+		assert.Less(t, time.Since(start), budget, "%d párrafos", n)
+		assert.Equal(t, 2*(n-1), strings.Count(out, "\n"))
+	}
+}
+
+// Comportamiento actual de los marcadores de lista (se fija para el cambio a
+// escritura lineal).
+func TestToText_ListMarkers(t *testing.T) {
+	assert.Equal(t, "- uno\n-\n- dos", ToText(`<ul><li>uno</li><li></li><li>dos</li></ul>`))
+	assert.Equal(t, "- a\n\n- b", ToText(`<ul><li>a<ul><li>b</li></ul></li></ul>`))
+	assert.Equal(t, "-  x", ToText(`<ul><li> x</li></ul>`))
+	assert.Equal(t, "-\n\nl1\n  l2", ToText("<ul><li><pre>l1\n  l2</pre></li></ul>"))
+	assert.Equal(t, "- a b", ToText(`<ul><li><b>a</b> <i>b</i></li></ul>`))
+	assert.Equal(t, "> - x\n>\n> y", ToText(`<blockquote><ul><li>x</li></ul><p>y</p></blockquote>`))
 }

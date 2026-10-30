@@ -34,10 +34,15 @@ func Snippet(text string, n int) string {
 	return strings.TrimRight(cut, " ") + "…"
 }
 
+// textWriter solo agrega al final de sb, así que ToText es lineal. El único
+// espacio que podría quedar al final de una línea es el que sigue a un
+// marcador de lista ("- "): se debe (owedSpace) y se escribe recién con el
+// próximo texto, o se descarta si antes viene un salto de línea.
 type textWriter struct {
-	sb      strings.Builder
-	pending int  // saltos de línea pendientes antes del próximo texto (0, 1 o 2)
-	space   bool // hubo un espacio entre inlines que todavía no se escribió
+	sb        strings.Builder
+	pending   int  // saltos de línea pendientes antes del próximo texto (0, 1 o 2)
+	space     bool // hubo un espacio entre inlines que todavía no se escribió
+	owedSpace bool // falta escribir el espacio que sigue a un marcador de lista
 }
 
 func (w *textWriter) String() string { return strings.TrimSpace(w.sb.String()) }
@@ -48,6 +53,25 @@ func (w *textWriter) need(n int) {
 	}
 }
 
+func (w *textWriter) empty() bool { return w.sb.Len() == 0 && !w.owedSpace }
+
+// breakOrJoin escribe los saltos pendientes (descartando el espacio debido,
+// que quedaría al final de la línea) o, si no hay, el espacio debido.
+func (w *textWriter) breakOrJoin() {
+	if w.pending > 0 {
+		w.owedSpace = false
+		for range w.pending {
+			w.sb.WriteByte('\n')
+		}
+		w.pending = 0
+		return
+	}
+	if w.owedSpace {
+		w.sb.WriteByte(' ')
+		w.owedSpace = false
+	}
+}
+
 // text escribe s (con espacios ya normalizados; puede empezar o terminar en un espacio).
 func (w *textWriter) text(s string) {
 	core := strings.TrimSpace(s)
@@ -55,17 +79,12 @@ func (w *textWriter) text(s string) {
 		w.space = w.space || s != ""
 		return
 	}
-	if w.sb.Len() == 0 {
+	if w.empty() {
 		w.pending = 0
 	}
-	switch {
-	case w.pending > 0:
-		cur := strings.TrimRight(w.sb.String(), " ")
-		w.sb.Reset()
-		w.sb.WriteString(cur)
-		w.sb.WriteString(strings.Repeat("\n", w.pending))
-		w.pending = 0
-	case (w.space || strings.HasPrefix(s, " ")) && w.sb.Len() > 0 && !strings.HasSuffix(w.sb.String(), "\n"):
+	hadBreak := w.pending > 0
+	w.breakOrJoin()
+	if !hadBreak && (w.space || strings.HasPrefix(s, " ")) && w.sb.Len() > 0 && !strings.HasSuffix(w.sb.String(), "\n") {
 		w.sb.WriteByte(' ')
 	}
 	w.sb.WriteString(core)
@@ -75,7 +94,7 @@ func (w *textWriter) text(s string) {
 // prefix escribe un marcador de línea (como "- ") sin espacio extra después.
 func (w *textWriter) prefix(s string) {
 	w.text(strings.TrimRight(s, " "))
-	w.sb.WriteByte(' ')
+	w.owedSpace = true
 	w.space = false
 }
 
@@ -86,16 +105,10 @@ func (w *textWriter) raw(s string) {
 		return
 	}
 	s = strings.ReplaceAll(s, "\r\n", "\n")
-	if w.sb.Len() == 0 {
+	if w.empty() {
 		w.pending = 0
 	}
-	if w.pending > 0 {
-		cur := strings.TrimRight(w.sb.String(), " ")
-		w.sb.Reset()
-		w.sb.WriteString(cur)
-		w.sb.WriteString(strings.Repeat("\n", w.pending))
-		w.pending = 0
-	}
+	w.breakOrJoin()
 	w.sb.WriteString(s)
 	w.space = false
 }
