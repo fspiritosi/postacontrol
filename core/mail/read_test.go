@@ -215,5 +215,48 @@ func TestSaveAttachment_BadIndex(t *testing.T) {
 		var ue *UserError
 		require.ErrorAs(t, err, &ue)
 		assert.Equal(t, "not_found", ue.Code)
+		assert.Equal(t, msgNotFound, ue.Msg)
 	}
+}
+
+func TestGetMessage_CacheErrorAfterServerSeenIsReturned(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	imap.Deliver(t, "INBOX", mailWith("txt", "text/plain; charset=utf-8", "hola\r\n"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := firstMessage(t, c, inboxID)
+	c.afterServerSeen = func() { _ = c.store.Close() }
+
+	_, err := c.GetMessage(context.Background(), m.ID)
+	require.Error(t, err)
+	// El STORE llegó al servidor aunque la caché falló.
+	assert.Contains(t, serverFlags(t, c, imap, m.UID), goimap.FlagSeen)
+	assert.Empty(t, n.matching(EventSyncError))
+}
+
+func TestGetMessage_ExpungedOnServerIsNotFound(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", mailWith("txt", "text/plain; charset=utf-8", "hola\r\n"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := firstMessage(t, c, inboxID)
+	imap.Expunge(t, "INBOX", m.UID)
+
+	_, err := c.GetMessage(context.Background(), m.ID)
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "not_found", ue.Code)
+	assert.Equal(t, msgNotFound, ue.Msg)
+}
+
+func TestGetMessage_UIDValidityChangedIsStale(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", mailWith("txt", "text/plain; charset=utf-8", "hola\r\n"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := firstMessage(t, c, inboxID)
+	imap.RecreateMailbox(t, "INBOX")
+	imap.Deliver(t, "INBOX", mailWith("otro", "text/plain; charset=utf-8", "otro\r\n"))
+
+	_, err := c.GetMessage(context.Background(), m.ID)
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "stale", ue.Code)
 }

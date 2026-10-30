@@ -3,8 +3,10 @@ package mail
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	goimap "github.com/emersion/go-imap/v2"
@@ -52,13 +54,24 @@ func (c *Core) GetMessage(ctx context.Context, messageID int64) (model.MessageDe
 			if cerr := c.ctxErr(ctx); cerr != nil {
 				return model.MessageDetail{}, cerr
 			}
-			// Sin red (o servidor caído) el mensaje se lee igual; la próxima
-			// sincronización reconcilia los flags.
+			if !isConnError(err) {
+				// Error de caché o del mensaje: no se silencia, la caché
+				// quedaría divergente del servidor.
+				return model.MessageDetail{}, asUserError(err)
+			}
+			// Sin red (o servidor caído) el mensaje se lee igual; withConn ya
+			// emitió EventSyncError y la próxima sincronización reconcilia.
 		} else {
 			d.Seen = true
 		}
 	}
 	return normalizeDetail(d), nil
+}
+
+// isConnError dice si err es de los que withConn ya informa por EventSyncError.
+func isConnError(err error) bool {
+	var ue *UserError
+	return errors.As(err, &ue) && (ue.Code == "network" || ue.Code == "auth" || ue.Code == "tls")
 }
 
 func normalizeDetail(d model.MessageDetail) model.MessageDetail {
@@ -96,7 +109,7 @@ func selectChecked(conn *imapx.Conn, f model.Folder, last store.FolderSync, rw b
 		return err
 	}
 	if last.UIDValidity != 0 && info.UIDValidity != last.UIDValidity {
-		return &UserError{Code: "not_found", Msg: "El mensaje cambió en el servidor. Actualizá la carpeta y volvé a intentar."}
+		return &UserError{Code: "stale", Msg: "El mensaje cambió en el servidor. Actualizá la carpeta."}
 	}
 	return nil
 }
@@ -196,6 +209,9 @@ func (c *Core) markSeen(ctx context.Context, d model.MessageDetail) error {
 	if err != nil {
 		return err
 	}
+	if c.afterServerSeen != nil {
+		c.afterServerSeen()
+	}
 	if err := c.store.SetFlags(ctx, d.FolderID, d.UID, true, d.Flagged, d.Answered); err != nil {
 		return err
 	}
@@ -216,10 +232,34 @@ func (c *Core) SaveAttachment(ctx context.Context, messageID int64, index int, d
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(destPath, data, 0o644); err != nil {
+	if err := writeFileAtomic(destPath, data, 0o644); err != nil {
 		return &UserError{Code: "io", Msg: "No pudimos guardar el archivo en esa ubicación.", Err: err}
 	}
 	return nil
+}
+
+// writeFileAtomic escribe en un temporal del mismo directorio y lo renombra,
+// así un corte a mitad de camino no deja destPath a medio escribir.
+func writeFileAtomic(destPath string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(destPath), ".postacontrol-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Chmod(perm)
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(name, destPath)
+	}
+	if err != nil {
+		_ = os.Remove(name)
+	}
+	return err
 }
 
 // attachmentBytes baja y decodifica un adjunto. Lo usa SaveAttachment y el
@@ -230,7 +270,7 @@ func (c *Core) attachmentBytes(ctx context.Context, messageID int64, index int) 
 		return model.Attachment{}, nil, err
 	}
 	if index < 0 || index >= len(d.Attachments) {
-		return model.Attachment{}, nil, &UserError{Code: "not_found", Msg: "No encontramos ese adjunto en el mensaje."}
+		return model.Attachment{}, nil, &UserError{Code: "not_found", Msg: msgNotFound}
 	}
 	att := d.Attachments[index]
 	f, last, err := c.store.GetFolder(ctx, d.FolderID)

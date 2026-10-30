@@ -49,6 +49,10 @@ type Core struct {
 	closeOnce sync.Once
 	closeErr  error
 
+	// afterServerSeen es un gancho solo para tests: corre después de que el
+	// servidor aceptó \Seen y antes de actualizar la caché.
+	afterServerSeen func()
+
 	poolMu sync.Mutex
 	pool   map[int64]*pooledConn // una conexión IMAP por cuenta
 }

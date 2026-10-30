@@ -13,6 +13,9 @@ import (
 	"github.com/emersion/go-imap/v2"
 )
 
+// ErrNoMessage: el UID ya no existe en la carpeta del servidor.
+var ErrNoMessage = errors.New("imapx: mensaje inexistente")
+
 type RemoteHeader struct {
 	UID            uint32
 	Flags          []imap.Flag
@@ -134,7 +137,7 @@ func (c *Conn) FetchStructure(uid uint32) (imap.BodyStructure, error) {
 		return nil, opErr("UID FETCH bodystructure", err)
 	}
 	if len(msgs) == 0 || msgs[0].BodyStructure == nil {
-		return nil, fmt.Errorf("imapx: UID %d: sin estructura", uid)
+		return nil, fmt.Errorf("%w: UID %d", ErrNoMessage, uid)
 	}
 	return msgs[0].BodyStructure, nil
 }
@@ -156,7 +159,7 @@ func (c *Conn) FetchPart(uid uint32, part []int) (mimeHeader []byte, body []byte
 		return nil, nil, opErr(fmt.Sprintf("UID FETCH parte %v", part), err)
 	}
 	if len(msgs) == 0 {
-		return nil, nil, fmt.Errorf("imapx: UID %d: mensaje inexistente", uid)
+		return nil, nil, fmt.Errorf("%w: UID %d", ErrNoMessage, uid)
 	}
 	var gotB bool
 	for _, s := range msgs[0].BodySection {

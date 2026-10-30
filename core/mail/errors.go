@@ -21,6 +21,8 @@ type UserError struct {
 func (e *UserError) Error() string { return e.Msg }
 func (e *UserError) Unwrap() error { return e.Err }
 
+const msgNotFound = "No encontramos lo que buscabas."
+
 const smtpxRejectedPrefix = "smtpx: envío rechazado: "
 
 // asUserError traduce los errores de imapx, smtpx y store a *UserError. Los
@@ -44,8 +46,8 @@ func asUserError(err error) error {
 	case errors.Is(err, smtpx.ErrRejected):
 		detail := strings.TrimPrefix(err.Error(), smtpxRejectedPrefix)
 		return &UserError{Code: "rejected", Msg: fmt.Sprintf("El servidor rechazó el envío: %s", detail), Err: err}
-	case errors.Is(err, store.ErrNotFound):
-		return &UserError{Code: "not_found", Msg: "No encontramos lo que buscabas.", Err: err}
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, imapx.ErrNoMessage):
+		return &UserError{Code: "not_found", Msg: msgNotFound, Err: err}
 	}
 	return err
 }
