@@ -2,8 +2,8 @@ package main
 
 import (
 	"embed"
-
 	"log"
+	"log/slog"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -30,6 +30,9 @@ func main() {
 	wailsApp := application.New(application.Options{
 		Name:        "PostaControl",
 		Description: "Cliente de correo personal",
+		// Explícito: en Debug, Wails registra los argumentos de cada llamada
+		// enlazada, y AddAccount/TestAccount llevan la contraseña.
+		LogLevel: slog.LevelInfo,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
