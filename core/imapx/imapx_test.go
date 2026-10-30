@@ -1,12 +1,16 @@
 package imapx_test
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -352,4 +356,103 @@ func TestDial_StalledServerHonorsContext(t *testing.T) {
 		assert.True(t, errors.Is(err, imapx.ErrNetwork), "%s: got %v", sec, err)
 		assert.Less(t, time.Since(start), time.Second, sec)
 	}
+}
+
+func TestOps_ConnectionDropIsNetworkError(t *testing.T) {
+	s, tlsc := setup(t)
+	s.Deliver(t, "INBOX", plainMsg("uno", ""))
+	c := dial(t, s, tlsc)
+	_, err := c.Select("INBOX")
+	require.NoError(t, err)
+	s.Close()
+
+	_, err = c.AllUIDs()
+	assert.ErrorIs(t, err, imapx.ErrNetwork)
+	_, err = c.FetchHeaders([]uint32{1})
+	assert.ErrorIs(t, err, imapx.ErrNetwork)
+	_, err = c.FetchFlags([]uint32{1})
+	assert.ErrorIs(t, err, imapx.ErrNetwork)
+	_, err = c.Select("INBOX")
+	assert.ErrorIs(t, err, imapx.ErrNetwork)
+	_, err = c.ListFolders()
+	assert.ErrorIs(t, err, imapx.ErrNetwork)
+}
+
+func TestOps_ServerRefusalIsNotNetworkError(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	_, err := c.Select("NoExiste")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, imapx.ErrNetwork)
+}
+
+func TestAbort_ClosesWithoutLogout(t *testing.T) {
+	s, tlsc := setup(t)
+	c, err := imapx.Dial(context.Background(), s.Settings, user, pass, tlsc.Client)
+	require.NoError(t, err)
+	require.NoError(t, c.Abort())
+	_, err = c.Select("INBOX")
+	assert.ErrorIs(t, err, imapx.ErrNetwork)
+}
+
+// scriptedIMAP es un servidor mínimo que contesta a cualquier UID FETCH con
+// fetchResp. Sirve para probar respuestas que el servidor en memoria no
+// genera (por ejemplo, un ENVELOPE con palabras codificadas sin decodificar,
+// que es lo que mandan Dovecot y compañía).
+func scriptedIMAP(t *testing.T, tlsc testenv.TLS, fetchResp string) model.ServerSettings {
+	t.Helper()
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsc.Server)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				_, _ = io.WriteString(conn, "* OK [CAPABILITY IMAP4rev1] listo\r\n")
+				sc := bufio.NewScanner(conn)
+				for sc.Scan() {
+					tag, cmd, _ := strings.Cut(sc.Text(), " ")
+					cmd = strings.ToUpper(cmd)
+					switch {
+					case strings.HasPrefix(cmd, "CAPABILITY"):
+						_, _ = io.WriteString(conn, "* CAPABILITY IMAP4rev1\r\n")
+					case strings.HasPrefix(cmd, "UID FETCH"):
+						_, _ = io.WriteString(conn, fetchResp)
+					case strings.HasPrefix(cmd, "LOGOUT"):
+						_, _ = io.WriteString(conn, "* BYE chau\r\n"+tag+" OK listo\r\n")
+						return
+					}
+					_, _ = io.WriteString(conn, tag+" OK listo\r\n")
+				}
+			}()
+		}
+	}()
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	return model.ServerSettings{Host: host, Port: port, Security: model.SecurityTLS}
+}
+
+func TestFetchHeaders_DecodesLegacyCharsetsInEnvelope(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	resp := `* 1 FETCH (UID 7 FLAGS (\Seen) INTERNALDATE "02-Jan-2006 15:04:05 +0000" RFC822.SIZE 120 ` +
+		`ENVELOPE ("Mon, 02 Jan 2006 15:04:05 +0000" "=?windows-1252?Q?Informaci=F3n?=" ` +
+		`(("=?windows-1252?Q?Pe=F1a?=" NIL "p" "x.com")) NIL NIL NIL NIL NIL NIL "<m@x.com>") ` +
+		`BODYSTRUCTURE ("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 5 1 NIL NIL NIL NIL) ` +
+		"BODY[HEADER.FIELDS (REFERENCES)] {2}\r\n\r\n)\r\n"
+	srv := scriptedIMAP(t, tlsc, resp)
+	c, err := imapx.Dial(context.Background(), srv, user, pass, tlsc.Client)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	hs, err := c.FetchHeaders([]uint32{7})
+	require.NoError(t, err)
+	require.Len(t, hs, 1)
+	require.NotNil(t, hs[0].Envelope)
+	assert.Equal(t, "Información", hs[0].Envelope.Subject)
+	require.Len(t, hs[0].Envelope.From, 1)
+	assert.Equal(t, "Peña", hs[0].Envelope.From[0].Name)
 }

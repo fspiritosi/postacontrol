@@ -27,7 +27,7 @@ func (c *Conn) ListFolders() ([]RemoteFolder, error) {
 	}
 	items, err := c.c.List("", "*", opts).Collect()
 	if err != nil {
-		return nil, fmt.Errorf("imapx: LIST: %w", err)
+		return nil, opErr("LIST", err)
 	}
 	out := make([]RemoteFolder, 0, len(items))
 	for _, it := range items {
@@ -47,7 +47,7 @@ func (c *Conn) ListFolders() ([]RemoteFolder, error) {
 		if f.Selectable {
 			st, err := c.c.Status(it.Mailbox, &imap.StatusOptions{NumMessages: true, NumUnseen: true}).Wait()
 			if err != nil {
-				return nil, fmt.Errorf("imapx: STATUS %q: %w", it.Mailbox, err)
+				return nil, opErr(fmt.Sprintf("STATUS %q", it.Mailbox), err)
 			}
 			if st.NumMessages != nil {
 				f.Total = int(*st.NumMessages)
@@ -76,7 +76,7 @@ func (c *Conn) selectMailbox(name string, readOnly bool) (SelectInfo, error) {
 	d, err := c.c.Select(name, &imap.SelectOptions{ReadOnly: readOnly}).Wait()
 	if err != nil {
 		c.rw = false
-		return SelectInfo{}, fmt.Errorf("imapx: select %q: %w", name, err)
+		return SelectInfo{}, opErr(fmt.Sprintf("select %q", name), err)
 	}
 	c.rw = !readOnly
 	return SelectInfo{UIDValidity: d.UIDValidity, UIDNext: uint32(d.UIDNext), NumMessages: d.NumMessages}, nil

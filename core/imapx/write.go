@@ -17,7 +17,7 @@ func (c *Conn) AddFlags(uid uint32, flags ...imap.Flag) error {
 	}
 	err := c.c.Store(toUIDs([]uint32{uid}), &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: flags}, nil).Close()
 	if err != nil {
-		return fmt.Errorf("imapx: UID STORE: %w", err)
+		return opErr("UID STORE", err)
 	}
 	return nil
 }
@@ -27,13 +27,13 @@ func (c *Conn) Append(mailbox string, raw []byte, flags ...imap.Flag) error {
 	cmd := c.c.Append(mailbox, int64(len(raw)), &imap.AppendOptions{Flags: flags})
 	if _, err := cmd.Write(raw); err != nil {
 		_ = cmd.Close()
-		return fmt.Errorf("imapx: APPEND %q: %w", mailbox, err)
+		return opErr(fmt.Sprintf("APPEND %q", mailbox), err)
 	}
 	if err := cmd.Close(); err != nil {
-		return fmt.Errorf("imapx: APPEND %q: %w", mailbox, err)
+		return opErr(fmt.Sprintf("APPEND %q", mailbox), err)
 	}
 	if _, err := cmd.Wait(); err != nil {
-		return fmt.Errorf("imapx: APPEND %q: %w", mailbox, err)
+		return opErr(fmt.Sprintf("APPEND %q", mailbox), err)
 	}
 	return nil
 }

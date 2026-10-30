@@ -28,7 +28,7 @@ type RemoteHeader struct {
 func (c *Conn) AllUIDs() ([]uint32, error) {
 	data, err := c.c.UIDSearch(&imap.SearchCriteria{}, nil).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("imapx: UID SEARCH: %w", err)
+		return nil, opErr("UID SEARCH", err)
 	}
 	uids := data.AllUIDs()
 	out := make([]uint32, len(uids))
@@ -57,7 +57,7 @@ func (c *Conn) FetchHeaders(uids []uint32) ([]RemoteHeader, error) {
 		BodySection:   []*imap.FetchItemBodySection{refs},
 	}).Collect()
 	if err != nil {
-		return nil, fmt.Errorf("imapx: UID FETCH headers: %w", err)
+		return nil, opErr("UID FETCH headers", err)
 	}
 	out := make([]RemoteHeader, 0, len(msgs))
 	for _, m := range msgs {
@@ -117,7 +117,7 @@ func (c *Conn) FetchFlags(uids []uint32) (map[uint32][]imap.Flag, error) {
 	}
 	msgs, err := c.c.Fetch(toUIDs(uids), &imap.FetchOptions{UID: true, Flags: true}).Collect()
 	if err != nil {
-		return nil, fmt.Errorf("imapx: UID FETCH flags: %w", err)
+		return nil, opErr("UID FETCH flags", err)
 	}
 	for _, m := range msgs {
 		out[uint32(m.UID)] = m.Flags
@@ -131,7 +131,7 @@ func (c *Conn) FetchStructure(uid uint32) (imap.BodyStructure, error) {
 		UID: true, BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
 	}).Collect()
 	if err != nil {
-		return nil, fmt.Errorf("imapx: UID FETCH bodystructure: %w", err)
+		return nil, opErr("UID FETCH bodystructure", err)
 	}
 	if len(msgs) == 0 || msgs[0].BodyStructure == nil {
 		return nil, fmt.Errorf("imapx: UID %d: sin estructura", uid)
@@ -153,7 +153,7 @@ func (c *Conn) FetchPart(uid uint32, part []int) (mimeHeader []byte, body []byte
 		UID: true, BodySection: []*imap.FetchItemBodySection{hs, bs},
 	}).Collect()
 	if err != nil {
-		return nil, nil, fmt.Errorf("imapx: UID FETCH parte %v: %w", part, err)
+		return nil, nil, opErr(fmt.Sprintf("UID FETCH parte %v", part), err)
 	}
 	if len(msgs) == 0 {
 		return nil, nil, fmt.Errorf("imapx: UID %d: mensaje inexistente", uid)

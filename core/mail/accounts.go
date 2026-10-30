@@ -86,7 +86,7 @@ func (c *Core) AddAccount(ctx context.Context, in model.AccountInput) (model.Acc
 	}
 	c.emit(EventAccountsChanged, nil)
 	if !c.cfg.SkipInitialSync {
-		go func() { _ = c.SyncAccount(context.Background(), id) }()
+		c.spawn(func(ctx context.Context) { _ = c.SyncAccount(ctx, id) })
 	}
 	return acc, nil
 }
@@ -107,6 +107,7 @@ func (c *Core) RemoveAccount(ctx context.Context, id int64) error {
 	if err := c.store.DeleteAccount(ctx, id); err != nil {
 		return asUserError(err)
 	}
+	c.dropConn(id)
 	c.emit(EventAccountsChanged, nil)
 	return nil
 }

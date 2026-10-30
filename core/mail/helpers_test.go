@@ -24,12 +24,45 @@ type recEvent struct {
 type recNotifier struct {
 	mu     sync.Mutex
 	events []recEvent
+	// hook, si no es nil, se llama después de registrar cada evento, en la
+	// goroutine que emite y fuera del lock.
+	hook func(event string, data any)
 }
 
 func (r *recNotifier) Emit(event string, data any) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.events = append(r.events, recEvent{event, data})
+	hook := r.hook
+	r.mu.Unlock()
+	if hook != nil {
+		hook(event, data)
+	}
+}
+
+func (r *recNotifier) setHook(h func(event string, data any)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hook = h
+}
+
+// matching devuelve los datos de los eventos con ese nombre, en orden.
+func (r *recNotifier) matching(name string) []map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := []map[string]any{}
+	for _, e := range r.events {
+		if e.Name == name {
+			m, _ := e.Data.(map[string]any)
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func (r *recNotifier) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.events)
 }
 
 func (r *recNotifier) names() []string {

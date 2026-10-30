@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -19,7 +21,15 @@ type IMAP struct {
 	Addr     string
 	Settings model.ServerSettings
 	User     *imapmemserver.User
-	Close    func()
+	// Close baja el servidor y corta las conexiones abiertas. Restart lo
+	// vuelve a levantar en la misma dirección.
+	Close func()
+
+	mem       *imapmemserver.Server
+	tlsServer *tls.Config
+
+	mu  sync.Mutex
+	srv *imapserver.Server
 }
 
 // StartIMAP levanta el servidor con INBOX y "Sent" vacíos. Se cierra solo al
@@ -35,41 +45,121 @@ func StartIMAP(t testing.TB, tlsc TLS, username, password string) *IMAP {
 	}
 	mem.AddUser(user)
 
+	s := &IMAP{User: user, mem: mem, tlsServer: tlsc.Server}
+	s.Close = s.stop
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsc.Server)
+	if err != nil {
+		t.Fatalf("testenv: escuchar IMAP: %v", err)
+	}
+	s.serve(ln)
+
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	s.Addr = ln.Addr().String()
+	s.Settings = model.ServerSettings{Host: host, Port: port, Security: model.SecurityTLS}
+	t.Cleanup(s.Close)
+	return s
+}
+
+func (s *IMAP) serve(ln net.Listener) {
 	srv := imapserver.New(&imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-			return mem.NewSession(), nil, nil
+			return s.mem.NewSession(), nil, nil
 		},
 		Caps: imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIMAP4rev2: {}},
 		// El servidor no sabe que el listener ya es TLS, así que sin esto
 		// rechazaría LOGIN. El cliente igual verifica el certificado.
 		InsecureAuth: true,
 	})
-	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsc.Server)
-	if err != nil {
-		t.Fatalf("testenv: escuchar IMAP: %v", err)
-	}
+	s.mu.Lock()
+	s.srv = srv
+	s.mu.Unlock()
 	go func() { _ = srv.Serve(ln); _ = ln.Close() }()
+}
 
-	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	port, _ := strconv.Atoi(portStr)
-	s := &IMAP{
-		Addr:     ln.Addr().String(),
-		Settings: model.ServerSettings{Host: host, Port: port, Security: model.SecurityTLS},
-		User:     user,
-		Close:    func() { _ = srv.Close(); _ = ln.Close() },
+func (s *IMAP) stop() {
+	s.mu.Lock()
+	srv := s.srv
+	s.srv = nil
+	s.mu.Unlock()
+	if srv != nil {
+		_ = srv.Close()
 	}
-	t.Cleanup(s.Close)
-	return s
+}
+
+// Restart vuelve a levantar el servidor en la misma dirección, con los mismos
+// buzones y mensajes. Si estaba levantado, primero lo baja.
+func (s *IMAP) Restart(t testing.TB) {
+	t.Helper()
+	s.stop()
+	var (
+		ln  net.Listener
+		err error
+	)
+	// El puerto recién liberado puede tardar un instante en volver a estar libre.
+	for range 50 {
+		if ln, err = tls.Listen("tcp", s.Addr, s.tlsServer); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("testenv: volver a escuchar IMAP en %s: %v", s.Addr, err)
+	}
+	s.serve(ln)
 }
 
 // Deliver agrega un mensaje crudo (RFC 5322, con CRLF) a un buzón, sin pasar
 // por el protocolo.
 func (s *IMAP) Deliver(t testing.TB, mailbox string, raw []byte, flags ...imap.Flag) {
 	t.Helper()
+	s.DeliverAt(t, mailbox, raw, time.Time{}, flags...)
+}
+
+// DeliverAt es como Deliver pero fija el INTERNALDATE (cero = ahora).
+func (s *IMAP) DeliverAt(t testing.TB, mailbox string, raw []byte, when time.Time, flags ...imap.Flag) {
+	t.Helper()
 	lit := &literal{Reader: bytes.NewReader(raw), size: int64(len(raw))}
-	if _, err := s.User.Append(mailbox, lit, &imap.AppendOptions{Flags: flags}); err != nil {
+	if _, err := s.User.Append(mailbox, lit, &imap.AppendOptions{Flags: flags, Time: when}); err != nil {
 		t.Fatalf("testenv: entregar a %s: %v", mailbox, err)
 	}
+}
+
+// Expunge borra un mensaje del buzón como lo haría otro cliente (marca
+// \Deleted y hace EXPUNGE), sin pasar por el protocolo.
+func (s *IMAP) Expunge(t testing.TB, mailbox string, uid uint32) {
+	t.Helper()
+	sess := imapmemserver.NewUserSession(s.User)
+	defer func() { _ = sess.Close() }()
+	if _, err := sess.Select(mailbox, nil); err != nil {
+		t.Fatalf("testenv: seleccionar %s: %v", mailbox, err)
+	}
+	set := imap.UIDSetNum(imap.UID(uid))
+	del := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
+	if err := sess.Store(nil, set, del, nil); err != nil {
+		t.Fatalf("testenv: marcar UID %d como borrado: %v", uid, err)
+	}
+	if err := sess.Expunge(nil, &set); err != nil {
+		t.Fatalf("testenv: expunge en %s: %v", mailbox, err)
+	}
+}
+
+// RecreateMailbox borra el buzón y lo vuelve a crear vacío. El servidor en
+// memoria no deja elegir el UIDVALIDITY, pero al recrear un buzón siempre le
+// asigna uno nuevo (RFC 9051): devuelve ese valor.
+func (s *IMAP) RecreateMailbox(t testing.TB, name string) uint32 {
+	t.Helper()
+	if err := s.User.Delete(name); err != nil {
+		t.Fatalf("testenv: borrar %s: %v", name, err)
+	}
+	if err := s.User.Create(name, nil); err != nil {
+		t.Fatalf("testenv: crear %s: %v", name, err)
+	}
+	st, err := s.User.Status(name, &imap.StatusOptions{UIDValidity: true})
+	if err != nil {
+		t.Fatalf("testenv: status %s: %v", name, err)
+	}
+	return st.UIDValidity
 }
 
 type literal struct {

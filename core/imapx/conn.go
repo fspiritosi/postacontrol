@@ -7,12 +7,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"strconv"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+	"github.com/emersion/go-message/charset"
 
 	"postacontrol/core/internal/neterr"
 	"postacontrol/core/model"
@@ -43,7 +45,13 @@ func Dial(ctx context.Context, s model.ServerSettings, username, password string
 		return nil, fmt.Errorf("%w: %w", ErrNetwork, err)
 	}
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
-	opts := &imapclient.Options{TLSConfig: cloneTLS(tlsCfg), Dialer: &net.Dialer{Timeout: dialTimeout}}
+	opts := &imapclient.Options{
+		TLSConfig: cloneTLS(tlsCfg),
+		Dialer:    &net.Dialer{Timeout: dialTimeout},
+		// Subject y nombres del ENVELOPE llegan como palabras RFC 2047; sin
+		// esto, los charsets legacy (windows-1252, etc.) quedan sin decodificar.
+		WordDecoder: &mime.WordDecoder{CharsetReader: charset.Reader},
+	}
 
 	type result struct {
 		c   *imapclient.Client
@@ -118,6 +126,17 @@ func (c *Conn) Close() error {
 	return c.c.Close()
 }
 
+// opErr envuelve el error de un comando. Las respuestas NO/BAD del servidor
+// (*imap.Error) quedan tal cual; cualquier otro error (conexión cortada,
+// timeout, respuesta ilegible) deja la sesión inservible y envuelve ErrNetwork.
+func opErr(op string, err error) error {
+	var ierr *imap.Error
+	if errors.As(err, &ierr) {
+		return fmt.Errorf("imapx: %s: %w", op, err)
+	}
+	return fmt.Errorf("imapx: %s: %w: %w", op, ErrNetwork, err)
+}
+
 func toUIDs(uids []uint32) imap.UIDSet {
 	set := make(imap.UIDSet, 0, len(uids))
 	for _, u := range uids {
@@ -125,3 +144,7 @@ func toUIDs(uids []uint32) imap.UIDSet {
 	}
 	return set
 }
+
+// Abort cierra la conexión de inmediato, sin LOGOUT. Destraba los comandos en
+// curso, que terminan con ErrNetwork.
+func (c *Conn) Abort() error { return c.c.Close() }
