@@ -2,10 +2,14 @@ package smtpx_test
 
 import (
 	"context"
+	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/emersion/go-sasl"
+	"github.com/emersion/go-smtp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -98,4 +102,79 @@ func TestCheck_SilentServerHonorsContext(t *testing.T) {
 		assert.ErrorIs(t, err, smtpx.ErrNetwork, string(sec))
 		assert.Less(t, time.Since(start), 3*time.Second, string(sec))
 	}
+}
+
+// startSTARTTLS levanta un servidor SMTP en claro que ofrece STARTTLS solo si
+// withTLS es true.
+func startSTARTTLS(t *testing.T, tlsc testenv.TLS, withTLS bool) (*stBackend, model.ServerSettings) {
+	t.Helper()
+	b := &stBackend{}
+	srv := smtp.NewServer(b)
+	srv.Domain = "localhost"
+	if withTLS {
+		srv.TLSConfig = tlsc.Server
+	} else {
+		srv.AllowInsecureAuth = true
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return b, model.ServerSettings{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, Security: model.SecuritySTARTTLS}
+}
+
+type stBackend struct {
+	mu   sync.Mutex
+	data [][]byte
+}
+
+func (b *stBackend) NewSession(*smtp.Conn) (smtp.Session, error) { return &stSession{b: b}, nil }
+
+type stSession struct{ b *stBackend }
+
+func (s *stSession) AuthMechanisms() []string { return []string{sasl.Plain} }
+func (s *stSession) Auth(string) (sasl.Server, error) {
+	return sasl.NewPlainServer(func(_, u, p string) error {
+		if u != "ana" || p != "secreto" {
+			return smtp.ErrAuthFailed
+		}
+		return nil
+	}), nil
+}
+func (s *stSession) Mail(string, *smtp.MailOptions) error { return nil }
+func (s *stSession) Rcpt(string, *smtp.RcptOptions) error { return nil }
+func (s *stSession) Data(r io.Reader) error {
+	d, err := io.ReadAll(r)
+	s.b.mu.Lock()
+	s.b.data = append(s.b.data, d)
+	s.b.mu.Unlock()
+	return err
+}
+func (s *stSession) Reset()        {}
+func (s *stSession) Logout() error { return nil }
+
+func TestSend_STARTTLS_Delivers(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	b, set := startSTARTTLS(t, tlsc, true)
+	raw := []byte("Subject: hola\r\n\r\ncuerpo\r\n")
+	require.NoError(t, smtpx.Send(context.Background(), set, "ana", "secreto", "ana@ej.com", []string{"b@ej.com"}, raw, tlsc.Client))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	require.Len(t, b.data, 1)
+	assert.Equal(t, raw, b.data[0])
+}
+
+func TestSend_STARTTLS_UntrustedCert(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	_, set := startSTARTTLS(t, tlsc, true)
+	err := smtpx.Check(context.Background(), set, "ana", "secreto", nil)
+	assert.ErrorIs(t, err, smtpx.ErrTLS)
+}
+
+func TestSend_STARTTLS_NotAdvertised(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	_, set := startSTARTTLS(t, tlsc, false)
+	err := smtpx.Check(context.Background(), set, "ana", "secreto", tlsc.Client)
+	assert.ErrorIs(t, err, smtpx.ErrTLS)
+	assert.NotErrorIs(t, err, smtpx.ErrNetwork)
 }

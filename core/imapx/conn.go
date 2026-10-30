@@ -5,17 +5,16 @@ package imapx
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
+	"postacontrol/core/internal/neterr"
 	"postacontrol/core/model"
 )
 
@@ -107,27 +106,10 @@ func cloneTLS(c *tls.Config) *tls.Config {
 }
 
 func classifyDial(err error) error {
-	if isTLSError(err) {
+	if neterr.IsTLSError(err) {
 		return fmt.Errorf("%w: %w", ErrTLS, err)
 	}
 	return fmt.Errorf("%w: %w", ErrNetwork, err)
-}
-
-func isTLSError(err error) bool {
-	var (
-		certInvalid  x509.CertificateInvalidError
-		unknownAuth  x509.UnknownAuthorityError
-		hostErr      x509.HostnameError
-		verifyErr    *tls.CertificateVerificationError
-		alertErr     tls.AlertError
-		recordHdrErr tls.RecordHeaderError
-	)
-	if errors.As(err, &certInvalid) || errors.As(err, &unknownAuth) || errors.As(err, &hostErr) ||
-		errors.As(err, &verifyErr) || errors.As(err, &alertErr) || errors.As(err, &recordHdrErr) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "x509:") || strings.Contains(msg, "tls:")
 }
 
 // Close cierra la sesión (LOGOUT best-effort) y la conexión.

@@ -5,7 +5,6 @@ package smtpx
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +15,7 @@ import (
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 
+	"postacontrol/core/internal/neterr"
 	"postacontrol/core/model"
 )
 
@@ -118,6 +118,11 @@ func connect(ctx context.Context, s model.ServerSettings, username, password str
 	case model.SecuritySTARTTLS:
 		c, err = smtp.NewClientStartTLS(conn, cfg)
 		if err != nil {
+			if strings.Contains(err.Error(), "doesn't support STARTTLS") {
+				stop()
+				_ = conn.Close()
+				return nil, nil, fmt.Errorf("%w: %w", ErrTLS, err)
+			}
 			return fail(err)
 		}
 	default:
@@ -130,11 +135,7 @@ func connect(ctx context.Context, s model.ServerSettings, username, password str
 		if ctx.Err() != nil {
 			return nil, nil, fmt.Errorf("%w: %w", ErrNetwork, ctx.Err())
 		}
-		var serr *smtp.SMTPError
-		if errors.As(err, &serr) {
-			return nil, nil, fmt.Errorf("%w: %w", ErrAuth, err)
-		}
-		return nil, nil, classifyDial(ctx, err)
+		return nil, nil, classifyAuth(ctx, err)
 	}
 	return c, func() { stop() }, nil
 }
@@ -143,7 +144,7 @@ func classifyDial(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("%w: %w", ErrNetwork, ctx.Err())
 	}
-	if isTLSError(err) {
+	if neterr.IsTLSError(err) {
 		return fmt.Errorf("%w: %w", ErrTLS, err)
 	}
 	return fmt.Errorf("%w: %w", ErrNetwork, err)
@@ -162,19 +163,14 @@ func classifySession(ctx context.Context, err error) error {
 	return fmt.Errorf("%w: %w", ErrNetwork, err)
 }
 
-func isTLSError(err error) bool {
-	var (
-		certInvalid  x509.CertificateInvalidError
-		unknownAuth  x509.UnknownAuthorityError
-		hostErr      x509.HostnameError
-		verifyErr    *tls.CertificateVerificationError
-		alertErr     tls.AlertError
-		recordHdrErr tls.RecordHeaderError
-	)
-	if errors.As(err, &certInvalid) || errors.As(err, &unknownAuth) || errors.As(err, &hostErr) ||
-		errors.As(err, &verifyErr) || errors.As(err, &alertErr) || errors.As(err, &recordHdrErr) {
-		return true
+// classifyAuth traduce un error de AUTH: solo una respuesta 5xx significa
+// credenciales rechazadas; una 4xx es un problema temporal del servidor.
+func classifyAuth(ctx context.Context, err error) error {
+	if ctx.Err() == nil {
+		var serr *smtp.SMTPError
+		if errors.As(err, &serr) && serr.Code >= 500 {
+			return fmt.Errorf("%w: %w", ErrAuth, err)
+		}
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "x509:") || strings.Contains(msg, "tls:")
+	return classifyDial(ctx, err)
 }
