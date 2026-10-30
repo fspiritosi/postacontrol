@@ -6,6 +6,8 @@ import (
 	"log"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"postacontrol/app"
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the binary.
@@ -24,11 +26,15 @@ func main() {
 	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
 	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
 	// 'Mac' options tailor the application when running an macOS.
-	app := application.New(application.Options{
-		Name:        "postacontrol",
+	mailService := &app.MailService{}
+	wailsApp := application.New(application.Options{
+		Name:        "PostaControl",
 		Description: "Cliente de correo personal",
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
+		},
+		Services: []application.Service{
+			application.NewService(mailService),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
@@ -40,11 +46,13 @@ func main() {
 	// 'Mac' options tailor the window when running on macOS.
 	// 'BackgroundColour' is the background colour of the window.
 	// 'URL' is the URL that will be loaded into the webview.
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "PostaControl",
-		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
-		Width:  1000,
-		Height: 618,
+	mailService.SetApp(wailsApp)
+	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:     "PostaControl",
+		Width:     1280,
+		Height:    800,
+		MinWidth:  960,
+		MinHeight: 600,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
@@ -55,7 +63,7 @@ func main() {
 	})
 
 	// Run the application. This blocks until the application has been exited.
-	err := app.Run()
+	err := wailsApp.Run()
 
 	// If an error occurred while running the application, log it and exit.
 	if err != nil {
