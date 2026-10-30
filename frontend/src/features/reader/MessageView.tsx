@@ -1,12 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ForwardIcon, ReplyAllIcon, ReplyIcon } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
-import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account, Address, MessageDetail } from "../../../bindings/postacontrol/core/model/models";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { errorMessage, isStaleError } from "@/lib/errors";
+import { syncFolder } from "@/lib/events";
 import { fullDate, initials } from "@/lib/format";
 import { useMessage } from "@/lib/queries";
 import { useComposer } from "../compose/ComposerContext";
@@ -113,12 +112,9 @@ export function MessageView({ account, state, onCompose }: Props) {
     const stale = isStaleError(message.error);
     const refreshFolder = async () => {
       if (state.folderId == null) return;
-      try {
-        await svc.SyncFolder(state.folderId);
+      if (await syncFolder(account.id, state.folderId)) {
         state.selectMessage(null);
         void queryClient.invalidateQueries({ queryKey: ["messages", state.folderId] });
-      } catch (e) {
-        toast.error(errorMessage(e));
       }
     };
     return (

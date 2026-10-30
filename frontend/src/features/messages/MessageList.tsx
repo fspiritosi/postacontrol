@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
-import { useSyncProgress } from "@/lib/events";
+import { useFolderSyncing, useSyncProgress } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
 import { relativeDate } from "@/lib/format";
 import { useFolders, useMessages } from "@/lib/queries";
@@ -15,6 +15,7 @@ export function MessageList({ account, state }: { account: Account; state: Shell
   const folders = useFolders(account.id);
   const messages = useMessages(state.folderId, unreadOnly);
   const progress = useSyncProgress();
+  const folderSyncing = useFolderSyncing(state.folderId);
 
   const folder = folders.data?.find((f) => f.id === state.folderId);
   const items = messages.data?.pages.flat() ?? [];
@@ -71,8 +72,8 @@ export function MessageList({ account, state }: { account: Account; state: Shell
           <p className="p-4 text-sm text-destructive">{errorMessage(messages.error)}</p>
         )}
         {!messages.isPending && !messages.isError && items.length === 0 && (
-          <p className="p-6 text-center text-sm text-muted-foreground">
-            No hay correos en esta carpeta.
+          <p className="p-6 text-center text-sm text-muted-foreground" aria-live="polite">
+            {folderSyncing ? "Sincronizando…" : "No hay correos en esta carpeta."}
           </p>
         )}
         <ul>

@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/lib/errors";
+import { syncFolder, toastSyncError } from "@/lib/events";
 import { buildFolderTree, type FolderNode } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -56,7 +57,7 @@ function FolderRow({
   const select = () => {
     state.selectFolder(node.id);
     // Sin await: la lista se refresca por eventos cuando termina.
-    svc.SyncFolder(node.id).catch((e) => toast.error(errorMessage(e)));
+    void syncFolder(state.accountId, node.id);
   };
   return (
     <>
@@ -112,12 +113,12 @@ export function FolderSidebar({ account, state }: { account: Account; state: She
     const inbox = (folders.data ?? []).find((f) => f.role === "inbox" && f.selectable);
     if (inbox) {
       selectFolder(inbox.id);
-      svc.SyncFolder(inbox.id).catch((e) => toast.error(errorMessage(e)));
+      void syncFolder(account.id, inbox.id);
     }
-  }, [folders.data, folderId, selectFolder]);
+  }, [folders.data, folderId, selectFolder, account.id]);
 
   const refresh = () => {
-    svc.SyncAccount(account.id).catch((e) => toast.error(errorMessage(e)));
+    svc.SyncAccount(account.id).catch((e) => toastSyncError(account.id, e));
   };
 
   const remove = async () => {
