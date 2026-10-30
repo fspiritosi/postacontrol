@@ -182,3 +182,49 @@ func TestDetect_CancelledContext(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.False(t, errors.Is(err, ErrNotDetected))
 }
+
+func mustReq(t *testing.T, url string) *http.Request {
+	t.Helper()
+	r, err := http.NewRequest(http.MethodGet, url, nil)
+	require.NoError(t, err)
+	return r
+}
+
+func TestDefaults_ClientHasRedirectPolicy(t *testing.T) {
+	c := Options{}.withDefaults().HTTPClient
+	require.NotNil(t, c.CheckRedirect)
+	err := c.CheckRedirect(mustReq(t, "http://a.example/"), []*http.Request{mustReq(t, "https://a.example/")})
+	assert.Error(t, err)
+}
+
+func TestCheckRedirect(t *testing.T) {
+	hops := func(n int, url string) []*http.Request {
+		via := make([]*http.Request, n)
+		for i := range via {
+			via[i] = mustReq(t, url)
+		}
+		return via
+	}
+	tests := []struct {
+		name    string
+		to      string
+		via     []*http.Request
+		wantErr bool
+	}{
+		{"https a http se rechaza", "http://b.example/", hops(1, "https://a.example/"), true},
+		{"https a https se permite", "https://b.example/", hops(1, "https://a.example/"), false},
+		{"http a http se permite", "http://b.example/", hops(1, "http://a.example/"), false},
+		{"4 saltos previos se permite", "https://b.example/", hops(4, "https://a.example/"), false},
+		{"5 saltos previos se rechaza", "https://b.example/", hops(5, "https://a.example/"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkRedirect(mustReq(t, tt.to), tt.via)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
