@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -80,9 +81,26 @@ func Check(ctx context.Context, s model.ServerSettings, username, password strin
 	return nil
 }
 
-// connect abre la conexión (TLS implícito o STARTTLS) y hace AUTH PLAIN. Si
-// ctx termina durante la sesión, se cierra la conexión. stop libera ese
-// vigilante y hay que llamarlo al terminar.
+// handshakeTimeout limita la conexión completa (TCP, TLS, saludo, EHLO y
+// AUTH) aunque ctx no tenga plazo: un servidor que acepta TCP y no contesta
+// no deja el envío colgado. Después, cada comando tiene los plazos propios de
+// go-smtp (CommandTimeout/SubmissionTimeout), así que un adjunto grande con
+// una conexión lenta no se corta a los 30 s. Es variable para los tests.
+var handshakeTimeout = 30 * time.Second
+
+// localName es el nombre para EHLO: el del equipo, o "localhost" si no se
+// puede obtener.
+func localName() string {
+	h, err := os.Hostname()
+	if err != nil || h == "" || strings.ContainsAny(h, " \t\r\n") {
+		return "localhost"
+	}
+	return h
+}
+
+// connect abre la conexión (TLS implícito o STARTTLS), se presenta con EHLO
+// y hace AUTH PLAIN. Si ctx termina durante la sesión, se cierra la conexión.
+// stop libera ese vigilante y hay que llamarlo al terminar.
 func connect(ctx context.Context, s model.ServerSettings, username, password string, tlsCfg *tls.Config) (*smtp.Client, func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", ErrNetwork, err)
@@ -95,23 +113,28 @@ func connect(ctx context.Context, s model.ServerSettings, username, password str
 		cfg.ServerName = s.Host
 	}
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
+
+	// hctx acota la conexión; al vencer cierra conn y destraba lo que esté
+	// esperando (handshake, saludo, EHLO o AUTH).
+	hctx, hcancel := context.WithTimeout(ctx, handshakeTimeout)
+	defer hcancel()
 	d := &net.Dialer{Timeout: dialTimeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := d.DialContext(hctx, "tcp", addr)
 	if err != nil {
-		return nil, nil, classifyDial(ctx, err)
+		return nil, nil, classifyDial(hctx, err)
 	}
-	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	hstop := context.AfterFunc(hctx, func() { _ = conn.Close() })
 	fail := func(err error) (*smtp.Client, func(), error) {
-		stop()
+		hstop()
 		_ = conn.Close()
-		return nil, nil, classifyDial(ctx, err)
+		return nil, nil, classifyDial(hctx, err)
 	}
 
 	var c *smtp.Client
 	switch s.Security {
 	case model.SecurityTLS:
 		tc := tls.Client(conn, cfg)
-		if err := tc.HandshakeContext(ctx); err != nil {
+		if err := tc.HandshakeContext(hctx); err != nil {
 			return fail(err)
 		}
 		c = smtp.NewClient(tc)
@@ -119,7 +142,7 @@ func connect(ctx context.Context, s model.ServerSettings, username, password str
 		c, err = smtp.NewClientStartTLS(conn, cfg)
 		if err != nil {
 			if strings.Contains(err.Error(), "doesn't support STARTTLS") {
-				stop()
+				hstop()
 				_ = conn.Close()
 				return nil, nil, fmt.Errorf("%w: %w", ErrTLS, err)
 			}
@@ -129,14 +152,25 @@ func connect(ctx context.Context, s model.ServerSettings, username, password str
 		return fail(fmt.Errorf("seguridad desconocida %q", s.Security))
 	}
 
+	// Con STARTTLS, el handshake TLS ocurre recién acá: sus errores pasan por
+	// classifyDial para salir como ErrTLS.
+	if err := c.Hello(localName()); err != nil {
+		_ = c.Close()
+		return fail(err)
+	}
 	if err := c.Auth(sasl.NewPlainClient("", username, password)); err != nil {
 		_ = c.Close()
-		stop()
-		if ctx.Err() != nil {
-			return nil, nil, fmt.Errorf("%w: %w", ErrNetwork, ctx.Err())
+		hstop()
+		if hctx.Err() != nil {
+			return nil, nil, fmt.Errorf("%w: %w", ErrNetwork, hctx.Err())
 		}
-		return nil, nil, classifyAuth(ctx, err)
+		return nil, nil, classifyAuth(hctx, err)
 	}
+	if !hstop() { // venció justo al terminar: conn ya está cerrada
+		_ = c.Close()
+		return nil, nil, fmt.Errorf("%w: %w", ErrNetwork, hctx.Err())
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	return c, func() { stop() }, nil
 }
 

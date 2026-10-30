@@ -2,8 +2,10 @@ package smtpx_test
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -124,11 +126,26 @@ func startSTARTTLS(t *testing.T, tlsc testenv.TLS, withTLS bool) (*stBackend, mo
 }
 
 type stBackend struct {
-	mu   sync.Mutex
-	data [][]byte
+	mu     sync.Mutex
+	data   [][]byte
+	hellos []string // nombre de cada EHLO/HELO, en orden
 }
 
-func (b *stBackend) NewSession(*smtp.Conn) (smtp.Session, error) { return &stSession{b: b}, nil }
+func (b *stBackend) NewSession(c *smtp.Conn) (smtp.Session, error) {
+	b.mu.Lock()
+	b.hellos = append(b.hellos, c.Hostname())
+	b.mu.Unlock()
+	return &stSession{b: b}, nil
+}
+
+func (b *stBackend) lastHello() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.hellos) == 0 {
+		return ""
+	}
+	return b.hellos[len(b.hellos)-1]
+}
 
 type stSession struct{ b *stBackend }
 
@@ -177,4 +194,68 @@ func TestSend_STARTTLS_NotAdvertised(t *testing.T) {
 	err := smtpx.Check(context.Background(), set, "ana", "secreto", tlsc.Client)
 	assert.ErrorIs(t, err, smtpx.ErrTLS)
 	assert.NotErrorIs(t, err, smtpx.ErrNetwork)
+}
+
+// startImplicitTLS levanta un servidor SMTP con TLS implícito (como el 465).
+func startImplicitTLS(t *testing.T, tlsc testenv.TLS) (*stBackend, model.ServerSettings) {
+	t.Helper()
+	b := &stBackend{}
+	srv := smtp.NewServer(b)
+	srv.Domain = "localhost"
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsc.Server)
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return b, model.ServerSettings{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, Security: model.SecurityTLS}
+}
+
+// Un servidor que acepta TCP y nunca completa el handshake TLS no deja el
+// envío colgado aunque el contexto no tenga plazo.
+func TestCheck_StalledTLSHandshakeTimesOut(t *testing.T) {
+	defer smtpx.SetHandshakeTimeout(200 * time.Millisecond)()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() { // acepta y no contesta el ClientHello
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = c.Close() })
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	for _, sec := range []model.Security{model.SecurityTLS, model.SecuritySTARTTLS} {
+		s := model.ServerSettings{Host: "127.0.0.1", Port: port, Security: sec}
+		done := make(chan error, 1)
+		start := time.Now()
+		go func() { done <- smtpx.Check(context.Background(), s, "a", "b", nil) }()
+		select {
+		case err := <-done:
+			assert.ErrorIs(t, err, smtpx.ErrNetwork, string(sec))
+			assert.Less(t, time.Since(start), 2*time.Second, string(sec))
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: sin plazo, el handshake quedó colgado", sec)
+		}
+	}
+}
+
+func TestSend_EHLOUsesHostname(t *testing.T) {
+	want, err := os.Hostname()
+	if err != nil || want == "" {
+		want = "localhost"
+	}
+	assert.Equal(t, want, smtpx.LocalName())
+
+	tlsc := testenv.NewTLS(t)
+	for name, start := range map[string]func() (*stBackend, model.ServerSettings){
+		"tls":      func() (*stBackend, model.ServerSettings) { return startImplicitTLS(t, tlsc) },
+		"starttls": func() (*stBackend, model.ServerSettings) { return startSTARTTLS(t, tlsc, true) },
+	} {
+		b, s := start()
+		raw := []byte("From: ana@ej.com\r\nTo: beto@ej.com\r\nSubject: Hola\r\n\r\ncuerpo\r\n")
+		require.NoError(t, smtpx.Send(context.Background(), s, "ana", "secreto", "ana@ej.com", []string{"beto@ej.com"}, raw, tlsc.Client), name)
+		assert.Equal(t, want, b.lastHello(), name)
+	}
 }
