@@ -74,3 +74,43 @@ func TestSnippet_CutsOnWord(t *testing.T) {
 	assert.Equal(t, "hola mundo…", Snippet("hola  mundo\nqué tal", 12))
 	assert.Equal(t, "corto", Snippet(" corto ", 12))
 }
+
+func TestToText_TableCells(t *testing.T) {
+	assert.Equal(t, "a b\nc d", ToText(`<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>`))
+}
+
+func TestToText_PreKeepsLayout(t *testing.T) {
+	assert.Equal(t, "l1\n  l2", ToText("<pre>l1\n  l2</pre>"))
+}
+
+func TestSanitize_ImgSrcAllowlist(t *testing.T) {
+	for _, src := range []string{"x.gif", "//h/x.gif", "http://h/x.gif"} {
+		out, has := Sanitize(`<img src="` + src + `">`)
+		assert.Contains(t, out, `data-remote-src="`+src+`"`, src)
+		assert.NotContains(t, out, ` src=`, src)
+		assert.True(t, has, src)
+		assert.Contains(t, RestoreRemoteImages(out), ` src="`+src+`"`, src)
+	}
+	// bluemonday descarta de entrada el <img> con esquema desconocido (ftp): nada se carga.
+	out, has := Sanitize(`<img src="ftp://h/x.gif">`)
+	assert.NotContains(t, out, "ftp")
+	assert.False(t, has)
+	out, has = Sanitize(`<img src=""><img src="javascript:x"><img src="data:text/html,x">`)
+	assert.NotContains(t, out, "src")
+	assert.False(t, has)
+}
+
+func TestSanitize_RemoteCSSSetsFlag(t *testing.T) {
+	for _, in := range []string{
+		`<style>p{background:url("https://t.example/a.png")}</style>`,
+		`<style>@import "//t.example/a.css";</style>`,
+		`<style>@import url(http://t.example/a.css);</style>`,
+		`<p style="background:URL( 'https://t.example/a.png')">x</p>`,
+	} {
+		out, has := Sanitize(in)
+		assert.True(t, has, in)
+		assert.Contains(t, out, "t.example", in) // el CSS no se modifica
+	}
+	_, has := Sanitize(`<p style="background:url(data:image/png;base64,AAA)">x</p>`)
+	assert.False(t, has)
+}

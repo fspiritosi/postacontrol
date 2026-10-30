@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/wailsapp/wails/v3 v3.0.0
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.60.0
 	modernc.org/sqlite v1.61.0
 )
 

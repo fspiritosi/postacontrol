@@ -79,6 +79,41 @@ func (w *textWriter) prefix(s string) {
 	w.space = false
 }
 
+// raw escribe s sin colapsar espacios (para <pre>).
+func (w *textWriter) raw(s string) {
+	s = strings.TrimRight(strings.TrimLeft(s, "\r\n"), " \t\r\n")
+	if strings.TrimSpace(s) == "" {
+		return
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	if w.sb.Len() == 0 {
+		w.pending = 0
+	}
+	if w.pending > 0 {
+		cur := strings.TrimRight(w.sb.String(), " ")
+		w.sb.Reset()
+		w.sb.WriteString(cur)
+		w.sb.WriteString(strings.Repeat("\n", w.pending))
+		w.pending = 0
+	}
+	w.sb.WriteString(s)
+	w.space = false
+}
+
+func textContent(n *html.Node) string {
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	var sb strings.Builder
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.DataAtom == atom.Br {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(textContent(c))
+	}
+	return sb.String()
+}
+
 func (w *textWriter) children(n *html.Node) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		w.node(c)
@@ -127,6 +162,20 @@ func (w *textWriter) element(n *html.Node) {
 		w.need(1)
 		w.children(n)
 		w.need(1)
+	case atom.Td, atom.Th:
+		w.children(n)
+		for sib := n.NextSibling; sib != nil; sib = sib.NextSibling {
+			if sib.Type == html.ElementNode {
+				if sib.DataAtom == atom.Td || sib.DataAtom == atom.Th {
+					w.space = true
+				}
+				break
+			}
+		}
+	case atom.Pre:
+		w.need(2)
+		w.raw(textContent(n))
+		w.need(2)
 	case atom.Li:
 		w.need(1)
 		w.prefix("- ")

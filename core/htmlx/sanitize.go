@@ -96,12 +96,28 @@ func rewrite(n *html.Node) (remote bool) {
 				if hasJSScheme(a.Val) {
 					continue
 				}
-			case "src", "href":
-				scheme := schemeOf(a.Val)
-				if scheme == "data" && !(n.DataAtom == atom.Img && a.Key == "src") {
+			case "href":
+				if schemeOf(a.Val) == "data" {
 					continue // data: solo vale para imágenes
 				}
-				if n.DataAtom == atom.Img && a.Key == "src" && (scheme == "http" || scheme == "https" || strings.HasPrefix(strings.TrimSpace(a.Val), "//")) {
+			case "src":
+				if n.DataAtom != atom.Img {
+					if schemeOf(a.Val) == "data" {
+						continue
+					}
+					break
+				}
+				// allowlist: solo data:image/ y cid: conservan src; el resto es remoto.
+				val := strings.TrimSpace(a.Val)
+				scheme := schemeOf(val)
+				switch {
+				case val == "" || scheme == "javascript":
+					continue
+				case scheme == "cid":
+				case scheme == "data" && strings.HasPrefix(strings.ToLower(val), "data:image/"):
+				case scheme == "data":
+					continue
+				default:
 					a.Key = "data-remote-src"
 					remote = true
 				}
@@ -109,9 +125,18 @@ func rewrite(n *html.Node) (remote bool) {
 			kept = append(kept, a)
 		}
 		n.Attr = kept
+		for _, a := range n.Attr {
+			if a.Key == "style" && cssHasRemote(a.Val) {
+				remote = true
+			}
+		}
 	}
-	if n.Type == html.TextNode && n.Parent != nil && n.Parent.DataAtom == atom.Style && hasJSScheme(n.Data) {
-		n.Data = ""
+	if n.Type == html.TextNode && n.Parent != nil && n.Parent.DataAtom == atom.Style {
+		if hasJSScheme(n.Data) {
+			n.Data = ""
+		} else if cssHasRemote(n.Data) {
+			remote = true
+		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if rewrite(c) {
@@ -134,4 +159,27 @@ func schemeOf(raw string) string {
 // profundidad (no cubre variantes ofuscadas con escapes; ahí rige el CSP).
 func hasJSScheme(css string) bool {
 	return strings.Contains(strings.ToLower(css), "javascript:")
+}
+
+// cssHasRemote detecta url(...) o @import que apuntan a http, https o //host.
+// Solo detecta: el CSS no se modifica (el CSP bloquea la carga).
+func cssHasRemote(css string) bool {
+	low := strings.ToLower(css)
+	for _, key := range []string{"url(", "@import"} {
+		rest := low
+		for {
+			i := strings.Index(rest, key)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(key):]
+			t := strings.TrimLeft(rest, " \t\r\n'\"")
+			t = strings.TrimPrefix(t, "url(")
+			t = strings.TrimLeft(t, " \t\r\n'\"")
+			if strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") || strings.HasPrefix(t, "//") {
+				return true
+			}
+		}
+	}
+	return false
 }
