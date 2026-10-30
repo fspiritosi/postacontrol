@@ -10,7 +10,14 @@ export default tseslint.config(
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: { globals: globals.browser },
     plugins: { "react-hooks": reactHooks },
-    rules: reactHooks.configs.recommended.rules,
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // `shadcn add` suele generar `import { cn } from "cn"` (paquete ajeno).
+      "no-restricted-imports": [
+        "error",
+        { paths: [{ name: "cn", message: "Usá cn() de @/lib/utils" }] },
+      ],
+    },
   },
   {
     // Componentes generados por shadcn: exportan variantes junto al componente.

@@ -9,7 +9,7 @@ import (
 )
 
 func TestCoreHasNoWailsImports(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", "./core/...").Output()
+	out, err := exec.Command("go", "list", "-deps", "-test", "./core/...").Output()
 	require.NoError(t, err)
 	assert.NotContains(t, string(out), "github.com/wailsapp/")
 }
