@@ -1,7 +1,9 @@
-import { MailIcon } from "lucide-react";
+import { MailIcon, PencilIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { useComposer } from "../compose/ComposerContext";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -62,6 +64,7 @@ export function MailShell({ accounts, sidebar, list, reader }: Props) {
   const [messageId, setMessageId] = useState<number | null>(null);
   const account = accounts.find((a) => a.id === accountId) ?? accounts[0];
   const [layout] = useState(loadLayout);
+  const composer = useComposer();
 
   const state: ShellState = {
     accountId: account.id,
@@ -82,19 +85,29 @@ export function MailShell({ accounts, sidebar, list, reader }: Props) {
         onLayoutChanged={saveLayout}
       >
         <ResizablePanel id="sidebar" defaultSize={`${layout.sidebar}%`} minSize="14%" className="bg-sidebar">
-          {sidebar ? (
-            sidebar(state)
-          ) : (
-            <div className="flex items-center gap-2.5 border-b p-3">
-              <Avatar className="size-8">
-                <AvatarFallback>{account.email.slice(0, 1).toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{account.displayName || account.email}</p>
-                <p className="truncate text-xs text-muted-foreground">{account.email}</p>
-              </div>
+          <div className="flex h-full flex-col">
+            <div className="p-2">
+              <Button className="w-full" onClick={() => composer.openNew(account.id)}>
+                <PencilIcon />
+                Redactar
+              </Button>
             </div>
-          )}
+            <div className="min-h-0 flex-1">
+              {sidebar ? (
+                sidebar(state)
+              ) : (
+                <div className="flex items-center gap-2.5 border-b p-3">
+                  <Avatar className="size-8">
+                    <AvatarFallback>{account.email.slice(0, 1).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{account.displayName || account.email}</p>
+                    <p className="truncate text-xs text-muted-foreground">{account.email}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel id="list" defaultSize={`${layout.list}%`} minSize="22%">

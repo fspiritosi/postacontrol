@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { errorMessage, isStaleError } from "@/lib/errors";
 import { fullDate, initials } from "@/lib/format";
 import { useMessage } from "@/lib/queries";
+import { useComposer } from "../compose/ComposerContext";
 import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
 import { SafeHtmlFrame } from "./SafeHtmlFrame";
@@ -18,7 +19,7 @@ export type ComposeMode = "reply" | "replyAll" | "forward";
 type Props = {
   account: Account;
   state: ShellState;
-  // Lo provee el redactor (Task 17); sin él los botones quedan deshabilitados.
+  // Por defecto abre el redactor del contexto; se puede reemplazar (tests).
   onCompose?: (messageId: number, mode: ComposeMode) => void;
 };
 
@@ -27,6 +28,8 @@ const addr = (a: Address) => a.name || a.email;
 function Body({ message, account, onCompose }: { message: MessageDetail; account: Account; onCompose?: Props["onCompose"] }) {
   // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
   const [allowRemote, setAllowRemote] = useState(false);
+  const composer = useComposer();
+  const compose = onCompose ?? ((id: number, mode: ComposeMode) => void composer.openFrom(id, mode));
   const to = message.to ?? [];
   const actions: { mode: ComposeMode; label: string; icon: React.ReactNode }[] = [
     { mode: "reply", label: "Responder", icon: <ReplyIcon /> },
@@ -41,8 +44,7 @@ function Body({ message, account, onCompose }: { message: MessageDetail; account
             key={a.mode}
             variant="outline"
             size="sm"
-            disabled={!onCompose}
-            onClick={() => onCompose?.(message.id, a.mode)}
+            onClick={() => compose(message.id, a.mode)}
           >
             {a.icon}
             {a.label}
