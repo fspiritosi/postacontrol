@@ -495,3 +495,113 @@ func TestSync_CancelledContextIsNotUserError(t *testing.T) {
 	err := c.SyncAccount(context.Background(), acc.ID)
 	assert.ErrorIs(t, err, context.Canceled)
 }
+
+// La primera sincronización toma la conexión lote por lote: entre dos lotes,
+// leer un mensaje ya sincronizado no espera a que termine toda la carpeta.
+func TestSyncFolder_InteractiveCallNotBlockedBetweenBatches(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	deliverN(t, imap, 450, "m")
+	acc, err := c.AddAccount(context.Background(), inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+
+	type result struct {
+		d   model.MessageDetail
+		err error
+	}
+	results := make(chan result, 1)
+	var once sync.Once
+	var inTime atomic.Bool
+	n.setHook(func(event string, data any) {
+		if event != EventSyncProgress {
+			return
+		}
+		once.Do(func() {
+			fid := data.(map[string]any)["folderId"].(int64)
+			ms, err := c.store.ListMessages(context.Background(), fid, model.ListQuery{Limit: 1})
+			if err != nil || len(ms) == 0 {
+				results <- result{err: fmt.Errorf("sin mensajes tras el primer lote: %v", err)}
+				return
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				d, err := c.GetMessage(context.Background(), ms[0].ID)
+				results <- result{d, err}
+			}()
+			// Si la sincronización tuviera el lock tomado, GetMessage esperaría
+			// hasta el final: se espera un rato y se sigue.
+			select {
+			case <-done:
+				inTime.Store(true)
+			case <-time.After(3 * time.Second):
+			}
+		})
+	})
+	require.NoError(t, c.SyncAccount(context.Background(), acc.ID))
+	assert.True(t, inTime.Load(), "GetMessage terminó entre dos lotes, antes que la sincronización")
+
+	var r result
+	select {
+	case r = <-results:
+	case <-time.After(5 * time.Second):
+		t.Fatal("GetMessage no terminó")
+	}
+	require.NoError(t, r.err)
+	assert.True(t, r.d.Seen)
+	inboxID := folderID(t, c, acc.ID, "INBOX")
+	assert.Len(t, listAll(t, c, inboxID), 450)
+	assert.Equal(t, 449, folderByID(t, c, acc.ID, inboxID).Unread, "el refresco de flags ve el \\Seen")
+}
+
+// Si el UIDVALIDITY cambia entre dos lotes, la pasada se corta con "stale"
+// (no mezcla UID de dos buzones) y la siguiente resetea la caché.
+func TestSyncFolder_UIDValidityChangeBetweenBatches(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	deliverN(t, imap, 450, "viejo")
+	acc, err := c.AddAccount(context.Background(), inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+
+	var once sync.Once
+	n.setHook(func(event string, _ any) {
+		if event == EventSyncProgress {
+			once.Do(func() {
+				imap.RecreateMailbox(t, "INBOX")
+				deliverN(t, imap, 3, "nuevo")
+			})
+		}
+	})
+	err = c.SyncAccount(context.Background(), acc.ID)
+	assert.Equal(t, "stale", userErrCode(t, err))
+	n.setHook(nil)
+	inboxID := folderID(t, c, acc.ID, "INBOX")
+	_, fsync, err := c.store.GetFolder(context.Background(), inboxID)
+	require.NoError(t, err)
+	assert.Zero(t, fsync.UIDNext, "la pasada cortada no se marca completa")
+
+	require.NoError(t, c.SyncFolder(context.Background(), inboxID))
+	assert.ElementsMatch(t, []string{"nuevo-1", "nuevo-2", "nuevo-3"}, subjects(listAll(t, c, inboxID)))
+}
+
+// Dos sincronizaciones de la misma carpeta no se intercalan: la segunda espera
+// a la primera y no vuelve a bajar las mismas cabeceras.
+func TestSyncFolder_ConcurrentSameFolderFetchesOnce(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	deliverN(t, imap, 450, "m")
+	acc, err := c.AddAccount(context.Background(), inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(context.Background(), acc.ID))
+	inboxID := folderID(t, c, acc.ID, "INBOX")
+	require.NoError(t, c.store.ResetFolder(context.Background(), inboxID))
+	before := len(n.matching(EventSyncProgress))
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Go(func() { errs[i] = c.SyncFolder(context.Background(), inboxID) })
+	}
+	wg.Wait()
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[1])
+	assert.Len(t, n.matching(EventSyncProgress)[before:], 3, "una sola pasada de 3 lotes")
+	assert.Len(t, listAll(t, c, inboxID), 450)
+}

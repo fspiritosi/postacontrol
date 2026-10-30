@@ -87,9 +87,17 @@ func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 
 // SyncFolder sincroniza las cabeceras y los flags de una carpeta. Nunca
 // escribe en el servidor: abre la carpeta en solo lectura (EXAMINE).
+//
+// La conexión se toma por tramos (preparar, cada lote de cabeceras, flags) y
+// no durante toda la carpeta: entre dos lotes, leer o enviar no espera a que
+// termine la primera sincronización de una carpeta grande. Dos pasadas sobre
+// la misma carpeta no se intercalan: la segunda espera a la primera.
 func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
+	mu := c.folderSyncLock(folderID)
+	mu.Lock()
+	defer mu.Unlock()
 	if err := c.ctxErr(ctx); err != nil {
 		return err
 	}
@@ -97,48 +105,111 @@ func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
 	if err != nil {
 		return c.ctxOrUserError(ctx, err)
 	}
-	return c.withConn(ctx, f.AccountID, func(ctx context.Context, conn *imapx.Conn) error {
-		return c.syncFolder(ctx, conn, folderID)
+	var p syncPlan
+	err = c.withConn(ctx, f.AccountID, func(ctx context.Context, conn *imapx.Conn) error {
+		var err error
+		p, err = c.prepareSync(ctx, conn, folderID)
+		return err
 	})
-}
-
-// syncFolder es idempotente: UIDNext se escribe al final, así que si se corta
-// a mitad de camino la próxima pasada vuelve a calcular lo que falta a partir
-// de lo que ya está en la caché. UIDVALIDITY, en cambio, se guarda apenas se
-// abre la carpeta con UIDNext en 0 ("incompleta", R19): si cambia antes de
-// completar la primera pasada, la siguiente lo detecta y resetea la caché.
-func (c *Core) syncFolder(ctx context.Context, conn *imapx.Conn, folderID int64) error {
-	f, last, err := c.store.GetFolder(ctx, folderID)
 	if err != nil {
 		return err
 	}
-	info, err := conn.Select(f.Name)
+	// Cada lote vuelve a abrir la carpeta: entre dos lotes otra operación pudo
+	// seleccionar otra. Si el UIDVALIDITY cambió en el medio, se corta con
+	// "stale" y la próxima pasada resetea la caché.
+	checked := store.FolderSync{UIDValidity: p.info.UIDValidity}
+	for done := 0; done < len(p.fresh); {
+		if err := c.ctxErr(ctx); err != nil {
+			return err
+		}
+		batch := p.fresh[done:min(done+headerBatch, len(p.fresh))]
+		err := c.withConn(ctx, f.AccountID, func(ctx context.Context, conn *imapx.Conn) error {
+			if err := selectChecked(conn, p.folder, checked, false); err != nil {
+				return err
+			}
+			hs, err := conn.FetchHeaders(batch)
+			if err != nil {
+				return err
+			}
+			return c.store.UpsertHeaders(ctx, folderID, headerRows(hs))
+		})
+		if err != nil {
+			return err
+		}
+		done += len(batch)
+		c.emit(EventSyncProgress, map[string]any{"folderId": folderID, "done": done, "total": len(p.fresh)})
+	}
+	if err := c.ctxErr(ctx); err != nil {
+		return err
+	}
+	err = c.withConn(ctx, f.AccountID, func(ctx context.Context, conn *imapx.Conn) error {
+		if err := selectChecked(conn, p.folder, checked, false); err != nil {
+			return err
+		}
+		unread, total, err := c.refreshFlags(ctx, conn, folderID, p.known[max(0, len(p.known)-flagsWindow):])
+		if err != nil {
+			return err
+		}
+		if err := c.store.SetFolderSync(ctx, folderID, store.FolderSync{UIDValidity: p.info.UIDValidity, UIDNext: p.info.UIDNext}); err != nil {
+			return err
+		}
+		return c.store.SetFolderCounts(ctx, folderID, unread, total)
+	})
 	if err != nil {
 		return err
+	}
+	c.emit(EventFolderUpdated, map[string]any{"folderId": folderID})
+	return nil
+}
+
+// syncPlan es lo que prepareSync calcula para los lotes y el refresco de flags.
+type syncPlan struct {
+	folder model.Folder
+	info   imapx.SelectInfo
+	known  []uint32 // UID en la caché antes de bajar cabeceras (⊆ remotos)
+	fresh  []uint32 // UID que faltan, lo más nuevo primero
+}
+
+// prepareSync abre la carpeta, resetea la caché si cambió el UIDVALIDITY,
+// borra lo que ya no está en el servidor y calcula qué cabeceras faltan.
+//
+// La sincronización es idempotente: UIDNext se escribe recién al final, así
+// que si se corta a mitad de camino la próxima pasada vuelve a calcular lo que
+// falta a partir de lo que ya está en la caché. UIDVALIDITY, en cambio, se
+// guarda apenas se abre la carpeta con UIDNext en 0 ("incompleta", R19): si
+// cambia antes de completar la primera pasada, la siguiente lo detecta y
+// resetea la caché.
+func (c *Core) prepareSync(ctx context.Context, conn *imapx.Conn, folderID int64) (syncPlan, error) {
+	f, last, err := c.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return syncPlan{}, err
+	}
+	info, err := conn.Select(f.Name)
+	if err != nil {
+		return syncPlan{}, err
 	}
 	if last.UIDValidity != info.UIDValidity {
 		if last.UIDValidity != 0 {
 			if err := c.store.ResetFolder(ctx, folderID); err != nil {
-				return err
+				return syncPlan{}, err
 			}
 		}
 		if err := c.store.SetFolderSync(ctx, folderID, store.FolderSync{UIDValidity: info.UIDValidity}); err != nil {
-			return err
+			return syncPlan{}, err
 		}
 	}
 	remote, err := conn.AllUIDs()
 	if err != nil {
-		return err
+		return syncPlan{}, err
 	}
 	if err := c.store.DeleteUIDsNotIn(ctx, folderID, remote); err != nil {
-		return err
+		return syncPlan{}, err
 	}
 	// Después de DeleteUIDsNotIn, known ⊆ remote.
 	known, err := c.store.KnownUIDs(ctx, folderID)
 	if err != nil {
-		return err
+		return syncPlan{}, err
 	}
-
 	knownSet := make(map[uint32]bool, len(known))
 	for _, u := range known {
 		knownSet[u] = true
@@ -149,34 +220,7 @@ func (c *Core) syncFolder(ctx context.Context, conn *imapx.Conn, folderID int64)
 			fresh = append(fresh, remote[i])
 		}
 	}
-	for done := 0; done < len(fresh); {
-		if err := c.ctxErr(ctx); err != nil {
-			return err
-		}
-		batch := fresh[done:min(done+headerBatch, len(fresh))]
-		hs, err := conn.FetchHeaders(batch)
-		if err != nil {
-			return err
-		}
-		if err := c.store.UpsertHeaders(ctx, folderID, headerRows(hs)); err != nil {
-			return err
-		}
-		done += len(batch)
-		c.emit(EventSyncProgress, map[string]any{"folderId": folderID, "done": done, "total": len(fresh)})
-	}
-
-	unread, total, err := c.refreshFlags(ctx, conn, folderID, known[max(0, len(known)-flagsWindow):])
-	if err != nil {
-		return err
-	}
-	if err := c.store.SetFolderSync(ctx, folderID, store.FolderSync{UIDValidity: info.UIDValidity, UIDNext: info.UIDNext}); err != nil {
-		return err
-	}
-	if err := c.store.SetFolderCounts(ctx, folderID, unread, total); err != nil {
-		return err
-	}
-	c.emit(EventFolderUpdated, map[string]any{"folderId": folderID})
-	return nil
+	return syncPlan{folder: f, info: info, known: known, fresh: fresh}, nil
 }
 
 // refreshFlags trae los flags de uids, guarda solo los que cambiaron y

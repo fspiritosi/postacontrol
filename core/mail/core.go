@@ -55,6 +55,11 @@ type Core struct {
 
 	poolMu sync.Mutex
 	pool   map[int64]*pooledConn // una conexión IMAP por cuenta
+
+	// syncLocks serializa las sincronizaciones de una misma carpeta (la
+	// conexión se toma lote por lote, así que dos pasadas se intercalarían).
+	syncLocksMu sync.Mutex
+	syncLocks   map[int64]*sync.Mutex
 }
 
 func New(cfg Config) (*Core, error) {
@@ -63,7 +68,8 @@ func New(cfg Config) (*Core, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel, pool: map[int64]*pooledConn{}}, nil
+	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
+		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{}}, nil
 }
 
 // Close cancela las sincronizaciones en curso, espera a que terminen, cierra
@@ -125,6 +131,18 @@ func (c *Core) pooled(accountID int64) *pooledConn {
 		c.pool[accountID] = pc
 	}
 	return pc
+}
+
+// folderSyncLock devuelve el lock de sincronización de la carpeta.
+func (c *Core) folderSyncLock(folderID int64) *sync.Mutex {
+	c.syncLocksMu.Lock()
+	defer c.syncLocksMu.Unlock()
+	mu := c.syncLocks[folderID]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		c.syncLocks[folderID] = mu
+	}
+	return mu
 }
 
 // lifeCtx deriva de ctx un contexto que además se cancela con Close.
