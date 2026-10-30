@@ -125,6 +125,7 @@ export function FolderSidebar({ account, state }: { account: Account; state: She
     try {
       await svc.RemoveAccount(account.id);
       setConfirmOpen(false);
+      selectFolder(null); // limpia carpeta y mensaje de la cuenta borrada
       void queryClient.invalidateQueries({ queryKey: ["accounts"] });
     } catch (e) {
       toast.error(errorMessage(e));

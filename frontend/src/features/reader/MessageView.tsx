@@ -6,7 +6,7 @@ import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account, Address, MessageDetail } from "../../../bindings/postacontrol/core/model/models";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { errorMessage } from "@/lib/errors";
+import { errorMessage, isStaleError } from "@/lib/errors";
 import { fullDate, initials } from "@/lib/format";
 import { useMessage } from "@/lib/queries";
 import type { ShellState } from "../layout/MailShell";
@@ -108,7 +108,7 @@ export function MessageView({ account, state, onCompose }: Props) {
   if (message.isPending) return <div className="h-full" aria-busy />;
   if (message.isError) {
     const msg = errorMessage(message.error);
-    const stale = msg.includes("cambió en el servidor");
+    const stale = isStaleError(message.error);
     const refreshFolder = async () => {
       if (state.folderId == null) return;
       try {

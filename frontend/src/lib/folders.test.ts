@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Folder } from "../../bindings/postacontrol/core/model/models";
-import { buildFolderTree } from "./folders";
+import { buildFolderTree, folderLabel } from "./folders";
 
 let nextId = 1;
 const f = (name: string, role = ""): Folder => ({
@@ -50,5 +50,13 @@ describe("buildFolderTree", () => {
     expect(a.label).toBe("A");
     expect(a.selectable).toBe(false);
     expect(a.children[0].label).toBe("B");
+  });
+});
+
+describe("folderLabel", () => {
+  it("traduce por rol y usa el último segmento sin rol", () => {
+    expect(folderLabel(f("INBOX.Sent", "sent"))).toBe("Enviados");
+    expect(folderLabel(f("INBOX.Clientes.ACME"))).toBe("ACME");
+    expect(folderLabel({ name: "Plano", delimiter: "", role: "" })).toBe("Plano");
   });
 });

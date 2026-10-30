@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorMessage } from "./errors";
+import { errorMessage, isStaleError } from "./errors";
 
 // Forma real: @wailsio/runtime rechaza con Error name="RuntimeError" + cause.
 const runtimeError = (msg: string, cause?: unknown) =>
@@ -17,5 +17,13 @@ describe("errorMessage", () => {
   it("usa un texto genérico si no hay mensaje", () => {
     expect(errorMessage(undefined)).toBe("Ocurrió un error inesperado.");
     expect(errorMessage({})).toBe("Ocurrió un error inesperado.");
+  });
+});
+
+describe("isStaleError", () => {
+  it("detecta el mensaje de mensaje desactualizado", () => {
+    const e = runtimeError("El mensaje cambió en el servidor. Actualizá la carpeta.");
+    expect(isStaleError(e)).toBe(true);
+    expect(isStaleError(runtimeError("Sin conexión."))).toBe(false);
   });
 });

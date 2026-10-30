@@ -259,4 +259,6 @@ func TestGetMessage_UIDValidityChangedIsStale(t *testing.T) {
 	var ue *UserError
 	require.ErrorAs(t, err, &ue)
 	assert.Equal(t, "stale", ue.Code)
+	// Contrato con el frontend (STALE_MESSAGE_FRAGMENT en src/lib/errors.ts).
+	assert.Contains(t, ue.Msg, "cambió en el servidor")
 }

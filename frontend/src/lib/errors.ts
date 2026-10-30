@@ -9,3 +9,10 @@ export function errorMessage(e: unknown): string {
   }
   return "Ocurrió un error inesperado.";
 }
+
+// Contrato con Go: core/mail/read.go (código "stale"); lo cubre un test allá.
+export const STALE_MESSAGE_FRAGMENT = "cambió en el servidor";
+
+export function isStaleError(e: unknown): boolean {
+  return errorMessage(e).includes(STALE_MESSAGE_FRAGMENT);
+}

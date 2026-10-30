@@ -4,22 +4,11 @@ import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 import { useSyncProgress } from "@/lib/events";
+import { folderLabel } from "@/lib/folders";
 import { relativeDate } from "@/lib/format";
 import { useFolders, useMessages } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
-
-function folderLabel(role: string, name: string): string {
-  const labels: Record<string, string> = {
-    inbox: "Entrada",
-    drafts: "Borradores",
-    sent: "Enviados",
-    archive: "Archivo",
-    junk: "Spam",
-    trash: "Papelera",
-  };
-  return labels[role] ?? name.split(/[./]/).pop() ?? name;
-}
 
 export function MessageList({ account, state }: { account: Account; state: ShellState }) {
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -43,7 +32,7 @@ export function MessageList({ account, state }: { account: Account; state: Shell
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <h2 className="truncate text-sm font-semibold">
-          {folder ? folderLabel(folder.role, folder.name) : ""}
+          {folder ? folderLabel(folder) : ""}
         </h2>
         <div className="flex rounded-md bg-muted p-0.5 text-xs" role="group" aria-label="Filtro">
           {[

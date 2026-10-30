@@ -12,6 +12,12 @@ const ROLE_LABEL: Record<string, string> = {
   trash: "Papelera",
 };
 
+// Etiqueta en español por rol; sin rol, el último segmento del nombre.
+export function folderLabel(f: Pick<Folder, "name" | "delimiter" | "role">): string {
+  const segs = f.delimiter ? f.name.split(f.delimiter) : [f.name];
+  return ROLE_LABEL[f.role] ?? segs[segs.length - 1];
+}
+
 function byLabel(a: FolderNode, b: FolderNode): number {
   return a.label.localeCompare(b.label, "es", { sensitivity: "base" });
 }
@@ -27,12 +33,7 @@ export function buildFolderTree(folders: Folder[]): FolderNode[] {
     f.delimiter ? f.name.split(f.delimiter) : [f.name];
 
   for (const f of folders) {
-    const segs = segments(f);
-    nodes.set(f.name, {
-      ...f,
-      label: ROLE_LABEL[f.role] ?? segs[segs.length - 1],
-      children: [],
-    });
+    nodes.set(f.name, { ...f, label: folderLabel(f), children: [] });
   }
 
   const attach = (node: FolderNode) => {
