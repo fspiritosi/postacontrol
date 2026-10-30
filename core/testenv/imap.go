@@ -168,3 +168,11 @@ type literal struct {
 }
 
 func (l *literal) Size() int64 { return l.size }
+
+// DeleteMailbox borra el buzón (con sus mensajes) sin pasar por el protocolo.
+func (s *IMAP) DeleteMailbox(t testing.TB, name string) {
+	t.Helper()
+	if err := s.User.Delete(name); err != nil {
+		t.Fatalf("testenv: borrar %s: %v", name, err)
+	}
+}
