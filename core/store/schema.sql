@@ -30,7 +30,7 @@ CREATE TABLE folders (
 CREATE TABLE messages (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   folder_id         INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
-  uid               INTEGER NOT NULL,
+  uid               INTEGER NOT NULL CHECK (uid > 0),
   message_id        TEXT NOT NULL DEFAULT '',
   in_reply_to       TEXT NOT NULL DEFAULT '',
   references_json   TEXT NOT NULL DEFAULT '[]',

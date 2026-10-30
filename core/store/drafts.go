@@ -9,8 +9,12 @@ import (
 
 // SaveLocalDraft guarda un envío que no pudo completarse, para no perder lo escrito.
 func (s *Store) SaveLocalDraft(ctx context.Context, req model.SendRequest, errMsg string) (int64, error) {
+	js, err := toJSON(req)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO local_drafts (account_id, request_json, error, created_at)
- VALUES (?,?,?,?)`, req.AccountID, toJSON(req), errMsg, time.Now().Unix())
+ VALUES (?,?,?,?)`, req.AccountID, js, errMsg, time.Now().Unix())
 	if err != nil {
 		return 0, err
 	}

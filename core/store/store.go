@@ -49,12 +49,12 @@ func b2i(b bool) int {
 	return 0
 }
 
-func toJSON(v any) string {
+func toJSON(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return "null"
+		return "", fmt.Errorf("serializar json: %w", err)
 	}
-	return string(b)
+	return string(b), nil
 }
 
 // fromJSON decodifica en dst; ante datos vacíos o inválidos deja dst como estaba.

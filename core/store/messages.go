@@ -53,8 +53,24 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
 	}
 	defer stmt.Close()
 	for _, r := range rows {
-		if _, err := stmt.ExecContext(ctx, folderID, r.UID, r.MessageID, r.InReplyTo, toJSON(nonNil(r.References)),
-			r.From.Name, r.From.Email, toJSON(nonNilAddr(r.To)), toJSON(nonNilAddr(r.Cc)), toJSON(nonNilAddr(r.ReplyTo)),
+		refs, err := toJSON(nonNil(r.References))
+		if err != nil {
+			return err
+		}
+		to, err := toJSON(nonNilAddr(r.To))
+		if err != nil {
+			return err
+		}
+		cc, err := toJSON(nonNilAddr(r.Cc))
+		if err != nil {
+			return err
+		}
+		replyTo, err := toJSON(nonNilAddr(r.ReplyTo))
+		if err != nil {
+			return err
+		}
+		if _, err := stmt.ExecContext(ctx, folderID, r.UID, r.MessageID, r.InReplyTo, refs,
+			r.From.Name, r.From.Email, to, cc, replyTo,
 			r.Subject, r.Snippet, r.Date.Unix(), r.Size, b2i(r.Seen), b2i(r.Flagged), b2i(r.Answered),
 			b2i(r.HasAttachments)); err != nil {
 			return err
@@ -210,11 +226,15 @@ func (s *Store) SetBody(ctx context.Context, id int64, b BodyRow) error {
 	if atts == nil {
 		atts = []model.Attachment{}
 	}
+	attsJSON, err := toJSON(atts)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE messages SET body_html = ?, body_text = ?, has_remote_images = ?,
  attachments_json = ?, has_attachments = ?, body_cached = 1,
  snippet = CASE WHEN ? = '' THEN snippet ELSE ? END
  WHERE id = ?`,
-		b.HTML, b.Text, b2i(b.HasRemoteImages), toJSON(atts), b2i(len(atts) > 0), b.Snippet, b.Snippet, id)
+		b.HTML, b.Text, b2i(b.HasRemoteImages), attsJSON, b2i(len(atts) > 0), b.Snippet, b.Snippet, id)
 	if err != nil {
 		return err
 	}

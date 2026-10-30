@@ -177,9 +177,64 @@ func TestUpsertHeaders_AtomicOnFailure(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	_, fid := seedFolder(t, s)
-	err := s.UpsertHeaders(ctx, fid+100, []HeaderRow{hdr(1, time.Now(), false)})
-	assert.Error(t, err) // FK
-	assert.Empty(t, uids(t, s, fid))
+	now := time.Now()
+	// las dos primeras filas son válidas; la tercera (UID 0) viola el CHECK de uid
+	err := s.UpsertHeaders(ctx, fid, []HeaderRow{hdr(1, now, false), hdr(2, now, false), hdr(0, now, false)})
+	require.Error(t, err)
+	assert.Empty(t, uids(t, s, fid), "ninguna fila del lote debe persistir")
+}
+
+func TestUpsertHeaders_KeepsCachedBodyOnReupsert(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, fid := seedFolder(t, s)
+	row := hdr(1, time.Now(), false)
+	require.NoError(t, s.UpsertHeaders(ctx, fid, []HeaderRow{row}))
+	list, err := s.ListMessages(ctx, fid, model.ListQuery{})
+	require.NoError(t, err)
+	id := list[0].ID
+	att := []model.Attachment{{Index: 0, Filename: "a.pdf", MIMEType: "application/pdf", Size: 1, Part: []int{2}}}
+	require.NoError(t, s.SetBody(ctx, id, BodyRow{HTML: "<p>x</p>", Text: "x", Snippet: "resumen", Attachments: att}))
+
+	row.Snippet = "" // las cabeceras no traen snippet
+	row.HasAttachments = false
+	row.Seen = true
+	require.NoError(t, s.UpsertHeaders(ctx, fid, []HeaderRow{row}))
+	d, cached, err := s.GetMessage(ctx, id)
+	require.NoError(t, err)
+	assert.True(t, cached)
+	assert.Equal(t, "<p>x</p>", d.HTML)
+	assert.Equal(t, "x", d.Text)
+	assert.Equal(t, "resumen", d.Snippet)
+	assert.Equal(t, att, d.Attachments)
+	assert.True(t, d.HasAttachments)
+	assert.True(t, d.Seen, "los flags sí se actualizan")
+}
+
+func TestListMessages_Paging(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, fid := seedFolder(t, s)
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	var rows []HeaderRow
+	for i := 1; i <= 5; i++ {
+		rows = append(rows, hdr(uint32(i), base.Add(time.Duration(i)*time.Hour), false))
+	}
+	require.NoError(t, s.UpsertHeaders(ctx, fid, rows))
+	get := func(q model.ListQuery) []uint32 {
+		l, err := s.ListMessages(ctx, fid, q)
+		require.NoError(t, err)
+		out := []uint32{}
+		for _, m := range l {
+			out = append(out, m.UID)
+		}
+		return out
+	}
+	assert.Equal(t, []uint32{5, 4}, get(model.ListQuery{Limit: 2}))
+	assert.Equal(t, []uint32{3, 2}, get(model.ListQuery{Limit: 2, Offset: 2}))
+	assert.Equal(t, []uint32{1}, get(model.ListQuery{Limit: 2, Offset: 4}))
+	assert.Equal(t, []uint32{2, 1}, get(model.ListQuery{Offset: 3}))
+	assert.Empty(t, get(model.ListQuery{Limit: 2, Offset: 10}))
 }
 
 func TestDeleteUIDsNotIn(t *testing.T) {
