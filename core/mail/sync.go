@@ -39,13 +39,18 @@ func (c *Core) ListMessages(ctx context.Context, folderID int64, q model.ListQue
 // SyncAccount trae la lista de carpetas con sus contadores (LIST + STATUS),
 // la guarda en la caché y sincroniza INBOX.
 func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
 	var remote []imapx.RemoteFolder
-	err := c.withConn(ctx, accountID, func(conn *imapx.Conn) error {
+	err := c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
 		var err error
 		remote, err = conn.ListFolders()
 		return err
 	})
 	if err != nil {
+		return err
+	}
+	if err := c.ctxErr(ctx); err != nil {
 		return err
 	}
 	folders := make([]model.Folder, 0, len(remote))
@@ -57,17 +62,17 @@ func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 		counts[r.Name] = r
 	}
 	if err := c.store.ReplaceFolders(ctx, accountID, folders); err != nil {
-		return asUserError(err)
+		return c.ctxOrUserError(ctx, err)
 	}
 	cached, err := c.store.ListFolders(ctx, accountID)
 	if err != nil {
-		return asUserError(err)
+		return c.ctxOrUserError(ctx, err)
 	}
 	var inboxID int64
 	for _, f := range cached {
 		r := counts[f.Name]
 		if err := c.store.SetFolderCounts(ctx, f.ID, r.Unread, r.Total); err != nil {
-			return asUserError(err)
+			return c.ctxOrUserError(ctx, err)
 		}
 		if f.Role == "inbox" && f.Selectable {
 			inboxID = f.ID
@@ -83,18 +88,25 @@ func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 // SyncFolder sincroniza las cabeceras y los flags de una carpeta. Nunca
 // escribe en el servidor: abre la carpeta en solo lectura (EXAMINE).
 func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	if err := c.ctxErr(ctx); err != nil {
+		return err
+	}
 	f, _, err := c.store.GetFolder(ctx, folderID)
 	if err != nil {
-		return asUserError(err)
+		return c.ctxOrUserError(ctx, err)
 	}
-	return c.withConn(ctx, f.AccountID, func(conn *imapx.Conn) error {
+	return c.withConn(ctx, f.AccountID, func(ctx context.Context, conn *imapx.Conn) error {
 		return c.syncFolder(ctx, conn, folderID)
 	})
 }
 
-// syncFolder es idempotente: FolderSync se escribe al final, así que si se
-// corta a mitad de camino la próxima pasada vuelve a calcular lo que falta a
-// partir de lo que ya está en la caché.
+// syncFolder es idempotente: UIDNext se escribe al final, así que si se corta
+// a mitad de camino la próxima pasada vuelve a calcular lo que falta a partir
+// de lo que ya está en la caché. UIDVALIDITY, en cambio, se guarda apenas se
+// abre la carpeta con UIDNext en 0 ("incompleta", R19): si cambia antes de
+// completar la primera pasada, la siguiente lo detecta y resetea la caché.
 func (c *Core) syncFolder(ctx context.Context, conn *imapx.Conn, folderID int64) error {
 	f, last, err := c.store.GetFolder(ctx, folderID)
 	if err != nil {
@@ -104,8 +116,13 @@ func (c *Core) syncFolder(ctx context.Context, conn *imapx.Conn, folderID int64)
 	if err != nil {
 		return err
 	}
-	if last.UIDValidity != 0 && last.UIDValidity != info.UIDValidity {
-		if err := c.store.ResetFolder(ctx, folderID); err != nil {
+	if last.UIDValidity != info.UIDValidity {
+		if last.UIDValidity != 0 {
+			if err := c.store.ResetFolder(ctx, folderID); err != nil {
+				return err
+			}
+		}
+		if err := c.store.SetFolderSync(ctx, folderID, store.FolderSync{UIDValidity: info.UIDValidity}); err != nil {
 			return err
 		}
 	}
@@ -133,7 +150,7 @@ func (c *Core) syncFolder(ctx context.Context, conn *imapx.Conn, folderID int64)
 		}
 	}
 	for done := 0; done < len(fresh); {
-		if err := ctx.Err(); err != nil {
+		if err := c.ctxErr(ctx); err != nil {
 			return err
 		}
 		batch := fresh[done:min(done+headerBatch, len(fresh))]
@@ -165,7 +182,7 @@ func (c *Core) syncFolder(ctx context.Context, conn *imapx.Conn, folderID int64)
 // refreshFlags trae los flags de uids, guarda solo los que cambiaron y
 // devuelve los contadores de la carpeta según la caché.
 func (c *Core) refreshFlags(ctx context.Context, conn *imapx.Conn, folderID int64, uids []uint32) (unread, total int, err error) {
-	if err := ctx.Err(); err != nil {
+	if err := c.ctxErr(ctx); err != nil {
 		return 0, 0, err
 	}
 	remote, err := conn.FetchFlags(uids)

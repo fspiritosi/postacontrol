@@ -15,6 +15,12 @@ import (
 )
 
 // Notifier recibe los eventos del núcleo (la cáscara los traduce a eventos de Wails).
+//
+// Emit se llama de forma sincrónica desde la goroutine que sincroniza, a veces
+// con el lock de la conexión de una cuenta tomado: una implementación no debe
+// volver a llamar a Core de forma sincrónica (se trabaría) ni bloquear por
+// mucho tiempo. Si necesita reaccionar llamando a Core, que lo haga en otra
+// goroutine.
 type Notifier interface {
 	Emit(event string, data any)
 }
@@ -86,6 +92,8 @@ func (c *Core) spawn(fn func(ctx context.Context)) {
 	}()
 }
 
+// emit avisa por Notifier. Ver la advertencia de Notifier: se puede llamar con
+// el lock de la conexión de una cuenta tomado.
 func (c *Core) emit(event string, data any) {
 	if c.cfg.Notifier != nil {
 		c.cfg.Notifier.Emit(event, data)
@@ -115,31 +123,77 @@ func (c *Core) pooled(accountID int64) *pooledConn {
 	return pc
 }
 
-// withConn corre fn con la conexión de la cuenta (la abre si hace falta). Si
-// fn falla por un error de red, cierra la conexión, vuelve a conectar una vez
-// y reintenta. Si la conexión no se puede usar (red, credenciales o TLS) emite
-// EventSyncError. Close o la cancelación de ctx cortan la conexión en curso;
-// en ese caso no se reintenta ni se emite nada. Los errores salen como UserError.
-func (c *Core) withConn(ctx context.Context, accountID int64, fn func(*imapx.Conn) error) error {
+// lifeCtx deriva de ctx un contexto que además se cancela con Close.
+func (c *Core) lifeCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(ctx)
+	if c.ctx.Err() != nil { // AfterFunc cancelaría recién en otra goroutine
+		cancel()
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(c.ctx, cancel)
+	return ctx, func() { stop(); cancel() }
+}
+
+// ctxErr devuelve el error de ctx o, si el núcleo se está cerrando,
+// context.Canceled. Mira c.ctx directamente porque la cancelación que propaga
+// lifeCtx es asíncrona, y Close cancela c.ctx antes de cerrar el store.
+func (c *Core) ctxErr(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.ctx.Err()
+}
+
+// ctxOrUserError devuelve el error del contexto si se canceló (por ejemplo,
+// porque el núcleo se está cerrando y el store ya no está) y si no, err como
+// UserError.
+func (c *Core) ctxOrUserError(ctx context.Context, err error) error {
+	if cerr := c.ctxErr(ctx); cerr != nil {
+		return cerr
+	}
+	return asUserError(err)
+}
+
+// withConn corre fn con la conexión de la cuenta (la abre si hace falta). fn
+// recibe un contexto derivado de ctx que también se cancela con Close. Si fn
+// falla por un error de red, cierra la conexión, vuelve a conectar una vez y
+// reintenta, así que fn tiene que ser idempotente; para operaciones que no lo
+// son, usar withConnNoRetry.
+//
+// Si la conexión no se puede usar (red, credenciales o TLS) emite
+// EventSyncError. Close o la cancelación de ctx cortan la conexión en curso;
+// en ese caso no se reintenta ni se emite nada y el error es el del contexto
+// (context.Canceled). Los demás errores salen como UserError.
+func (c *Core) withConn(ctx context.Context, accountID int64, fn func(context.Context, *imapx.Conn) error) error {
+	return c.useConn(ctx, accountID, 2, fn)
+}
+
+// withConnNoRetry es como withConn pero hace un solo intento: si fn falla por
+// un error de red, descarta la conexión y devuelve el error sin reintentar.
+// Es para operaciones que no son idempotentes (por ejemplo, APPEND).
+func (c *Core) withConnNoRetry(ctx context.Context, accountID int64, fn func(context.Context, *imapx.Conn) error) error {
+	return c.useConn(ctx, accountID, 1, fn)
+}
+
+func (c *Core) useConn(ctx context.Context, accountID int64, attempts int, fn func(context.Context, *imapx.Conn) error) error {
+	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
-	defer context.AfterFunc(c.ctx, cancel)()
 
 	pc := c.pooled(accountID)
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
 	var err error
-	for range 2 {
+	for range attempts {
 		err = c.runOnConn(ctx, pc, accountID, fn)
-		if err == nil || ctx.Err() != nil || !errors.Is(err, imapx.ErrNetwork) {
+		if err == nil || c.ctxErr(ctx) != nil || !errors.Is(err, imapx.ErrNetwork) {
 			break
 		}
 	}
-	err = asUserError(err)
-	if err == nil || ctx.Err() != nil {
-		return err
+	if err == nil {
+		return nil
 	}
+	err = c.ctxOrUserError(ctx, err)
 	var ue *UserError
 	if errors.As(err, &ue) && (ue.Code == "network" || ue.Code == "auth" || ue.Code == "tls") {
 		c.emit(EventSyncError, map[string]any{"accountId": accountID, "message": ue.Msg})
@@ -149,7 +203,7 @@ func (c *Core) withConn(ctx context.Context, accountID int64, fn func(*imapx.Con
 
 // runOnConn hace un intento: conecta si hace falta y corre fn. Si la conexión
 // queda inservible (error de red o cancelación), la descarta.
-func (c *Core) runOnConn(ctx context.Context, pc *pooledConn, accountID int64, fn func(*imapx.Conn) error) error {
+func (c *Core) runOnConn(ctx context.Context, pc *pooledConn, accountID int64, fn func(context.Context, *imapx.Conn) error) error {
 	if pc.conn == nil {
 		conn, err := c.dial(ctx, accountID)
 		if err != nil {
@@ -159,7 +213,7 @@ func (c *Core) runOnConn(ctx context.Context, pc *pooledConn, accountID int64, f
 	}
 	conn := pc.conn
 	stop := context.AfterFunc(ctx, func() { _ = conn.Abort() })
-	err := fn(conn)
+	err := fn(ctx, conn)
 	if aborted := !stop(); aborted || errors.Is(err, imapx.ErrNetwork) {
 		_ = conn.Abort()
 		pc.conn = nil

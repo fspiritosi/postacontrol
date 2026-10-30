@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"postacontrol/core/imapx"
 	"postacontrol/core/model"
-	"postacontrol/core/store"
 	"postacontrol/core/testenv"
 )
 
@@ -269,7 +270,8 @@ func TestSyncFolder_RecoversAfterConnectionDrop(t *testing.T) {
 	inboxID := folderID(t, c, acc.ID, "INBOX")
 	_, fsync, err := c.store.GetFolder(context.Background(), inboxID)
 	require.NoError(t, err)
-	assert.Equal(t, store.FolderSync{}, fsync, "FolderSync se escribe solo al final")
+	assert.NotZero(t, fsync.UIDValidity, "UIDVALIDITY se guarda apenas se abre la carpeta (R19)")
+	assert.Zero(t, fsync.UIDNext, "UIDNext 0 = sincronización incompleta; se escribe solo al final")
 	known, err := c.store.KnownUIDs(context.Background(), inboxID)
 	require.NoError(t, err)
 	assert.Len(t, known, 200, "solo el lote completo, sin filas a medio escribir")
@@ -282,10 +284,51 @@ func TestSyncFolder_RecoversAfterConnectionDrop(t *testing.T) {
 	imap.Restart(t)
 	require.NoError(t, c.SyncFolder(context.Background(), inboxID))
 	assert.Len(t, listAll(t, c, inboxID), 450)
+	progress := n.matching(EventSyncProgress)
+	assert.Equal(t, map[string]any{"folderId": inboxID, "done": 200, "total": 250}, progress[len(progress)-2],
+		"la segunda pasada es incremental: solo los 250 que faltaban")
+	assert.Equal(t, map[string]any{"folderId": inboxID, "done": 250, "total": 250}, progress[len(progress)-1])
 	_, fsync, err = c.store.GetFolder(context.Background(), inboxID)
 	require.NoError(t, err)
 	assert.NotZero(t, fsync.UIDValidity)
 	assert.Equal(t, uint32(451), fsync.UIDNext)
+}
+
+// R19: si la primera sincronización se corta y después cambia el UIDVALIDITY,
+// la caché a medio llenar no se mezcla con los mensajes del buzón nuevo.
+func TestSyncFolder_UIDValidityChangeAfterInterruptedFirstSync(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	deliverN(t, imap, 450, "viejo")
+	acc, err := c.AddAccount(context.Background(), inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+
+	var once sync.Once
+	n.setHook(func(event string, _ any) {
+		if event == EventSyncProgress {
+			once.Do(imap.Close)
+		}
+	})
+	require.Error(t, c.SyncAccount(context.Background(), acc.ID))
+	n.setHook(nil)
+	inboxID := folderID(t, c, acc.ID, "INBOX")
+	require.Len(t, listAll(t, c, inboxID), 200, "quedaron los UID 251-450 del buzón viejo")
+
+	// El buzón se recrea con otros 450 mensajes: los UID 251-450 vuelven a
+	// existir pero son otros.
+	imap.RecreateMailbox(t, "INBOX")
+	deliverN(t, imap, 450, "nuevo")
+	imap.Restart(t)
+	require.NoError(t, c.SyncFolder(context.Background(), inboxID))
+
+	ms := listAll(t, c, inboxID)
+	assert.Len(t, ms, 450)
+	stale := []string{}
+	for _, m := range ms {
+		if !strings.HasPrefix(m.Subject, "nuevo-") {
+			stale = append(stale, m.Subject)
+		}
+	}
+	assert.Empty(t, stale, "filas del buzón viejo")
 }
 
 func TestWithConn_RedialsOnceWhenPooledConnDied(t *testing.T) {
@@ -410,4 +453,45 @@ func TestClose_WaitsForInitialSyncAndStopsIt(t *testing.T) {
 			assert.Equal(t, events, n.count())
 		})
 	}
+}
+
+func TestWithConnNoRetry_DoesNotRetry(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+
+	// La conexión del pool queda muerta aunque el servidor vuelva enseguida.
+	imap.Close()
+	imap.Restart(t)
+
+	calls := 0
+	err := c.withConnNoRetry(context.Background(), acc.ID, func(_ context.Context, conn *imapx.Conn) error {
+		calls++
+		_, err := conn.Select("INBOX")
+		return err
+	})
+	assert.Equal(t, "network", userErrCode(t, err))
+	assert.Equal(t, 1, calls, "no reconecta ni reintenta")
+	assert.Len(t, n.matching(EventSyncError), 1)
+
+	// La conexión rota se descartó: la próxima operación conecta de nuevo.
+	calls = 0
+	require.NoError(t, c.withConnNoRetry(context.Background(), acc.ID, func(_ context.Context, conn *imapx.Conn) error {
+		calls++
+		_, err := conn.Select("INBOX")
+		return err
+	}))
+	assert.Equal(t, 1, calls)
+}
+
+func TestSync_CancelledContextIsNotUserError(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, c.SyncAccount(ctx, acc.ID), context.Canceled)
+
+	// Con el núcleo cerrado tampoco aparece "sql: database is closed".
+	require.NoError(t, c.Close())
+	err := c.SyncAccount(context.Background(), acc.ID)
+	assert.ErrorIs(t, err, context.Canceled)
 }
