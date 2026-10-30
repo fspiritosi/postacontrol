@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"mime"
 	"mime/quotedprintable"
@@ -32,30 +33,49 @@ func DecodeHeaderWord(s string) string {
 	return out
 }
 
+// readHeader parsea la cabecera conservando los campos leídos aunque falle
+// más adelante (por ejemplo, si falta la línea en blanco final).
 func readHeader(mimeHeader []byte) textproto.Header {
-	h, err := textproto.ReadHeader(bufio.NewReader(bytes.NewReader(mimeHeader)))
-	if err != nil {
-		return textproto.Header{} // cabecera ilegible: se asume text/plain sin codificar
-	}
+	h, _ := textproto.ReadHeader(bufio.NewReader(bytes.NewReader(mimeHeader)))
 	return h
 }
 
-// DecodeText aplica el Content-Transfer-Encoding y el charset de mimeHeader a
-// body y devuelve UTF-8. mimeHeader puede ser la cabecera MIME de una parte o
-// la cabecera completa del mensaje. Ante un contenido que no se puede
-// interpretar devuelve el cuerpo crudo, sin error.
+// DecodeText devuelve el texto de una parte (o de un mensaje no multipart) en
+// UTF-8. mimeHeader puede ser la cabecera MIME de la parte o la cabecera
+// completa del mensaje; solo se usan Content-Type y Content-Transfer-Encoding.
+//
+// Es de mejor esfuerzo: el lector nunca debe romperse por un mensaje mal
+// formado, así que ante contenido no interpretable devuelve texto y error nil:
+//   - multipart/* (por ejemplo, un boundary que no cierra): el cuerpo crudo.
+//   - transfer-encoding que falla al decodificar: el cuerpo crudo, nunca una
+//     decodificación a medias. Un encoding desconocido se trata como identidad.
+//   - charset desconocido o ausente: los bytes tal cual, como UTF-8 si son
+//     válidos y si no como Windows-1252.
+//   - lectura parcial al convertir el charset: los bytes leídos hasta ahí.
+//
+// Solo devuelve error si la conversión de charset falla sin producir ningún
+// byte a partir de un cuerpo no vacío.
 func DecodeText(mimeHeader, body []byte) (string, error) {
-	hdr := readHeader(mimeHeader)
-	ent, err := message.New(message.Header{Header: hdr}, bytes.NewReader(body))
-	if ent == nil { // solo falla de verdad con errores que no son de charset
-		_ = err
+	hdr := message.Header{Header: readHeader(mimeHeader)}
+	mediaType, params, _ := hdr.ContentType()
+	if strings.HasPrefix(mediaType, "multipart/") {
 		return toUTF8(body), nil
 	}
-	// Con charset desconocido message.New devuelve la entidad con el cuerpo
-	// sin convertir (y un error); el multipart roto también cae acá.
-	out, rerr := io.ReadAll(ent.Body)
-	if rerr != nil && len(out) == 0 {
+	data, err := decodeTransfer(hdr.Header, body)
+	if err != nil {
 		return toUTF8(body), nil
+	}
+	cs := params["charset"]
+	if !strings.HasPrefix(mediaType, "text/") || cs == "" {
+		return toUTF8(data), nil
+	}
+	r, err := charset.Reader(cs, bytes.NewReader(data))
+	if err != nil { // charset desconocido
+		return toUTF8(data), nil
+	}
+	out, rerr := io.ReadAll(r)
+	if rerr != nil && len(out) == 0 && len(data) > 0 {
+		return "", fmt.Errorf("mimex: convertir charset %q: %w", cs, rerr)
 	}
 	return toUTF8(out), nil
 }
@@ -75,7 +95,10 @@ func toUTF8(b []byte) string {
 // DecodeBinary aplica solo el Content-Transfer-Encoding (base64,
 // quoted-printable o identidad); nunca convierte charsets.
 func DecodeBinary(mimeHeader, body []byte) ([]byte, error) {
-	hdr := readHeader(mimeHeader)
+	return decodeTransfer(readHeader(mimeHeader), body)
+}
+
+func decodeTransfer(hdr textproto.Header, body []byte) ([]byte, error) {
 	switch strings.ToLower(strings.TrimSpace(hdr.Get("Content-Transfer-Encoding"))) {
 	case "base64":
 		clean := bytes.Map(func(r rune) rune {

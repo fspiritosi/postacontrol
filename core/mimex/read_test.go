@@ -2,6 +2,7 @@ package mimex_test
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -186,4 +187,45 @@ func trimNL(s string) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+func TestDecodeText_InvalidBase64ReturnsRaw(t *testing.T) {
+	txt, err := mimex.DecodeText([]byte("Content-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n"), []byte("!!!no es base64!!!"))
+	require.NoError(t, err)
+	assert.Equal(t, "!!!no es base64!!!", txt)
+}
+
+func TestDecodeText_Base64Latin1(t *testing.T) {
+	body := base64.StdEncoding.EncodeToString([]byte("Informaci\xf3n"))
+	txt, err := mimex.DecodeText([]byte("Content-Type: text/plain; charset=iso-8859-1\r\nContent-Transfer-Encoding: base64\r\n\r\n"), []byte(body))
+	require.NoError(t, err)
+	assert.Equal(t, "Información", txt)
+}
+
+func TestDecodeText_HeaderWithoutBlankLine(t *testing.T) {
+	hdr := []byte("Content-Type: text/plain; charset=iso-8859-1\r\nContent-Transfer-Encoding: quoted-printable")
+	txt, err := mimex.DecodeText(hdr, []byte("Informaci=F3n"))
+	require.NoError(t, err)
+	assert.Equal(t, "Información", txt)
+}
+
+func TestDecodeText_HeaderWithGarbageLine(t *testing.T) {
+	hdr := []byte("Content-Type: text/plain; charset=iso-8859-1\r\nbasura sin dos puntos\r\n\r\n")
+	txt, err := mimex.DecodeText(hdr, []byte("Informaci\xf3n"))
+	require.NoError(t, err)
+	assert.Equal(t, "Información", txt)
+}
+
+func TestDecodeHeaderWord_WithAddress(t *testing.T) {
+	assert.Equal(t, "José <j@x.com>", mimex.DecodeHeaderWord("=?iso-8859-1?Q?Jos=E9?= <j@x.com>"))
+}
+
+func TestPlan_AlternativePicksLastHTML(t *testing.T) {
+	sp := func(sub string) *imap.BodyStructureSinglePart {
+		return &imap.BodyStructureSinglePart{Type: "text", Subtype: sub}
+	}
+	bs := &imap.BodyStructureMultiPart{Subtype: "alternative", Children: []imap.BodyStructure{sp("plain"), sp("html"), sp("html")}}
+	p := mimex.Plan(bs)
+	assert.Equal(t, []int{1}, p.TextPart)
+	assert.Equal(t, []int{3}, p.HTMLPart)
 }

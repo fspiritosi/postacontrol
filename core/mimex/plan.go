@@ -72,6 +72,7 @@ func (p *PartPlan) visitSingle(b *imap.BodyStructureSinglePart, path []int, inAl
 		}
 	case !isText && inRelated && strings.Trim(b.ID, "<> ") != "":
 		p.Inline = append(p.Inline, InlinePart{Part: path, ContentID: strings.Trim(b.ID, "<> "), MIMEType: mt})
+	// Una parte text/* con nombre es un archivo adjunto, no el cuerpo.
 	case !isText && name != "", isText && name != "":
 		p.addAttachment(b, path, name)
 	}
