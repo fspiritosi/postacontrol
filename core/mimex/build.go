@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"mime"
 	"strings"
 	"time"
 
@@ -71,7 +72,19 @@ func Build(o Outgoing) ([]byte, error) {
 		return nil, fmt.Errorf("mimex: falta el remitente")
 	}
 	var h gomail.Header
-	h.SetDate(o.Date)
+	if strings.ContainsAny(o.InReplyTo, "\r\n") {
+		return nil, fmt.Errorf("mimex: In-Reply-To inválido")
+	}
+	for _, r := range o.References {
+		if strings.ContainsAny(r, "\r\n") {
+			return nil, fmt.Errorf("mimex: References inválido")
+		}
+	}
+	date := o.Date
+	if date.IsZero() {
+		date = time.Now()
+	}
+	h.SetDate(date)
 	h.SetAddressList("From", toMailAddrs([]model.Address{o.From}))
 	if len(o.To) > 0 {
 		h.SetAddressList("To", toMailAddrs(o.To))
@@ -127,7 +140,9 @@ func Build(o Outgoing) ([]byte, error) {
 			mt = "application/octet-stream"
 		}
 		ah.SetContentType(mt, nil)
-		ah.SetFilename(a.Filename) // go-message lo codifica (RFC 2047 si no es ASCII)
+		// Se arma a mano para que los nombres no ASCII salgan en RFC 2231
+		// (filename*=utf-8''...); SetFilename usaría RFC 2047.
+		ah.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": a.Filename}))
 		aw, err := w.CreateAttachment(ah)
 		if err != nil {
 			return nil, err

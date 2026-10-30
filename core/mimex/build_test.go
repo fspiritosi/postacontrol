@@ -183,3 +183,46 @@ func TestNewMessageID_Format(t *testing.T) {
 	assert.Regexp(t, regexp.MustCompile(`^<[0-9a-f-]{36}@ej\.com>$`), id)
 	assert.NotEqual(t, id, NewMessageID("f@ej.com"))
 }
+
+func TestBuild_AttachmentFilenameRFC2231(t *testing.T) {
+	o := baseOutgoing()
+	o.Attachments = []OutAttachment{
+		{Filename: "presupuesto ñ.pdf", MIMEType: "application/pdf", Data: []byte("x")},
+		{Filename: "simple.txt", MIMEType: "text/plain", Data: []byte("y")},
+	}
+	raw, err := Build(o)
+	require.NoError(t, err)
+	s := string(raw)
+	assert.Contains(t, s, "filename*=utf-8''presupuesto%20%C3%B1.pdf")
+	assert.NotContains(t, s, "=?utf-8?")
+	assert.Contains(t, s, `filename=simple.txt`)
+	_, parts := parse(t, raw)
+	require.Len(t, parts, 4)
+	assert.Equal(t, "presupuesto ñ.pdf", parts[2].filename)
+	assert.Equal(t, "simple.txt", parts[3].filename)
+}
+
+func TestBuild_ZeroDateUsesNow(t *testing.T) {
+	o := baseOutgoing()
+	o.Date = time.Time{}
+	before := time.Now().Add(-time.Minute)
+	raw, err := Build(o)
+	require.NoError(t, err)
+	mr, err := mail.CreateReader(bytes.NewReader(raw))
+	require.NoError(t, err)
+	d, err := mr.Header.Date()
+	require.NoError(t, err)
+	assert.True(t, d.After(before) && d.Before(time.Now().Add(time.Minute)), d.String())
+}
+
+func TestBuild_RejectsHeaderInjection(t *testing.T) {
+	o := baseOutgoing()
+	o.InReplyTo = "<a@x>\r\nBcc: evil@x.com"
+	_, err := Build(o)
+	assert.Error(t, err)
+
+	o = baseOutgoing()
+	o.References = []string{"<r@x>", "<a@x>\nBcc: evil@x.com"}
+	_, err = Build(o)
+	assert.Error(t, err)
+}
