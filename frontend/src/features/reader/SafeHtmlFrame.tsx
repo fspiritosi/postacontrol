@@ -16,11 +16,12 @@ export function handleFrameClick(ev: Event): void {
   svc.OpenExternal(href).catch((e) => toast.error(errorMessage(e)));
 }
 
-type Props = { html: string; text: string; allowRemote: boolean };
+type Props = { html: string; text: string; allowRemote: boolean; bare?: boolean };
 
 // El cuerpo del correo vive en un iframe aislado: sandbox sin scripts ni
 // popups, CSP restrictiva en el documento y los enlaces salen al navegador.
-export function SafeHtmlFrame({ html, text, allowRemote }: Props) {
+export function SafeHtmlFrame({ html, text, allowRemote, bare = false }: Props) {
+  const margin = bare ? "mt-1" : "m-6";
   const ref = useRef<HTMLIFrameElement>(null);
   const srcDoc = useMemo(
     () => (html ? buildSrcDoc(html, { allowRemote }) : ""),
@@ -37,7 +38,7 @@ export function SafeHtmlFrame({ html, text, allowRemote }: Props) {
 
   if (!html) {
     return (
-      <div className="m-6 whitespace-pre-wrap rounded-lg bg-white p-4 text-sm text-neutral-900 shadow-sm">
+      <div className={`${margin} whitespace-pre-wrap rounded-lg bg-white p-4 text-sm text-neutral-900 shadow-sm`}>
         {text}
       </div>
     );
@@ -61,7 +62,7 @@ export function SafeHtmlFrame({ html, text, allowRemote }: Props) {
   };
 
   return (
-    <div className="m-6 overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-border">
+    <div className={`${margin} overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-border`}>
       <iframe
         ref={ref}
         title="Contenido del correo"

@@ -100,6 +100,9 @@ describe("Composer", () => {
 
   it("mantiene abierto y avisa si Send falla", async () => {
     vi.mocked(svc.Send).mockRejectedValue(new Error("El servidor rechazó el envío: 550"));
+    vi.mocked(svc.ListLocalDrafts)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...draft, id: 9 }] as never);
     const user = setup();
     await user.click(screen.getByText("responder"));
     await screen.findByLabelText("Para");
@@ -135,15 +138,55 @@ describe("Composer", () => {
     await waitFor(() => expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5));
   });
 
-  it("si el reenvío de un borrador falla, borra el viejo y conserva el nuevo", async () => {
+  it("si el reenvío de un borrador falla y aparece uno nuevo, borra el viejo y avisa", async () => {
     vi.mocked(svc.Send).mockRejectedValue(new Error("Sin conexión"));
-    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([{ ...draft, id: 5 }, { ...draft, id: 9 }] as never);
+    vi.mocked(svc.ListLocalDrafts)
+      .mockResolvedValueOnce([{ ...draft, id: 5 }] as never)
+      .mockResolvedValueOnce([{ ...draft, id: 5 }, { ...draft, id: 9 }] as never);
     const user = setup();
     await user.click(screen.getByText("borrador"));
     await user.click(await screen.findByRole("button", { name: "Enviar" }));
     await screen.findByText(/borrador local/);
     expect(svc.DeleteLocalDraft).toHaveBeenCalledTimes(1);
     expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5);
+  });
+
+  it("si no aparece borrador nuevo no borra nada ni afirma que lo guardó", async () => {
+    vi.mocked(svc.Send).mockRejectedValue(new Error("Sin conexión"));
+    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([{ ...draft, id: 5 }] as never);
+    const user = setup();
+    await user.click(screen.getByText("borrador"));
+    await user.click(await screen.findByRole("button", { name: "Enviar" }));
+    await screen.findByText(/Sin conexión/);
+    expect(screen.queryByText(/borrador local/)).not.toBeInTheDocument();
+    expect(svc.DeleteLocalDraft).not.toHaveBeenCalled();
+    // el id 5 sigue rastreado: un reintento exitoso lo borra
+    vi.mocked(svc.Send).mockResolvedValue({ sentCopySaved: true, warning: "" });
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5));
+  });
+
+  it("nunca borra un borrador ajeno más nuevo", async () => {
+    const other = { ...draft, id: 20 };
+    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([{ ...draft, id: 5 }, other] as never);
+    vi.mocked(svc.Send).mockRejectedValueOnce(new Error("Sin conexión"));
+    const user = setup();
+    await user.click(screen.getByText("borrador"));
+    await user.click(await screen.findByRole("button", { name: "Enviar" }));
+    await screen.findByText(/Sin conexión/);
+    expect(svc.DeleteLocalDraft).not.toHaveBeenCalled();
+    vi.mocked(svc.Send).mockResolvedValue({ sentCopySaved: true, warning: "" });
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.DeleteLocalDraft).toHaveBeenCalledTimes(1));
+    expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5);
+  });
+
+  it("una dirección inválida deshabilita Enviar y la señala", async () => {
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    await user.type(await screen.findByLabelText("Para"), "a@b.com, sin-arroba");
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+    expect(screen.getByText("Revisá estas direcciones: sin-arroba")).toBeInTheDocument();
   });
 
   it("pide confirmación al cerrar con cambios", async () => {

@@ -47,6 +47,7 @@ export function Composer({ init, onClose }: Props) {
   const [showCc, setShowCc] = useState(init.cc.length > 0 || init.bcc.length > 0);
   const [subject, setSubject] = useState(init.subject);
   const [error, setError] = useState<string | null>(null);
+  const [draftSaved, setDraftSaved] = useState(false);
   const [sending, setSending] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -75,27 +76,35 @@ export function Composer({ init, onClose }: Props) {
     void queryClient.invalidateQueries({ queryKey: ["drafts"] });
   };
 
-  // Tras un fallo el backend ya guardó un borrador nuevo (no guardamos otro):
-  // se descarta el anterior de este correo y se recuerda el más reciente.
-  const trackNewestDraft = async () => {
-    const previous = draftIdRef.current;
+  const listDraftIds = async (): Promise<number[] | null> => {
     try {
-      const list = (await svc.ListLocalDrafts()) ?? [];
-      const newest = list.reduce<number | undefined>(
-        (max, d) => (max === undefined || d.id > max ? d.id : max),
-        undefined,
-      );
-      if (previous !== undefined && previous !== newest) await deleteDraft(previous);
-      draftIdRef.current = newest;
+      return ((await svc.ListLocalDrafts()) ?? []).map((d) => d.id);
     } catch {
-      // sin lista: el borrador anterior queda; es preferible a perder el nuevo
+      return null;
     }
+  };
+
+  // Tras un fallo el backend ya guardó un borrador (no guardamos otro). Es
+  // "nuevo" solo lo que no estaba en la lista previa al envío. Devuelve true
+  // si se detectó exactamente uno.
+  const trackNewDraft = async (before: number[] | null): Promise<boolean> => {
+    if (before === null) return false;
+    const after = await listDraftIds();
+    if (after === null) return false;
+    const fresh = after.filter((id) => !before.includes(id));
+    if (fresh.length !== 1) return false;
+    const previous = draftIdRef.current;
+    if (previous !== undefined && after.includes(previous)) await deleteDraft(previous);
+    draftIdRef.current = fresh[0];
     void queryClient.invalidateQueries({ queryKey: ["drafts"] });
+    return true;
   };
 
   const send = async () => {
     setSending(true);
     setError(null);
+    setDraftSaved(false);
+    const before = await listDraftIds();
     try {
       const res = await svc.Send({
         accountId,
@@ -112,7 +121,7 @@ export function Composer({ init, onClose }: Props) {
       onClose();
     } catch (e) {
       setError(errorMessage(e));
-      await trackNewestDraft();
+      setDraftSaved(await trackNewDraft(before));
       setSending(false);
     }
   };
@@ -199,9 +208,7 @@ export function Composer({ init, onClose }: Props) {
             {init.quotedHtml && (
               <section aria-label="Mensaje original">
                 <p className="text-xs font-medium text-muted-foreground">Mensaje original</p>
-                <div className="-m-6">
-                  <SafeHtmlFrame html={init.quotedHtml} text="" allowRemote={false} />
-                </div>
+                <SafeHtmlFrame html={init.quotedHtml} text="" allowRemote={false} bare />
               </section>
             )}
           </div>
@@ -209,7 +216,7 @@ export function Composer({ init, onClose }: Props) {
           {error && (
             <Alert variant="destructive">
               <AlertDescription>
-                {error} Guardamos una copia como borrador local.
+                {error}{draftSaved && " Guardamos una copia como borrador local."}
               </AlertDescription>
             </Alert>
           )}
