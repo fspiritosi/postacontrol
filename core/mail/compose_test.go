@@ -246,3 +246,70 @@ func TestSend_NoRecipients(t *testing.T) {
 	assert.Equal(t, "no_recipients", ue.Code)
 	assert.True(t, strings.Contains(ue.Msg, "destinatario"))
 }
+
+func TestSend_ForwardOfExpungedOriginalSavesLocalDraft(t *testing.T) {
+	c, imap, smtp, acc, _, m := prepared(t, attachmentMail("factura.pdf"))
+	imap.Expunge(t, "INBOX", m.UID)
+	_, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "Reenvío perdido", BodyHTML: "<p>mirá</p>",
+		Reply: &model.ReplyContext{Mode: "forward", OriginalMessageID: m.ID},
+	})
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	ds, err := c.ListLocalDrafts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, ds, 1)
+	assert.Equal(t, "Reenvío perdido", ds[0].Request.Subject)
+	assert.Empty(t, smtp.Received())
+}
+
+func TestSend_ValidationErrorsDoNotSaveDraft(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	_, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "x",
+		Reply: &model.ReplyContext{Mode: "raro", OriginalMessageID: 1},
+	})
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "invalid", ue.Code)
+	_, err = c.Send(context.Background(), model.SendRequest{AccountID: acc.ID, Subject: "x"})
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "no_recipients", ue.Code)
+	ds, err := c.ListLocalDrafts(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, ds)
+}
+
+func TestSend_PlainTextAlternativeQuotesOriginal(t *testing.T) {
+	c, _, smtp, acc, _, m := prepared(t, threadMail())
+	_, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("a@x"), Subject: "Re: Hola", BodyHTML: "<p>ok</p>",
+		Reply: &model.ReplyContext{Mode: "reply", OriginalMessageID: m.ID},
+	})
+	require.NoError(t, err)
+	r := parseEnvelope(t, smtp.Received()[0])
+	var text string
+	for {
+		p, err := r.NextPart()
+		if err != nil {
+			break
+		}
+		if ih, ok := p.Header.(*gomail.InlineHeader); ok {
+			if ct, _, _ := ih.ContentType(); ct == "text/plain" {
+				b, _ := io.ReadAll(p.Body)
+				text = string(b)
+			}
+		}
+	}
+	require.NotEmpty(t, text)
+	assert.Contains(t, text, "escribió:")
+	assert.Contains(t, text, "\n> cuerpo")
+}
+
+func TestQuotedHTML_ZeroDateOmitsDate(t *testing.T) {
+	d := model.MessageDetail{Text: "x"}
+	d.From = model.Address{Name: "Bea", Email: "bea@ej.com"}
+	q := quotedHTML("reply", d)
+	assert.True(t, strings.HasPrefix(q, "<p>Bea &lt;bea@ej.com&gt; escribió:</p>"), q)
+}

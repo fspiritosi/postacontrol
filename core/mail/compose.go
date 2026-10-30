@@ -85,15 +85,31 @@ func originalBodyHTML(d model.MessageDetail) string {
 	return "<pre>" + html.EscapeString(d.Text) + "</pre>"
 }
 
+// quoteLead es el comienzo de la cita ("El {fecha}, {Nombre} <email>"); sin
+// fecha conocida queda solo el remitente.
+func quoteLead(d model.MessageDetail) string {
+	if d.Date.IsZero() {
+		return addrHTML(d.From)
+	}
+	return "El " + formatDateES(d.Date) + ", " + addrHTML(d.From)
+}
+
+func dateLine(d model.MessageDetail) string {
+	if d.Date.IsZero() {
+		return ""
+	}
+	return "<br>Fecha: " + formatDateES(d.Date)
+}
+
 func quotedHTML(mode model.ComposeMode, d model.MessageDetail) string {
 	switch mode {
 	case modeReply, modeReplyAll:
-		return "<p>El " + formatDateES(d.Date) + ", " + addrHTML(d.From) + " escribió:</p>" +
+		return "<p>" + quoteLead(d) + " escribió:</p>" +
 			`<blockquote type="cite" style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex">` +
 			originalBodyHTML(d) + "</blockquote>"
 	case modeForward:
 		return "<p>---------- Mensaje reenviado ----------<br>De: " + addrHTML(d.From) +
-			"<br>Fecha: " + formatDateES(d.Date) +
+			dateLine(d) +
 			"<br>Asunto: " + html.EscapeString(d.Subject) +
 			"<br>Para: " + addrsHTML(d.To) + "</p>" + originalBodyHTML(d)
 	}
@@ -157,7 +173,6 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 		return model.SendResult{}, c.ctxOrUserError(ctx, err)
 	}
 
-	var orig *model.MessageDetail
 	replying, forwarding := false, false
 	if req.Reply != nil {
 		switch req.Reply.Mode {
@@ -165,14 +180,23 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 			replying = true
 		case modeForward:
 			forwarding = true
+		case "", "new":
+		default:
+			return model.SendResult{}, &UserError{Code: "invalid", Msg: "No pudimos preparar la respuesta."}
 		}
-		if replying || forwarding {
-			d, err := c.GetMessage(ctx, req.Reply.OriginalMessageID)
-			if err != nil {
-				return model.SendResult{}, err
-			}
-			orig = &d
+	}
+	if len(mimex.Recipients(mimex.Outgoing{To: req.To, Cc: req.Cc, Bcc: req.Bcc})) == 0 {
+		return model.SendResult{}, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
+	}
+
+	// Desde acá, cualquier falla guarda un borrador local para no perder lo escrito.
+	var orig *model.MessageDetail
+	if replying || forwarding {
+		d, err := c.GetMessage(ctx, req.Reply.OriginalMessageID)
+		if err != nil {
+			return model.SendResult{}, c.failWithDraft(ctx, req, err)
 		}
+		orig = &d
 	}
 
 	body := bodyWrapperOpen + req.BodyHTML + "</div>"
@@ -203,7 +227,7 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 		for i := range orig.Attachments {
 			att, data, err := c.attachmentBytes(ctx, orig.ID, i)
 			if err != nil {
-				return model.SendResult{}, err
+				return model.SendResult{}, c.failWithDraft(ctx, req, err)
 			}
 			name := att.Filename
 			if name == "" {
@@ -213,27 +237,13 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 		}
 	}
 	rcpts := mimex.Recipients(out)
-	if len(rcpts) == 0 {
-		return model.SendResult{}, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
-	}
 	raw, err := mimex.Build(out)
 	if err != nil {
-		return model.SendResult{}, &UserError{Code: "invalid", Msg: "No pudimos armar el correo: " + err.Error(), Err: err}
+		return model.SendResult{}, c.failWithDraft(ctx, req,
+			&UserError{Code: "invalid", Msg: "No pudimos armar el correo: " + err.Error(), Err: err})
 	}
-
 	if err := c.smtpSend(ctx, acc, rcpts, raw); err != nil {
-		if cerr := c.ctxErr(ctx); cerr != nil {
-			return model.SendResult{}, cerr
-		}
-		uerr := asUserError(err)
-		var ue *UserError
-		if !errors.As(uerr, &ue) {
-			ue = &UserError{Code: "send", Msg: "No pudimos enviar el correo.", Err: err}
-		}
-		if _, derr := c.store.SaveLocalDraft(ctx, req, ue.Msg); derr != nil {
-			return model.SendResult{}, c.ctxOrUserError(ctx, derr)
-		}
-		return model.SendResult{}, ue
+		return model.SendResult{}, c.failWithDraft(ctx, req, err)
 	}
 
 	// El correo ya salió: de acá en adelante nada convierte el envío en error.
@@ -250,6 +260,21 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 		c.markAnswered(ctx, *orig)
 	}
 	return res, nil
+}
+
+// failWithDraft guarda req como borrador local y devuelve err como UserError.
+// Si el contexto se canceló devuelve ese error y no guarda nada. Si no se
+// puede guardar el borrador, igual devuelve el error original del envío.
+func (c *Core) failWithDraft(ctx context.Context, req model.SendRequest, err error) error {
+	if cerr := c.ctxErr(ctx); cerr != nil {
+		return cerr
+	}
+	var ue *UserError
+	if !errors.As(asUserError(err), &ue) {
+		ue = &UserError{Code: "send", Msg: "No pudimos enviar el correo.", Err: err}
+	}
+	_, _ = c.store.SaveLocalDraft(ctx, req, ue.Msg) // si falla, el error útil es el del envío
+	return ue
 }
 
 func (c *Core) smtpSend(ctx context.Context, acc model.Account, rcpts []string, raw []byte) error {
