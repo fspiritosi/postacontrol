@@ -173,3 +173,29 @@ func TestRemoveAccount_ClearsCacheAndSecret(t *testing.T) {
 	err = c.RemoveAccount(context.Background(), acc.ID)
 	assert.Equal(t, "not_found", userErrCode(t, err))
 }
+
+func TestSetSaveSentCopy_DisablesSentCopy(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.True(t, acc.SaveSentCopy)
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	before := len(n.matching(EventAccountsChanged))
+
+	require.NoError(t, c.SetSaveSentCopy(ctx, acc.ID, false))
+	assert.Len(t, n.matching(EventAccountsChanged), before+1)
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.False(t, list[0].SaveSentCopy)
+
+	res, err := c.Send(ctx, model.SendRequest{AccountID: acc.ID, To: []model.Address{{Email: "d@x"}}, Subject: "s", BodyHTML: "<p>x</p>"})
+	require.NoError(t, err)
+	assert.False(t, res.SentCopySaved)
+	assert.Empty(t, res.Warning, "sin copia pedida no hay aviso")
+	st, err := imap.User.Status("Sent", &goimap.StatusOptions{NumMessages: true})
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0), *st.NumMessages)
+
+	assert.Equal(t, "not_found", userErrCode(t, c.SetSaveSentCopy(ctx, acc.ID+99, true)))
+}

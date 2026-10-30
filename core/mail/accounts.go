@@ -95,6 +95,16 @@ func (c *Core) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	return c.store.ListAccounts(ctx)
 }
 
+// SetSaveSentCopy cambia si, al enviar, se guarda una copia en Enviados (por
+// ejemplo, si el servidor ya la guarda solo).
+func (c *Core) SetSaveSentCopy(ctx context.Context, accountID int64, save bool) error {
+	if err := c.store.SetSaveSentCopy(ctx, accountID, save); err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	c.emit(EventAccountsChanged, nil)
+	return nil
+}
+
 // RemoveAccount borra la caché local y el secreto. No toca el servidor.
 func (c *Core) RemoveAccount(ctx context.Context, id int64) error {
 	acc, err := c.store.GetAccount(ctx, id)

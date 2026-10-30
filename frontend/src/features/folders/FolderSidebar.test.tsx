@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListFolders: vi.fn(() => Promise.resolve([])),
   RemoveAccount: vi.fn(() => Promise.resolve()),
+  SetSaveSentCopy: vi.fn(() => Promise.resolve()),
   SyncAccount: vi.fn(() => Promise.resolve()),
   SyncFolder: vi.fn(() => Promise.resolve()),
 }));
@@ -41,5 +42,22 @@ describe("FolderSidebar", () => {
     await user.click(screen.getAllByRole("button", { name: "Quitar cuenta" }).pop()!);
     await waitFor(() => expect(svc.RemoveAccount).toHaveBeenCalledWith(7));
     await waitFor(() => expect(selectFolder).toHaveBeenCalledWith(null));
+  });
+
+  it("el menú de la cuenta muestra y cambia Guardar copia en Enviados", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <FolderSidebar
+          account={account}
+          state={{ accountId: 7, folderId: 3, messageId: null, selectFolder: vi.fn(), selectMessage: vi.fn() }}
+        />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByLabelText("Opciones de la cuenta"));
+    const item = await screen.findByRole("menuitemcheckbox", { name: "Guardar copia en Enviados" });
+    expect(item.getAttribute("aria-checked")).toBe("true");
+    await user.click(item);
+    await waitFor(() => expect(svc.SetSaveSentCopy).toHaveBeenCalledWith(7, false));
   });
 });

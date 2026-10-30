@@ -351,3 +351,23 @@ func TestLocalDrafts_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
+
+func TestSetSaveSentCopy(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	a := hostinger()
+	a.SaveSentCopy = true
+	id, err := s.InsertAccount(ctx, a)
+	require.NoError(t, err)
+
+	require.NoError(t, s.SetSaveSentCopy(ctx, id, false))
+	got, err := s.GetAccount(ctx, id)
+	require.NoError(t, err)
+	assert.False(t, got.SaveSentCopy)
+	require.NoError(t, s.SetSaveSentCopy(ctx, id, true))
+	got, err = s.GetAccount(ctx, id)
+	require.NoError(t, err)
+	assert.True(t, got.SaveSentCopy)
+
+	assert.ErrorIs(t, s.SetSaveSentCopy(ctx, id+99, false), ErrNotFound)
+}

@@ -24,8 +24,10 @@ import {
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/lib/errors";
@@ -121,6 +123,15 @@ export function FolderSidebar({ account, state }: { account: Account; state: She
     svc.SyncAccount(account.id).catch((e) => toastSyncError(account.id, e));
   };
 
+  const setSaveSentCopy = async (save: boolean) => {
+    try {
+      await svc.SetSaveSentCopy(account.id, save);
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   const remove = async () => {
     setRemoving(true);
     try {
@@ -155,6 +166,13 @@ export function FolderSidebar({ account, state }: { account: Account; state: She
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={refresh}>Actualizar</DropdownMenuItem>
+            <DropdownMenuCheckboxItem
+              checked={account.saveSentCopy}
+              onCheckedChange={(v) => void setSaveSentCopy(v === true)}
+            >
+              Guardar copia en Enviados
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => setConfirmOpen(true)}>
               Quitar cuenta
             </DropdownMenuItem>

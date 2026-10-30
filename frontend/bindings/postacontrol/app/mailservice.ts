@@ -78,6 +78,13 @@ export function Send(req: model$0.SendRequest): $CancellablePromise<model$0.Send
     return $Call.ByID(2176208561, req);
 }
 
+/**
+ * SetSaveSentCopy cambia si se guarda la copia de lo enviado en Enviados.
+ */
+export function SetSaveSentCopy(accountID: number, save: boolean): $CancellablePromise<void> {
+    return $Call.ByID(672415571, accountID, save);
+}
+
 export function SyncAccount(accountID: number): $CancellablePromise<void> {
     return $Call.ByID(2182296031, accountID);
 }

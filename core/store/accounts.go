@@ -72,3 +72,15 @@ func (s *Store) DeleteAccount(ctx context.Context, id int64) error {
 	}
 	return nil
 }
+
+// SetSaveSentCopy cambia si se guarda la copia de lo enviado en Enviados.
+func (s *Store) SetSaveSentCopy(ctx context.Context, id int64, save bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET save_sent_copy = ? WHERE id = ?`, b2i(save), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

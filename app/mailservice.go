@@ -79,6 +79,11 @@ func (s *MailService) RemoveAccount(ctx context.Context, id int64) error {
 	return s.core.RemoveAccount(ctx, id)
 }
 
+// SetSaveSentCopy cambia si se guarda la copia de lo enviado en Enviados.
+func (s *MailService) SetSaveSentCopy(ctx context.Context, accountID int64, save bool) error {
+	return s.core.SetSaveSentCopy(ctx, accountID, save)
+}
+
 func (s *MailService) ListFolders(ctx context.Context, accountID int64) ([]model.Folder, error) {
 	return s.core.ListFolders(ctx, accountID)
 }
