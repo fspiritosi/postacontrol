@@ -5,12 +5,15 @@ import { errorMessage } from "@/lib/errors";
 import { buildSrcDoc } from "@/lib/srcdoc";
 
 // Intercepta clics en enlaces HTML del documento del correo y los abre afuera.
-// Solo <a> HTML con href string (se ignoran los <a> de SVG, cuyo href es un objeto).
+// Solo <a> HTML con href string (los <a> de SVG tienen un SVGAnimatedString).
+// Sin instanceof: el nodo vive en otro realm (el del iframe).
 export function handleFrameClick(ev: Event): void {
-  const a = (ev.target as Element | null)?.closest?.("a[href]");
-  if (!(a instanceof HTMLAnchorElement) || typeof a.href !== "string") return;
+  const a = (ev.target as Element | null)?.closest?.("a");
+  if (!a || a.namespaceURI !== "http://www.w3.org/1999/xhtml" || a.localName !== "a") return;
+  const href = (a as unknown as { href?: unknown }).href;
+  if (typeof href !== "string" || href === "") return;
   ev.preventDefault();
-  svc.OpenExternal(a.href).catch((e) => toast.error(errorMessage(e)));
+  svc.OpenExternal(href).catch((e) => toast.error(errorMessage(e)));
 }
 
 type Props = { html: string; text: string; allowRemote: boolean };
@@ -24,7 +27,13 @@ export function SafeHtmlFrame({ html, text, allowRemote }: Props) {
     [html, allowRemote],
   );
   const observer = useRef<ResizeObserver | null>(null);
-  useEffect(() => () => observer.current?.disconnect(), []);
+  // Corta el observer al cambiar el HTML, pasar a texto plano o desmontar.
+  useEffect(() => {
+    return () => {
+      observer.current?.disconnect();
+      observer.current = null;
+    };
+  }, [html]);
 
   if (!html) {
     return (
@@ -39,6 +48,7 @@ export function SafeHtmlFrame({ html, text, allowRemote }: Props) {
     const doc = frame?.contentDocument;
     if (!frame || !doc) return;
     const fit = () => {
+      frame.style.height = "0px"; // permite que también se achique
       // documentElement incluye los márgenes del body (body.scrollHeight no).
       frame.style.height = `${doc.documentElement.scrollHeight}px`;
     };

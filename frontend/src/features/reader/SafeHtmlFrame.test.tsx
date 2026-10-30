@@ -52,3 +52,23 @@ describe("handleFrameClick", () => {
     expect(svc.OpenExternal).not.toHaveBeenCalled();
   });
 });
+
+describe("handleFrameClick entre realms", () => {
+  it("funciona con un <a> creado en el documento de un iframe", () => {
+    vi.mocked(svc.OpenExternal).mockClear();
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    const idoc = frame.contentDocument!;
+    const a = idoc.createElement("a");
+    a.setAttribute("href", "https://x.y/");
+    a.textContent = "x";
+    idoc.body.appendChild(a);
+    // Precondición: el constructor del iframe es otro.
+    expect(a instanceof window.HTMLAnchorElement).toBe(false);
+    const ev = new (frame.contentWindow as unknown as typeof globalThis).MouseEvent("click", { bubbles: true, cancelable: true });
+    idoc.addEventListener("click", handleFrameClick, { once: true });
+    a.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(svc.OpenExternal).toHaveBeenCalledWith("https://x.y/");
+  });
+});
