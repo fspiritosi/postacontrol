@@ -49,6 +49,22 @@ func inList(n int) string {
 	return "(?,?)"
 }
 
+// threadsSQL arma la consulta de ListThreads para un alcance de scopeLen
+// carpetas. Parámetros: el alcance dos veces, la carpeta, limit y offset.
+func threadsSQL(scopeLen int, unreadOnly bool) string {
+	in := inList(scopeLen)
+	query := `SELECT * FROM (SELECT ` + summaryCols + `, m.thread_root,
+ (SELECT COUNT(*) FROM messages x WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + `) AS cnt,
+ (SELECT COUNT(*) FROM messages x WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + ` AND x.seen = 0) AS unread
+ FROM messages m JOIN folders f ON f.id = m.folder_id
+ WHERE m.folder_id = ? AND m.id = (SELECT y.id FROM messages y WHERE y.folder_id = m.folder_id AND y.thread_root = m.thread_root
+                                   ORDER BY y.date DESC, y.id DESC LIMIT 1))`
+	if unreadOnly {
+		query += ` WHERE unread > 0`
+	}
+	return query + ` ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`
+}
+
 // ListThreads agrupa los mensajes de la carpeta por hilo, del más reciente al
 // más antiguo. Count y Unread incluyen los mensajes del hilo en Enviados.
 func (s *Store) ListThreads(ctx context.Context, folderID int64, q model.ListQuery) ([]model.ThreadSummary, error) {
@@ -56,17 +72,7 @@ func (s *Store) ListThreads(ctx context.Context, folderID int64, q model.ListQue
 	if err != nil {
 		return nil, err
 	}
-	in := inList(len(scope))
-	query := `SELECT * FROM (SELECT ` + summaryCols + `, m.thread_root,
- (SELECT COUNT(*) FROM messages x WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + `) AS cnt,
- (SELECT COUNT(*) FROM messages x WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + ` AND x.seen = 0) AS unread
- FROM messages m JOIN folders f ON f.id = m.folder_id
- WHERE m.folder_id = ? AND m.id = (SELECT y.id FROM messages y WHERE y.folder_id = m.folder_id AND y.thread_root = m.thread_root
-                                   ORDER BY y.date DESC, y.id DESC LIMIT 1))`
-	if q.UnreadOnly {
-		query += ` WHERE unread > 0`
-	}
-	query += ` ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`
+	query := threadsSQL(len(scope), q.UnreadOnly)
 	limit, offset := -1, 0
 	if q.Limit > 0 {
 		limit = q.Limit

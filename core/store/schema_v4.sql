@@ -27,6 +27,8 @@ CREATE INDEX idx_messages_to_index ON messages(date DESC) WHERE body_cached = 0 
 
 ALTER TABLE messages ADD COLUMN thread_root TEXT NOT NULL DEFAULT '';
 CREATE INDEX idx_messages_thread_root ON messages(thread_root);
+-- ListThreads: el último del hilo dentro de la carpeta sin recorrerla entera.
+CREATE INDEX idx_messages_folder_thread ON messages(folder_id, thread_root, date DESC, id DESC);
 UPDATE messages SET thread_root = COALESCE(
   NULLIF(json_extract(references_json, '$[0]'), ''),
   NULLIF(in_reply_to, ''),
