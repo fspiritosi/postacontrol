@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
 import {
   PROGRESS_REFRESH_MS,
+  onOpenMessage,
   onPasswordRequest,
   resetSyncStateForTests,
   syncFolder,
@@ -51,6 +52,16 @@ describe("useMailEvents", () => {
     invalidate.mock.calls.filter(
       ([f]: [{ queryKey: unknown[] }]) => f.queryKey[0] === "messages" && f.queryKey[1] === 3,
     ).length;
+
+  it("app:open-message llega a onOpenMessage", () => {
+    const cb = vi.fn();
+    const off = onOpenMessage(cb);
+    emit("app:open-message", { folderId: 4, messageId: 9 });
+    expect(cb).toHaveBeenCalledWith({ folderId: 4, messageId: 9 });
+    off();
+    emit("app:open-message", { folderId: 4, messageId: 0 });
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
 
   it("recarga la bandeja de salida cuando cambia", () => {
     emit("mail:outbox-updated", null);

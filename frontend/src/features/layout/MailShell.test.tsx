@@ -24,7 +24,7 @@ vi.mock("../compose/ComposerContext", () => ({ useComposer: () => ({ openNew }) 
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
-import { resetSyncStateForTests } from "@/lib/events";
+import { requestOpenMessage, resetSyncStateForTests } from "@/lib/events";
 import type { View } from "@/lib/view";
 import { MailShell, type ShellState } from "./MailShell";
 
@@ -107,6 +107,18 @@ describe("MailShell", () => {
     await waitFor(() => expect(svc.SyncUnified).toHaveBeenCalledWith("flagged"));
     expect(state().messageId).toBeNull();
     expect(shown()).toEqual({ kind: "unified", role: "flagged" });
+  });
+
+  it("abrir desde la notificación selecciona la carpeta y el correo", async () => {
+    const { state } = setup(null, false);
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 21 }));
+    act(() => requestOpenMessage({ folderId: 51, messageId: 8 }));
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 51 }));
+    expect(state().messageId).toBe(8);
+    // messageId 0 (resumen): solo la carpeta, sin correo.
+    act(() => requestOpenMessage({ folderId: 22, messageId: 0 }));
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 22 }));
+    expect(state().messageId).toBeNull();
   });
 
   it("Redactar usa la cuenta de la carpeta abierta, o la primera en una unificada", async () => {

@@ -1,7 +1,7 @@
 import { MailIcon, PencilIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
-import { syncFolder, syncUnified } from "@/lib/events";
+import { onOpenMessage, syncFolder, syncUnified } from "@/lib/events";
 import { useAllFolders, useSettings } from "@/lib/queries";
 import { defaultView, loadView, saveView, viewAccount, viewIsValid, type View } from "@/lib/view";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -115,6 +115,17 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setChosen(v);
     setMessageId(null);
   }, []);
+
+  // Abrir desde una notificación: primero la carpeta (que limpia el mensaje) y
+  // después el mensaje. Ambos set* se agrupan en un solo render y el último gana.
+  useEffect(
+    () =>
+      onOpenMessage(({ folderId, messageId: id }) => {
+        selectView({ kind: "folder", folderId });
+        if (id > 0) setMessageId(id);
+      }),
+    [selectView],
+  );
 
   const view = !ready || valid ? chosen : null;
   const composeAccount = viewAccount(view, folders, accounts) ?? accounts[0];

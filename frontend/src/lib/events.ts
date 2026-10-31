@@ -64,6 +64,22 @@ export function requestPassword(accountId: number): void {
   passwordListeners.forEach((l) => l(accountId));
 }
 
+// Pedido de abrir un correo (o solo su carpeta, con messageId 0) que llega al
+// tocar una notificación. Lo escucha MailShell, que es quien tiene la selección.
+export type OpenMessageRequest = { folderId: number; messageId: number };
+const openListeners = new Set<(r: OpenMessageRequest) => void>();
+
+export function onOpenMessage(cb: (r: OpenMessageRequest) => void): () => void {
+  openListeners.add(cb);
+  return () => {
+    openListeners.delete(cb);
+  };
+}
+
+export function requestOpenMessage(r: OpenMessageRequest): void {
+  openListeners.forEach((l) => l(r));
+}
+
 export function syncErrorToastId(accountId: number): string {
   return `sync-error-${accountId}`;
 }
@@ -170,6 +186,11 @@ export function useMailEvents(queryClient: QueryClient): void {
         const p = ev.data as SyncProgress;
         setProgress(p.done >= p.total ? null : p);
         refreshThrottled(p.folderId);
+      }),
+      // Se registra acá (y no en MailShell) porque este hook se monta una sola
+      // vez en App; así hay un único Events.On aunque MailShell se remonte.
+      Events.On("app:open-message", (ev) => {
+        requestOpenMessage(ev.data as OpenMessageRequest);
       }),
       Events.On("mail:outbox-updated", () => {
         void queryClient.invalidateQueries({ queryKey: ["drafts"] });
