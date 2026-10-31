@@ -603,3 +603,62 @@ func TestWrites_EmptyUIDsAreNoOps(t *testing.T) {
 	require.NoError(t, c.Move(nil, "Sent"))
 	require.NoError(t, c.ExpungeUIDs(nil))
 }
+
+func TestListFolders_OneFolderPerRole(t *testing.T) {
+	s, tlsc := setup(t)
+	for _, name := range []string{"Trash", "Clientes", "Clientes/Papelera", "Proyectos", "Proyectos/Trash", "Proyectos/Sent"} {
+		require.NoError(t, s.User.Create(name, nil))
+	}
+	c := dial(t, s, tlsc)
+
+	folders, err := c.ListFolders()
+	require.NoError(t, err)
+	by := map[string]imapx.RemoteFolder{}
+	for _, f := range folders {
+		by[f.Name] = f
+	}
+	assert.Equal(t, model.FolderRole("trash"), by["Trash"].Role)
+	assert.Equal(t, model.FolderRole(""), by["Clientes/Papelera"].Role)
+	assert.Equal(t, model.FolderRole(""), by["Proyectos/Trash"].Role)
+	assert.Equal(t, model.FolderRole("sent"), by["Sent"].Role)
+	assert.Equal(t, model.FolderRole(""), by["Proyectos/Sent"].Role)
+}
+
+func TestUniqueRoles(t *testing.T) {
+	f := func(name string, role model.FolderRole, special bool) imapx.RemoteFolder {
+		return imapx.RemoteFolder{Name: name, Delimiter: ".", Role: role, SpecialUse: special, Selectable: true}
+	}
+	roles := func(fs []imapx.RemoteFolder) map[string]model.FolderRole {
+		out := map[string]model.FolderRole{}
+		for _, x := range fs {
+			out[x.Name] = x.Role
+		}
+		return out
+	}
+	cases := []struct {
+		name string
+		in   []imapx.RemoteFolder
+		want map[string]model.FolderRole
+	}{
+		{"la menos profunda gana", []imapx.RemoteFolder{
+			f("INBOX.Clientes.Papelera", "trash", false), f("INBOX.Trash", "trash", false), f("INBOX", "inbox", false),
+		}, map[string]model.FolderRole{"INBOX.Clientes.Papelera": "", "INBOX.Trash": "trash", "INBOX": "inbox"}},
+		{"empate: la primera por nombre", []imapx.RemoteFolder{
+			f("Trash", "trash", false), f("Deleted Items", "trash", false),
+		}, map[string]model.FolderRole{"Trash": "", "Deleted Items": "trash"}},
+		{"special-use gana aunque esté más adentro", []imapx.RemoteFolder{
+			f("Trash", "trash", false), f("INBOX.Cosas.Borrados", "trash", true),
+		}, map[string]model.FolderRole{"Trash": "", "INBOX.Cosas.Borrados": "trash"}},
+		{"una no seleccionable no gana", []imapx.RemoteFolder{
+			{Name: "Trash", Delimiter: ".", Role: "trash"}, f("INBOX.Trash", "trash", false),
+		}, map[string]model.FolderRole{"Trash": "", "INBOX.Trash": "trash"}},
+		{"roles distintos no se pisan", []imapx.RemoteFolder{
+			f("Sent", "sent", false), f("Trash", "trash", false), f("Facturas", "", false),
+		}, map[string]model.FolderRole{"Sent": "sent", "Trash": "trash", "Facturas": ""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, roles(imapx.UniqueRoles(tc.in)))
+		})
+	}
+}

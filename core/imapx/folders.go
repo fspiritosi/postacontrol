@@ -13,12 +13,15 @@ import (
 type RemoteFolder struct {
 	Name, Delimiter string
 	Role            model.FolderRole
-	Selectable      bool
-	Unread, Total   int
+	// SpecialUse dice si el rol salió de un atributo special-use del servidor
+	// (y no del nombre).
+	SpecialUse    bool
+	Selectable    bool
+	Unread, Total int
 }
 
 // ListFolders hace LIST "" "*" y, de cada carpeta seleccionable, STATUS
-// (MESSAGES UNSEEN).
+// (MESSAGES UNSEEN). Cada rol queda en una sola carpeta (ver UniqueRoles).
 func (c *Conn) ListFolders() ([]RemoteFolder, error) {
 	var opts *imap.ListOptions
 	caps := c.c.Caps()
@@ -42,6 +45,7 @@ func (c *Conn) ListFolders() ([]RemoteFolder, error) {
 			Name:       it.Mailbox,
 			Delimiter:  delim,
 			Role:       DetectRole(it.Mailbox, delim, it.Attrs),
+			SpecialUse: specialUseRole(it.Attrs) != "",
 			Selectable: !slices.Contains(it.Attrs, imap.MailboxAttrNoSelect),
 		}
 		if f.Selectable {
@@ -58,7 +62,52 @@ func (c *Conn) ListFolders() ([]RemoteFolder, error) {
 		}
 		out = append(out, f)
 	}
-	return out, nil
+	return UniqueRoles(out), nil
+}
+
+// UniqueRoles deja cada rol en una sola carpeta de la cuenta; las demás
+// candidatas quedan sin rol. Sin esto, una subcarpeta "Clientes.Papelera" o
+// "Proyectos/Trash" también sería la Papelera y borrar, enviar o la vista
+// unificada podrían usar la equivocada. Gana, en orden: la seleccionable, la
+// que el servidor marca con special-use, la menos profunda (menos segmentos)
+// y, si empatan, la primera por nombre. Modifica fs y lo devuelve.
+func UniqueRoles(fs []RemoteFolder) []RemoteFolder {
+	winner := map[model.FolderRole]int{}
+	for i, f := range fs {
+		if f.Role == "" {
+			continue
+		}
+		if j, ok := winner[f.Role]; !ok || betterRoleCandidate(f, fs[j]) {
+			winner[f.Role] = i
+		}
+	}
+	for i := range fs {
+		if r := fs[i].Role; r != "" && winner[r] != i {
+			fs[i].Role = ""
+			fs[i].SpecialUse = false
+		}
+	}
+	return fs
+}
+
+func betterRoleCandidate(a, b RemoteFolder) bool {
+	if a.Selectable != b.Selectable {
+		return a.Selectable
+	}
+	if a.SpecialUse != b.SpecialUse {
+		return a.SpecialUse
+	}
+	if da, db := folderDepth(a), folderDepth(b); da != db {
+		return da < db
+	}
+	return a.Name < b.Name
+}
+
+func folderDepth(f RemoteFolder) int {
+	if f.Delimiter == "" {
+		return 1
+	}
+	return strings.Count(f.Name, f.Delimiter) + 1
 }
 
 type SelectInfo struct {
@@ -93,19 +142,8 @@ var roleByName = map[string]model.FolderRole{
 // DetectRole decide el rol de una carpeta: primero por atributos special-use,
 // después INBOX, y por último por el último segmento del nombre.
 func DetectRole(name, delim string, attrs []imap.MailboxAttr) model.FolderRole {
-	for _, a := range attrs {
-		switch a {
-		case imap.MailboxAttrSent:
-			return "sent"
-		case imap.MailboxAttrDrafts:
-			return "drafts"
-		case imap.MailboxAttrTrash:
-			return "trash"
-		case imap.MailboxAttrJunk:
-			return "junk"
-		case imap.MailboxAttrArchive:
-			return "archive"
-		}
+	if r := specialUseRole(attrs); r != "" {
+		return r
 	}
 	if strings.EqualFold(name, "INBOX") {
 		return "inbox"
@@ -121,4 +159,23 @@ func DetectRole(name, delim string, attrs []imap.MailboxAttr) model.FolderRole {
 		last = last[i+1:]
 	}
 	return roleByName[strings.ToLower(strings.TrimSpace(last))]
+}
+
+// specialUseRole devuelve el rol que indica un atributo special-use, o "".
+func specialUseRole(attrs []imap.MailboxAttr) model.FolderRole {
+	for _, a := range attrs {
+		switch a {
+		case imap.MailboxAttrSent:
+			return "sent"
+		case imap.MailboxAttrDrafts:
+			return "drafts"
+		case imap.MailboxAttrTrash:
+			return "trash"
+		case imap.MailboxAttrJunk:
+			return "junk"
+		case imap.MailboxAttrArchive:
+			return "archive"
+		}
+	}
+	return ""
 }

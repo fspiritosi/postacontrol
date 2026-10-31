@@ -346,3 +346,20 @@ func TestMoveMessages_UnsupportedServer(t *testing.T) {
 	assert.False(t, hasFlag(serverFlags(t, c, imap, m.UID), goimap.FlagDeleted))
 	assert.Equal(t, []string{"m-1"}, subjects(listAll(t, c, inboxID)))
 }
+
+func TestDeleteMessages_UsesTopLevelTrashNotNestedOne(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	deliverN(t, imap, 1, "m")
+	// "Clientes/Papelera" va antes que "Trash" por nombre: sin una sola
+	// Papelera por cuenta, borrar iría a parar a la subcarpeta.
+	for _, name := range []string{"Clientes", "Clientes/Papelera", "Trash"} {
+		require.NoError(t, imap.User.Create(name, nil))
+	}
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	assert.Equal(t, model.FolderRole(""), folderByID(t, c, acc.ID, folderID(t, c, acc.ID, "Clientes/Papelera")).Role)
+	m := listAll(t, c, inboxID)[0]
+
+	require.NoError(t, c.DeleteMessages(context.Background(), []int64{m.ID}))
+	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "Trash"))
+	assert.Empty(t, serverSubjects(t, c, imap, testUser, "Clientes/Papelera"))
+}
