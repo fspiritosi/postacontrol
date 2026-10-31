@@ -61,7 +61,7 @@ Este plan es 2B, la segunda de las tres partes en que se dividió la Fase 2 (ver
 core/
   imapx/idle.go             # DialWatch, (*Conn).IdleWatch (Task 1)
   testenv/imap.go           # sin cambios esperados; usa Restart y StartIMAPRev1 existentes
-  store/messages.go         # + MessagesByUIDs, InboxUnreadTotal (Task 2)
+  store/messages.go         # + MessagesByUIDs (Task 2)
   mail/
     events.go               # + EventNewMail (Task 2)
     sync.go                 # SyncFolder detecta lo nuevo (Task 2)
@@ -130,8 +130,7 @@ func TestIdleWatch_NoIdleCapIsUnsupported(t *testing.T)  // StartIMAPRev1 → Er
     - `type NewMail struct { AccountID int64 \`json:"accountId"\`; FolderID int64 \`json:"folderId"\`; Count int \`json:"count"\`; Items []NewMailItem \`json:"items"\` }`. `Items` lleva como mucho 3 correos, los más nuevos primero.
   - `const EventNewMail = "mail:new-mail"`, con data `model.NewMail` (el struct, no un map).
   - `(*store.Store).MessagesByUIDs(ctx, folderID int64, uids []uint32) ([]model.MessageSummary, error)`, ordenados por fecha descendente.
-  - `(*store.Store).InboxUnreadTotal(ctx) (int, error)`: suma de `unread` de las carpetas con rol `inbox` de todas las cuentas. Pensada para el tooltip de la bandeja (Task 4); queda sin uso hasta que Wails implemente el tooltip en Linux.
-  - `(*mail.Core).InboxUnreadTotal(ctx) (int, error)`: delega en el store.
+  - ~~`(*store.Store).InboxUnreadTotal` / `(*mail.Core).InboxUnreadTotal`~~: **eliminados** junto con el tooltip de la bandeja (descartado en Linux); quedaban sin uso. Se implementaron en `store/folders.go` y `mail/sync.go` y se borraron en la ola final de correcciones.
 - **Reglas de `SyncFolder`:**
   - Al terminar con éxito, si la carpeta tiene rol `inbox`, la pasada no es la primera y hubo UIDs nuevos (`fresh`) no leídos, emite `EventNewMail`.
   - **"No es la primera"** quiere decir que `last.UIDNext != 0` antes de esta pasada. Es la marca que ya usa `prepareSync` (R19 de la Fase 1).
@@ -146,10 +145,10 @@ func TestNewMail_AfterFirstSync(t *testing.T)   // sincronizada; Deliver 1 corre
 func TestNewMail_OnlyUnseen(t *testing.T)       // sincronizada; Deliver 1 con \Seen y 1 sin → Count 1
 func TestNewMail_SummarizesBurst(t *testing.T)  // sincronizada; Deliver 20 → 1 solo evento con Count 20 y len(Items) == 3
 func TestNewMail_NotForOtherFolders(t *testing.T) // carpeta "Varios" sincronizada; Deliver ahí y SyncFolder → ningún evento
-func TestInboxUnreadTotal_SumsAccounts(t *testing.T) // store: dos cuentas con inbox unread 2 y 5, más otra carpeta con 9 → 7
+// (TestInboxUnreadTotal_SumsAccounts se eliminó junto con InboxUnreadTotal.)
 ```
 
-- [ ] **Step 2:** `go test ./core/... -run 'NewMail|InboxUnreadTotal'`. Debe fallar.
+- [ ] **Step 2:** `go test ./core/... -run 'NewMail'`. Debe fallar.
 - [ ] **Step 3: Implementar.** `syncPlan` suma `firstSync bool`, que se calcula en `prepareSync` antes de tocar `UIDNext`.
 - [ ] **Step 4:** `go test -race ./core/...`. Debe dar PASS.
 - [ ] **Step 5: Commit** `feat(core): avisar correo nuevo en la Entrada (sin la primera sincronización)`

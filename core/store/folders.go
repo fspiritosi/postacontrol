@@ -136,10 +136,3 @@ func (s *Store) ResetFolder(ctx context.Context, folderID int64) error {
 	}
 	return tx.Commit()
 }
-
-// InboxUnreadTotal suma los no leídos de las carpetas con rol inbox de todas las cuentas.
-func (s *Store) InboxUnreadTotal(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(unread), 0) FROM folders WHERE role = 'inbox'`).Scan(&n)
-	return n, err
-}

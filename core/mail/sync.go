@@ -36,12 +36,6 @@ func (c *Core) ListMessages(ctx context.Context, folderID int64, q model.ListQue
 	return ms, asUserError(err)
 }
 
-// InboxUnreadTotal suma los no leídos de las Entradas de todas las cuentas.
-func (c *Core) InboxUnreadTotal(ctx context.Context) (int, error) {
-	n, err := c.store.InboxUnreadTotal(ctx)
-	return n, asUserError(err)
-}
-
 // SyncAccount trae la lista de carpetas con sus contadores (LIST + STATUS),
 // la guarda en la caché y sincroniza INBOX.
 func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {

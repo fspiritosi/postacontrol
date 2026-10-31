@@ -58,6 +58,19 @@ func TestNewMailNotification_EscapesBodyMarkup(t *testing.T) {
 	}
 }
 
+// En Linux, Wails mete el subtítulo dentro del cuerpo con markup: el email de
+// la cuenta también tiene que llegar escapado.
+func TestNewMailNotification_EscapesSubtitle(t *testing.T) {
+	ev := model.NewMail{Count: 1, Items: []model.NewMailItem{{FromName: "Ana", Subject: "Hola"}}}
+	if n := NewMailNotification(ev, "a&b<c>@x.com"); n.Subtitle != "a&amp;b&lt;c&gt;@x.com" {
+		t.Fatalf("got %q", n.Subtitle)
+	}
+	ev = model.NewMail{Count: 2, Items: []model.NewMailItem{{FromName: "Ana"}, {FromName: "Beto"}}}
+	if n := NewMailNotification(ev, "a&b@x.com"); n.Subtitle != "a&amp;b@x.com" {
+		t.Fatalf("got %q", n.Subtitle)
+	}
+}
+
 func TestNewMailNotification_SummaryDedupesSenders(t *testing.T) {
 	n := NewMailNotification(model.NewMail{Count: 4, Items: []model.NewMailItem{
 		{FromName: "Ana"}, {FromName: "Ana"}, {FromName: "Beto"}, {FromName: "Ana"},

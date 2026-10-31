@@ -24,7 +24,7 @@ const EventOpenMessage = "app:open-message"
 func NewMailNotification(ev model.NewMail, accountEmail string) notifications.NotificationOptions {
 	n := notifications.NotificationOptions{
 		ID:       fmt.Sprintf("new-mail-%d", ev.AccountID),
-		Subtitle: accountEmail,
+		Subtitle: escapeBody(accountEmail), // en Linux, Wails lo pone dentro del cuerpo con markup
 	}
 	if ev.Count <= 1 && len(ev.Items) > 0 {
 		it := ev.Items[0]
@@ -49,7 +49,8 @@ func NewMailNotification(ev model.NewMail, accountEmail string) notifications.No
 }
 
 // bodyEscaper escapa lo que el cuerpo de una notificación de freedesktop
-// interpreta como markup. El título se muestra tal cual y no se escapa.
+// interpreta como markup (incluido el subtítulo, que en Linux va dentro del
+// cuerpo). El título se muestra tal cual y no se escapa.
 var bodyEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
 func escapeBody(s string) string { return bodyEscaper.Replace(s) }
