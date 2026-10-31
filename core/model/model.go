@@ -205,4 +205,6 @@ type Settings struct {
 	UnifiedInbox bool `json:"unifiedInbox"`
 	// DisableNotifications apaga los avisos de escritorio de correo nuevo (cero = activados).
 	DisableNotifications bool `json:"disableNotifications"`
+	// ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
+	ThreadedList bool `json:"threadedList"`
 }

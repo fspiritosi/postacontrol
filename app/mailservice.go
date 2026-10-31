@@ -51,6 +51,7 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 	s.core = core
 	core.StartBackgroundSync(ctx, syncEvery)
 	core.StartWatching(ctx)
+	core.StartIndexing(ctx)
 	return nil
 }
 
@@ -222,6 +223,22 @@ func (s *MailService) ListUnified(ctx context.Context, view model.UnifiedView, q
 
 func (s *MailService) SyncUnified(ctx context.Context, view model.UnifiedView) error {
 	return s.core.SyncUnified(ctx, view)
+}
+
+func (s *MailService) Search(ctx context.Context, q model.SearchQuery) (model.SearchResult, error) {
+	return s.core.Search(ctx, q)
+}
+
+func (s *MailService) SearchServer(ctx context.Context, folderID int64, text string) ([]model.MessageSummary, error) {
+	return s.core.SearchServer(ctx, folderID, text)
+}
+
+func (s *MailService) ListThreads(ctx context.Context, folderID int64, q model.ListQuery) ([]model.ThreadSummary, error) {
+	return s.core.ListThreads(ctx, folderID, q)
+}
+
+func (s *MailService) GetThread(ctx context.Context, folderID int64, threadRoot string) ([]model.MessageSummary, error) {
+	return s.core.GetThread(ctx, folderID, threadRoot)
 }
 
 func (s *MailService) UpdatePassword(ctx context.Context, accountID int64, password string) error {

@@ -829,3 +829,21 @@ func waitChange(t *testing.T, s *testenv.IMAP, changed <-chan struct{}) {
 		}
 	}
 }
+
+func TestSearchText_FindsInBody(t *testing.T) {
+	s, tlsc := setup(t)
+	s.Deliver(t, "INBOX", plainMsg("uno", ""))
+	s.Deliver(t, "INBOX", []byte("From: Bea <bea@ej.com>\r\nTo: ana@ej.com\r\nSubject: dos\r\nDate: Mon, 02 Jan 2006 15:04:05 +0000\r\nMessage-ID: <dos@ej.com>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nadjunto la factura del mes\r\n"))
+	s.Deliver(t, "INBOX", plainMsg("tres", ""))
+	c := dial(t, s, tlsc)
+	_, err := c.Select("INBOX")
+	require.NoError(t, err)
+
+	uids, err := c.SearchText("factura")
+	require.NoError(t, err)
+	assert.Equal(t, []uint32{2}, uids)
+
+	uids, err = c.SearchText("inexistente")
+	require.NoError(t, err)
+	assert.Empty(t, uids)
+}

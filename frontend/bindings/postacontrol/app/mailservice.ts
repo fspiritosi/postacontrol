@@ -50,6 +50,10 @@ export function GetStartAtLogin(): $CancellablePromise<boolean> {
     return $Call.ByID(1793071539);
 }
 
+export function GetThread(folderID: number, threadRoot: string): $CancellablePromise<model$0.MessageSummary[] | null> {
+    return $Call.ByID(4271611221, folderID, threadRoot);
+}
+
 export function ListAccounts(): $CancellablePromise<model$0.Account[] | null> {
     return $Call.ByID(837905259);
 }
@@ -64,6 +68,10 @@ export function ListLocalDrafts(): $CancellablePromise<model$0.LocalDraft[] | nu
 
 export function ListMessages(folderID: number, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
     return $Call.ByID(3544686215, folderID, q);
+}
+
+export function ListThreads(folderID: number, q: model$0.ListQuery): $CancellablePromise<model$0.ThreadSummary[] | null> {
+    return $Call.ByID(3687719140, folderID, q);
 }
 
 export function ListUnified(view: model$0.UnifiedView, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
@@ -103,6 +111,14 @@ export function RemoveAccount(id: number): $CancellablePromise<void> {
  */
 export function SaveAttachment(messageID: number, index: number): $CancellablePromise<boolean> {
     return $Call.ByID(731861391, messageID, index);
+}
+
+export function Search(q: model$0.SearchQuery): $CancellablePromise<model$0.SearchResult> {
+    return $Call.ByID(3374583751, q);
+}
+
+export function SearchServer(folderID: number, text: string): $CancellablePromise<model$0.MessageSummary[] | null> {
+    return $Call.ByID(1112192156, folderID, text);
 }
 
 export function SetFlagged(ids: number[] | null, flagged: boolean): $CancellablePromise<void> {

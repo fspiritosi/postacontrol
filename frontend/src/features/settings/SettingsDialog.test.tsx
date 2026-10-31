@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
-  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false })),
+  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false })),
   SetSettings: vi.fn(() => Promise.resolve()),
   GetStartAtLogin: vi.fn(() => Promise.resolve(false)),
   SetStartAtLogin: vi.fn(() => Promise.resolve()),
@@ -36,7 +36,7 @@ describe("SettingsDialog", () => {
     const sw = await screen.findByRole("switch", { name: "Bandeja unificada" });
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     await user.click(sw);
-    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false }));
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, threadedList: false }));
   });
 
   it("el interruptor de notificaciones guarda disableNotifications", async () => {
@@ -47,7 +47,7 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, threadedList: false }),
     );
   });
 

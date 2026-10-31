@@ -20,7 +20,10 @@ export type {
     MessageDetail,
     MessageSummary,
     ReplyContext,
+    SearchQuery,
+    SearchResult,
     SendRequest,
     ServerSettings,
-    Settings
+    Settings,
+    ThreadSummary
 } from "./models.js";

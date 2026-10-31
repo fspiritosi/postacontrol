@@ -146,6 +146,26 @@ export interface ReplyContext {
 }
 
 /**
+ * SearchQuery es una búsqueda en el índice local. FolderID 0 = todas las
+ * carpetas de todas las cuentas.
+ */
+export interface SearchQuery {
+    "text": string;
+    "folderId": number;
+    "limit": number;
+    "offset": number;
+}
+
+/**
+ * SearchResult agrupa los resultados y cuántos mensajes del alcance todavía no
+ * tienen el cuerpo indexado.
+ */
+export interface SearchResult {
+    "messages": MessageSummary[] | null;
+    "pending": number;
+}
+
+/**
  * "tls" | "starttls"
  */
 export enum Security {
@@ -194,6 +214,23 @@ export interface Settings {
      * DisableNotifications apaga los avisos de escritorio de correo nuevo (cero = activados).
      */
     "disableNotifications": boolean;
+
+    /**
+     * ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
+     */
+    "threadedList": boolean;
+}
+
+/**
+ * ThreadSummary es un hilo de conversación dentro de una carpeta. Latest es el
+ * mensaje más nuevo de la carpeta; Count y Unread suman también los de Enviados.
+ */
+export interface ThreadSummary {
+    "threadRoot": string;
+    "latest": MessageSummary;
+    "count": number;
+    "unread": number;
+    "participants": string[] | null;
 }
 
 /**

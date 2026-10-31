@@ -25,7 +25,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   // Se guarda al instante, sin botón Guardar.
   const setUnified = async (v: boolean) => {
     try {
-      await svc.SetSettings({ disableNotifications: false, ...settings.data, unifiedInbox: v });
+      await svc.SetSettings({ disableNotifications: false, threadedList: false, ...settings.data, unifiedInbox: v });
       void queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (e) {
       toast.error(errorMessage(e));
@@ -39,7 +39,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
   const setNotifications = async (enabled: boolean) => {
     try {
-      await svc.SetSettings({ unifiedInbox: false, ...settings.data, disableNotifications: !enabled });
+      await svc.SetSettings({ unifiedInbox: false, threadedList: false, ...settings.data, disableNotifications: !enabled });
       void queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (e) {
       toast.error(errorMessage(e));
