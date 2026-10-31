@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-imap/v2"
+	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -462,4 +463,93 @@ func TestFetchHeaders_DecodesLegacyCharsetsInEnvelope(t *testing.T) {
 	assert.Equal(t, "Información", hs[0].Envelope.Subject)
 	require.Len(t, hs[0].Envelope.From, 1)
 	assert.Equal(t, "Peña", hs[0].Envelope.From[0].Name)
+}
+
+func seedTwo(t *testing.T, s *testenv.IMAP, c *imapx.Conn) []uint32 {
+	t.Helper()
+	s.Deliver(t, "INBOX", plainMsg("uno", ""))
+	s.Deliver(t, "INBOX", plainMsg("dos", ""))
+	_, err := c.SelectRW("INBOX")
+	require.NoError(t, err)
+	uids, err := c.AllUIDs()
+	require.NoError(t, err)
+	require.Len(t, uids, 2)
+	return uids
+}
+
+func TestStoreFlags_AddAndRemove(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	uids := seedTwo(t, s, c)
+
+	require.NoError(t, c.StoreFlags(uids, true, imap.FlagFlagged))
+	fl, err := c.FetchFlags(uids)
+	require.NoError(t, err)
+	assert.Contains(t, fl[uids[0]], imap.FlagFlagged)
+	assert.Contains(t, fl[uids[1]], imap.FlagFlagged)
+
+	require.NoError(t, c.StoreFlags(uids[:1], false, imap.FlagFlagged))
+	fl, err = c.FetchFlags(uids)
+	require.NoError(t, err)
+	assert.NotContains(t, fl[uids[0]], imap.FlagFlagged)
+	assert.Contains(t, fl[uids[1]], imap.FlagFlagged)
+}
+
+func TestStoreFlags_ReadOnlyFails(t *testing.T) {
+	s, tlsc := setup(t)
+	s.Deliver(t, "INBOX", plainMsg("uno", ""))
+	c := dial(t, s, tlsc)
+	_, err := c.Select("INBOX")
+	require.NoError(t, err)
+	err = c.StoreFlags([]uint32{1}, true, imap.FlagSeen)
+	assert.ErrorIs(t, err, imapx.ErrReadOnly)
+}
+
+func TestMove_MovesToDestination(t *testing.T) {
+	s, tlsc := setup(t)
+	require.NoError(t, s.User.Create("Trash", nil))
+	c := dial(t, s, tlsc)
+	uids := seedTwo(t, s, c)
+
+	require.NoError(t, c.Move(uids[:1], "Trash"))
+	left, err := c.AllUIDs()
+	require.NoError(t, err)
+	assert.Equal(t, uids[1:], left)
+
+	info, err := c.Select("Trash")
+	require.NoError(t, err)
+	assert.Equal(t, uint32(1), info.NumMessages)
+}
+
+func TestExpungeUIDs_OnlyGivenUIDs(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	uids := seedTwo(t, s, c)
+
+	// Otro cliente marca u2 como \Deleted sin expungearlo.
+	sess := imapmemserver.NewUserSession(s.User)
+	defer func() { _ = sess.Close() }()
+	_, err := sess.Select("INBOX", nil)
+	require.NoError(t, err)
+	del := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
+	require.NoError(t, sess.Store(nil, imap.UIDSetNum(imap.UID(uids[1])), del, nil))
+
+	require.NoError(t, c.ExpungeUIDs(uids[:1]))
+	left, err := c.AllUIDs()
+	require.NoError(t, err)
+	assert.Equal(t, uids[1:], left)
+}
+
+func TestMove_Rev1ServerIsUnsupported(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	s := testenv.StartIMAPRev1(t, tlsc, user, pass)
+	require.NoError(t, s.User.Create("Trash", nil))
+	c := dial(t, s, tlsc)
+	uids := seedTwo(t, s, c)
+
+	assert.ErrorIs(t, c.Move(uids[:1], "Trash"), imapx.ErrUnsupported)
+	assert.ErrorIs(t, c.ExpungeUIDs(uids[:1]), imapx.ErrUnsupported)
+	left, err := c.AllUIDs()
+	require.NoError(t, err)
+	assert.Equal(t, uids, left)
 }

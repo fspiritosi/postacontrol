@@ -27,6 +27,7 @@ type IMAP struct {
 
 	mem       *imapmemserver.Server
 	tlsServer *tls.Config
+	caps      imap.CapSet
 
 	mu  sync.Mutex
 	srv *imapserver.Server
@@ -35,6 +36,18 @@ type IMAP struct {
 // StartIMAP levanta el servidor con INBOX y "Sent" vacíos. Se cierra solo al
 // terminar el test.
 func StartIMAP(t testing.TB, tlsc TLS, username, password string) *IMAP {
+	t.Helper()
+	return startIMAP(t, tlsc, username, password, imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIMAP4rev2: {}})
+}
+
+// StartIMAPRev1 es como StartIMAP pero anuncia solo IMAP4rev1: sin MOVE ni
+// UIDPLUS.
+func StartIMAPRev1(t testing.TB, tlsc TLS, username, password string) *IMAP {
+	t.Helper()
+	return startIMAP(t, tlsc, username, password, imap.CapSet{imap.CapIMAP4rev1: {}})
+}
+
+func startIMAP(t testing.TB, tlsc TLS, username, password string, caps imap.CapSet) *IMAP {
 	t.Helper()
 	mem := imapmemserver.New()
 	user := imapmemserver.NewUser(username, password)
@@ -45,7 +58,7 @@ func StartIMAP(t testing.TB, tlsc TLS, username, password string) *IMAP {
 	}
 	mem.AddUser(user)
 
-	s := &IMAP{User: user, mem: mem, tlsServer: tlsc.Server}
+	s := &IMAP{User: user, mem: mem, tlsServer: tlsc.Server, caps: caps}
 	s.Close = s.stop
 	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsc.Server)
 	if err != nil {
@@ -66,7 +79,7 @@ func (s *IMAP) serve(ln net.Listener) {
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			return s.mem.NewSession(), nil, nil
 		},
-		Caps: imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIMAP4rev2: {}},
+		Caps: s.caps,
 		// El servidor no sabe que el listener ya es TLS, así que sin esto
 		// rechazaría LOGIN. El cliente igual verifica el certificado.
 		InsecureAuth: true,
