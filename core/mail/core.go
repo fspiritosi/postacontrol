@@ -6,11 +6,13 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
 	"postacontrol/core/autoconfig"
 	"postacontrol/core/imapx"
+	"postacontrol/core/model"
 	"postacontrol/core/secrets"
 	"postacontrol/core/store"
 )
@@ -67,6 +69,20 @@ type Core struct {
 	now          func() time.Time
 	authMu       sync.Mutex
 	authFailedAt map[int64]time.Time
+
+	// Vigías IDLE (watch.go). dialWatch, watchDebounce y watchBackoff se
+	// inyectan en los tests. watchMu protege el resto: watching dice si ya se
+	// llamó a StartWatching, watchers tiene el vigía activo de cada cuenta y
+	// watchLive cuenta las goroutines de vigía vivas (incluidas las frenadas
+	// que todavía no terminaron).
+	dialWatch     func(ctx context.Context, s model.ServerSettings, username, password string, tlsCfg *tls.Config, onChange func()) (*imapx.Conn, error)
+	watchDebounce time.Duration
+	watchBackoff  []time.Duration
+	watchMu       sync.Mutex
+	watching      bool
+	watchCtx      context.Context
+	watchers      map[int64]*watcher
+	watchLive     int
 }
 
 func New(cfg Config) (*Core, error) {
@@ -82,7 +98,9 @@ func New(cfg Config) (*Core, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
 		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{},
-		now: time.Now, authFailedAt: map[int64]time.Time{}}, nil
+		now: time.Now, authFailedAt: map[int64]time.Time{},
+		dialWatch: imapx.DialWatch, watchDebounce: watchDebounce,
+		watchBackoff: slices.Clone(watchBackoff), watchers: map[int64]*watcher{}}, nil
 }
 
 // Close cancela las sincronizaciones en curso, espera a que terminen, cierra
@@ -265,22 +283,32 @@ func (c *Core) runOnConn(ctx context.Context, pc *pooledConn, accountID int64, f
 }
 
 func (c *Core) dial(ctx context.Context, accountID int64) (*imapx.Conn, error) {
-	acc, err := c.store.GetAccount(ctx, accountID)
+	acc, user, password, err := c.credentials(ctx, accountID)
 	if err != nil {
 		return nil, err
+	}
+	return imapx.Dial(ctx, acc.IMAP, user, password, c.cfg.TLS)
+}
+
+// credentials devuelve la cuenta, el usuario IMAP y la contraseña del
+// llavero. Si la contraseña no está, el error es un UserError "auth".
+func (c *Core) credentials(ctx context.Context, accountID int64) (model.Account, string, string, error) {
+	acc, err := c.store.GetAccount(ctx, accountID)
+	if err != nil {
+		return model.Account{}, "", "", err
 	}
 	password, err := c.cfg.Secrets.Get(acc.Email)
 	if errors.Is(err, secrets.ErrNotFound) {
-		return nil, &UserError{Code: "auth", Msg: "No encontramos la contraseña de la cuenta en el llavero del sistema.", Err: err}
+		return model.Account{}, "", "", &UserError{Code: "auth", Msg: "No encontramos la contraseña de la cuenta en el llavero del sistema.", Err: err}
 	}
 	if err != nil {
-		return nil, err
+		return model.Account{}, "", "", err
 	}
 	user := acc.Username
 	if user == "" {
 		user = acc.Email
 	}
-	return imapx.Dial(ctx, acc.IMAP, user, password, c.cfg.TLS)
+	return acc, user, password, nil
 }
 
 // dropConn cierra y olvida la conexión de una cuenta (por ejemplo, al borrarla).

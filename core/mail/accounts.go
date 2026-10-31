@@ -88,6 +88,9 @@ func (c *Core) AddAccount(ctx context.Context, in model.AccountInput) (model.Acc
 	if !c.cfg.SkipInitialSync {
 		c.spawn(func(ctx context.Context) { _ = c.SyncAccount(ctx, id) })
 	}
+	// Si ya hay vigías, la cuenta nueva tiene el suyo (espera a que la
+	// primera sincronización cree la Entrada).
+	c.startWatcher(id)
 	return acc, nil
 }
 
@@ -105,7 +108,8 @@ func (c *Core) SetSaveSentCopy(ctx context.Context, accountID int64, save bool) 
 	return nil
 }
 
-// RemoveAccount borra la caché local y el secreto. No toca el servidor.
+// RemoveAccount borra la caché local y el secreto, y frena el vigía de la
+// cuenta. No toca el servidor.
 func (c *Core) RemoveAccount(ctx context.Context, id int64) error {
 	acc, err := c.store.GetAccount(ctx, id)
 	if err != nil {
@@ -117,6 +121,7 @@ func (c *Core) RemoveAccount(ctx context.Context, id int64) error {
 	if err := c.store.DeleteAccount(ctx, id); err != nil {
 		return asUserError(err)
 	}
+	c.stopWatcher(id)
 	c.dropConn(id)
 	c.emit(EventAccountsChanged, nil)
 	return nil
