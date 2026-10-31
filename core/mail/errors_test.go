@@ -29,10 +29,30 @@ func TestAsUserError(t *testing.T) {
 	assert.NoError(t, asUserError(nil))
 }
 
+func TestAsUserError_ServerRefusal(t *testing.T) {
+	refusal := fmt.Errorf("imapx: UID MOVE %q: %w", "Archivo",
+		&goimap.Error{Type: goimap.StatusResponseTypeNo, Code: "OVERQUOTA", Text: "Quota exceeded (mailbox for user is full)"})
+	ue, ok := asUserError(refusal).(*UserError)
+	assert.True(t, ok)
+	assert.Equal(t, "server", ue.Code)
+	assert.Equal(t, "El servidor rechazó la operación: Quota exceeded (mailbox for user is full).", ue.Msg)
+	assert.ErrorIs(t, ue, refusal)
+
+	bad := asUserError(&goimap.Error{Type: goimap.StatusResponseTypeBad, Text: "Error in IMAP command."}).(*UserError)
+	assert.Equal(t, "El servidor rechazó la operación: Error in IMAP command.", bad.Msg)
+	empty := asUserError(&goimap.Error{Type: goimap.StatusResponseTypeNo}).(*UserError)
+	assert.Equal(t, "El servidor rechazó la operación.", empty.Msg)
+
+	// Un rechazo al login sigue siendo de credenciales.
+	auth := asUserError(fmt.Errorf("%w: %w", imapx.ErrAuth, &goimap.Error{Type: goimap.StatusResponseTypeNo, Text: "x"})).(*UserError)
+	assert.Equal(t, "auth", auth.Code)
+}
+
 func TestSeenIsBestEffort(t *testing.T) {
 	refusal := fmt.Errorf("imapx: UID STORE: %w", &goimap.Error{Type: goimap.StatusResponseTypeNo, Text: "no permitido"})
 	assert.True(t, seenIsBestEffort(refusal), "NO del servidor")
 	assert.True(t, seenIsBestEffort(&goimap.Error{Type: goimap.StatusResponseTypeBad, Text: "x"}), "BAD del servidor")
+	assert.True(t, seenIsBestEffort(asUserError(refusal)), "NO del servidor ya traducido por withConn")
 	assert.True(t, seenIsBestEffort(&UserError{Code: "network"}))
 	assert.True(t, seenIsBestEffort(&UserError{Code: "auth"}))
 	assert.True(t, seenIsBestEffort(&UserError{Code: "tls"}))

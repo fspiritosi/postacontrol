@@ -72,13 +72,19 @@ func (c *Core) GetMessage(ctx context.Context, messageID int64) (model.MessageDe
 // seenIsBestEffort dice si una falla al marcar \Seen se puede ignorar y
 // mostrar igual el mensaje: errores de conexión (withConn ya los informa por
 // EventSyncError) o un NO/BAD del servidor al STORE.
+//
+// El NO/BAD se busca primero: withConn ya lo traduce a UserError "server",
+// que lo conserva en la cadena.
 func seenIsBestEffort(err error) bool {
+	var ierr *goimap.Error
+	if errors.As(err, &ierr) {
+		return true
+	}
 	var ue *UserError
 	if errors.As(err, &ue) {
 		return ue.Code == "network" || ue.Code == "auth" || ue.Code == "tls"
 	}
-	var ierr *goimap.Error
-	return errors.As(err, &ierr)
+	return false
 }
 
 func normalizeDetail(d model.MessageDetail) model.MessageDetail {

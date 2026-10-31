@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	goimap "github.com/emersion/go-imap/v2"
+
 	"postacontrol/core/imapx"
 	"postacontrol/core/smtpx"
 	"postacontrol/core/store"
@@ -25,7 +27,11 @@ const msgNotFound = "No encontramos lo que buscabas."
 
 const smtpxRejectedPrefix = "smtpx: envío rechazado: "
 
-// asUserError traduce los errores de imapx, smtpx y store a *UserError. Los
+const msgServerRefused = "El servidor rechazó la operación"
+
+// asUserError traduce los errores de imapx, smtpx y store a *UserError. Un
+// NO/BAD del servidor IMAP que no tiene una traducción más específica sale
+// con Code "server" y el texto del servidor (sin el prefijo técnico). Los
 // errores que no reconoce (incluido autoconfig.ErrNotDetected, que ya tiene su
 // propio mensaje en español) se devuelven tal cual. Nunca incluye contraseñas.
 func asUserError(err error) error {
@@ -50,6 +56,14 @@ func asUserError(err error) error {
 		return &UserError{Code: "unsupported", Msg: "El servidor no permite mover ni borrar correos de forma segura.", Err: err}
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, imapx.ErrNoMessage):
 		return &UserError{Code: "not_found", Msg: msgNotFound, Err: err}
+	}
+	var ierr *goimap.Error
+	if errors.As(err, &ierr) {
+		msg := msgServerRefused + "."
+		if text := strings.TrimRight(strings.TrimSpace(ierr.Text), "."); text != "" {
+			msg = fmt.Sprintf("%s: %s.", msgServerRefused, text)
+		}
+		return &UserError{Code: "server", Msg: msg, Err: err}
 	}
 	return err
 }

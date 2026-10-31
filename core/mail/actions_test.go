@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -362,4 +363,20 @@ func TestDeleteMessages_UsesTopLevelTrashNotNestedOne(t *testing.T) {
 	require.NoError(t, c.DeleteMessages(context.Background(), []int64{m.ID}))
 	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "Trash"))
 	assert.Empty(t, serverSubjects(t, c, imap, testUser, "Clientes/Papelera"))
+}
+
+func TestMoveMessages_ServerRefusalIsSpanishUserError(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	deliverN(t, imap, 1, "m")
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	archivoID := folderID(t, c, acc.ID, "Archivo")
+	m := listAll(t, c, inboxID)[0]
+	imap.DeleteMailbox(t, "Archivo") // el MOVE recibe un NO del servidor
+
+	ue := requireUserError(t, c.MoveMessages(context.Background(), []int64{m.ID}, archivoID), "server")
+	assert.True(t, strings.HasPrefix(ue.Msg, "El servidor rechazó la operación: "), ue.Msg)
+	assert.NotContains(t, ue.Msg, "imapx:")
+	assert.NotContains(t, ue.Msg, "imap: NO")
+	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "INBOX"))
 }
