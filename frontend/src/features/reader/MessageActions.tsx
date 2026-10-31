@@ -33,6 +33,9 @@ export function MessageActions({ message, selectMessage }: Props) {
   const folders = useFolders(message.accountId).data ?? [];
   const [confirmOpen, setConfirmOpen] = useState(false);
   const current = folders.find((f) => f.id === message.folderId);
+  // Hasta saber en qué carpeta está no se puede borrar: en la Papelera el
+  // borrado es definitivo y tiene que pedir confirmación.
+  const folderKnown = current !== undefined;
   const inTrash = current?.role === "trash";
   const targets = folders.filter((f) => f.selectable && f.id !== message.folderId);
 
@@ -95,7 +98,7 @@ export function MessageActions({ message, selectMessage }: Props) {
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" aria-label="Mover a…">
+          <Button variant="outline" size="sm" aria-label="Mover a…" disabled={!folderKnown}>
             <FolderInputIcon />
             Mover a…
           </Button>
@@ -114,7 +117,7 @@ export function MessageActions({ message, selectMessage }: Props) {
           Eliminar definitivamente
         </Button>
       ) : (
-        <Button variant="outline" size="sm" onClick={() => void remove()}>
+        <Button variant="outline" size="sm" disabled={!folderKnown} onClick={() => void remove()}>
           <Trash2Icon />
           Borrar
         </Button>

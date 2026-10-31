@@ -74,7 +74,9 @@ describe("MessageActions", () => {
 
   it("Borrar fuera de Papelera no pide confirmación", async () => {
     const { selectMessage, user } = setup(msg(1));
-    await user.click(screen.getByRole("button", { name: "Borrar" }));
+    const del = screen.getByRole("button", { name: "Borrar" });
+    await waitFor(() => expect((del as HTMLButtonElement).disabled).toBe(false));
+    await user.click(del);
     await waitFor(() => expect(svc.DeleteMessages).toHaveBeenCalledWith([55]));
     expect(selectMessage).toHaveBeenCalledWith(null);
     expect(toast.success).toHaveBeenCalledWith("Movido a la Papelera");
@@ -90,6 +92,29 @@ describe("MessageActions", () => {
     await user.click(confirm);
     await waitFor(() => expect(svc.DeleteMessages).toHaveBeenCalledWith([55]));
     expect(selectMessage).toHaveBeenCalledWith(null);
+  });
+
+  it("mientras no se sabe en qué carpeta está, Borrar y Mover a… quedan deshabilitados", async () => {
+    let resolve: (fs: Folder[]) => void = () => {};
+    const pending = new Promise<Folder[]>((r) => (resolve = r));
+    // La CancellablePromise de los bindings no hace falta para useQuery.
+    vi.mocked(svc.ListFolders).mockReturnValue(pending as ReturnType<typeof svc.ListFolders>);
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageActions message={msg(3)} selectMessage={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    const del = screen.getByRole("button", { name: "Borrar" }) as HTMLButtonElement;
+    expect(del.disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Mover a…" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(del);
+    expect(svc.DeleteMessages).not.toHaveBeenCalled();
+
+    resolve(folders);
+    const perm = await screen.findByRole("button", { name: "Eliminar definitivamente" });
+    expect((perm as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Mover a…" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("Destacar alterna", async () => {
