@@ -22,7 +22,8 @@ import (
 )
 
 var (
-	// ErrAuth: el servidor rechazó las credenciales.
+	// ErrAuth: el servidor rechazó el LOGIN por un motivo que necesita
+	// intervención humana (credenciales, contraseña vencida, cuenta bloqueada…).
 	ErrAuth = errors.New("imapx: credenciales rechazadas")
 	// ErrNetwork: no se pudo conectar, o la conexión expiró o se cortó.
 	ErrNetwork = errors.New("imapx: error de red")
@@ -42,7 +43,7 @@ type Conn struct {
 // Dial conecta (TLS implícito o STARTTLS según s.Security) y hace LOGIN.
 // tlsCfg nil usa las raíces del sistema; los certificados siempre se verifican.
 // Los errores envuelven ErrAuth, ErrNetwork o ErrTLS. Un NO del LOGIN es
-// ErrAuth solo si es un rechazo de credenciales (ver loginRejected).
+// ErrAuth salvo que sea una falla temporal del servidor (ver loginTransient).
 func Dial(ctx context.Context, s model.ServerSettings, username, password string, tlsCfg *tls.Config) (*Conn, error) {
 	return dial(ctx, s, username, password, tlsCfg, nil)
 }
@@ -109,8 +110,8 @@ func dial(ctx context.Context, s model.ServerSettings, username, password string
 			return nil, fmt.Errorf("%w: %w", ErrNetwork, ctx.Err())
 		}
 		var ierr *imap.Error
-		if errors.As(err, &ierr) && !loginRejected(ierr) {
-			// Falla temporal del servidor ([UNAVAILABLE]) u otro motivo: se
+		if errors.As(err, &ierr) && loginTransient(ierr) {
+			// Falla temporal del servidor ([UNAVAILABLE] y afines): se
 			// reintenta con espera, sin pausar la cuenta por contraseña.
 			return nil, fmt.Errorf("%w: %w", ErrNetwork, err)
 		}
@@ -122,12 +123,16 @@ func dial(ctx context.Context, s model.ServerSettings, username, password string
 	return &Conn{c: res.c}, nil
 }
 
-// loginRejected dice si el NO/BAD del LOGIN es un rechazo de credenciales:
-// sin código (servidores viejos) o con [AUTHENTICATIONFAILED] o
-// [AUTHORIZATIONFAILED] (RFC 5530).
-func loginRejected(e *imap.Error) bool {
+// loginTransient dice si el NO/BAD del LOGIN es una falla temporal del
+// servidor (RFC 5530) que conviene reintentar con espera. Es una lista
+// cerrada a propósito (falla segura): cualquier otro caso — sin código,
+// [AUTHENTICATIONFAILED], [EXPIRED], [CONTACTADMIN], [ALERT], códigos
+// desconocidos — necesita intervención humana y se trata como ErrAuth, para
+// no acumular LOGINs fallidos que lleven al proveedor a bloquear la cuenta.
+func loginTransient(e *imap.Error) bool {
 	switch e.Code {
-	case "", imap.ResponseCodeAuthenticationFailed, imap.ResponseCodeAuthorizationFailed:
+	case imap.ResponseCodeUnavailable, imap.ResponseCodeServerBug,
+		imap.ResponseCodeInUse, imap.ResponseCodeLimit:
 		return true
 	}
 	return false

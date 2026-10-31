@@ -466,8 +466,10 @@ func scriptedIMAPWith(t *testing.T, tlsc testenv.TLS, sc script) model.ServerSet
 	return model.ServerSettings{Host: host, Port: port, Security: model.SecurityTLS}
 }
 
-// Solo un rechazo de credenciales pausa la cuenta: un NO por falla temporal
-// del servidor (o con otro código) se reintenta con espera, como la red.
+// Falla segura: solo los códigos de falla temporal del servidor ([UNAVAILABLE],
+// [SERVERBUG], [INUSE], [LIMIT]) se reintentan con espera, como la red; todo
+// otro NO (sin código, credenciales, [EXPIRED], [CONTACTADMIN], [ALERT],
+// códigos desconocidos) pausa la cuenta para no acumular LOGINs fallidos.
 func TestDial_LoginNOClassification(t *testing.T) {
 	tlsc := testenv.NewTLS(t)
 	cases := []struct {
@@ -478,8 +480,15 @@ func TestDial_LoginNOClassification(t *testing.T) {
 		{"sin código", "NO usuario o contraseña inválidos", imapx.ErrAuth},
 		{"AUTHENTICATIONFAILED", "NO [AUTHENTICATIONFAILED] Authentication failed.", imapx.ErrAuth},
 		{"AUTHORIZATIONFAILED", "NO [AUTHORIZATIONFAILED] no autorizado", imapx.ErrAuth},
+		{"EXPIRED", "NO [EXPIRED] la contraseña venció", imapx.ErrAuth},
+		{"CONTACTADMIN", "NO [CONTACTADMIN] contactá al administrador", imapx.ErrAuth},
+		{"PRIVACYREQUIRED", "NO [PRIVACYREQUIRED] se requiere TLS", imapx.ErrAuth},
+		{"ALERT", "NO [ALERT] cuenta bloqueada", imapx.ErrAuth},
+		{"código desconocido", "NO [XFOOBAR] motivo desconocido", imapx.ErrAuth},
 		{"UNAVAILABLE", "NO [UNAVAILABLE] Temporary authentication failure.", imapx.ErrNetwork},
-		{"otro código", "NO [SERVERBUG] algo se rompió", imapx.ErrNetwork},
+		{"SERVERBUG", "NO [SERVERBUG] algo se rompió", imapx.ErrNetwork},
+		{"INUSE", "NO [INUSE] buzón en uso", imapx.ErrNetwork},
+		{"LIMIT", "NO [LIMIT] demasiadas conexiones", imapx.ErrNetwork},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
