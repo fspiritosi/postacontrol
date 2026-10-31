@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/react";
 
 // Lo que el menú "/" necesita de afuera: abrir el selector de imagen y el popover de enlace.
-export type SlashContext = { pickImage: () => void; openLink: () => void };
+export type SlashContext = { pickImage: (editor: Editor) => void; openLink: () => void };
 
 export type SlashItem = {
   id: string;
@@ -35,7 +35,7 @@ export const SLASH_ITEMS: SlashItem[] = [
     keywords: ["tabla", "grilla"],
     run: (editor) => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
   },
-  { id: "image", title: "Imagen", keywords: ["imagen", "foto"], run: (_editor, ctx) => ctx.pickImage() },
+  { id: "image", title: "Imagen", keywords: ["imagen", "foto"], run: (editor, ctx) => ctx.pickImage(editor) },
   {
     id: "rule",
     title: "Separador",

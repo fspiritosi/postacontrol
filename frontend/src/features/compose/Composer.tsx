@@ -180,6 +180,15 @@ export function Composer({ init, onClose }: Props) {
 
             <RichEditor
               content={init.bodyHtml}
+              onError={setError}
+              onPickImage={(editor) => {
+                void svc
+                  .PickImage()
+                  .then(({ dataUrl, filename }) => {
+                    if (dataUrl) editor.chain().focus().setImage({ src: dataUrl, alt: filename }).run();
+                  })
+                  .catch((e) => setError(errorMessage(e)));
+              }}
               onSlashMenuChange={(close) => {
                 closeSlashRef.current = close;
               }}

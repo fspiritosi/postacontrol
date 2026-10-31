@@ -1,3 +1,5 @@
+import Image from "@tiptap/extension-image";
+import FileHandler from "@tiptap/extension-file-handler";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import { NodeSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
@@ -6,6 +8,7 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import {
   BoldIcon,
+  ImageIcon,
   ItalicIcon,
   LinkIcon,
   ListIcon,
@@ -20,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { isAllowedLink, toLinkHref } from "@/lib/links";
+import { IMAGE_TYPES, imageError, readAsDataURL } from "./editorImages";
 import { createSlashCommand } from "./SlashMenu";
 
 // StarterKit v3 ya incluye Link; se restringe a http, https y mailto.
@@ -35,6 +39,8 @@ const baseExtensions = [
   TableRow,
   TableHeader,
   TableCell,
+  // Solo entran imágenes embebidas: una remota pegada se descarta al parsear.
+  Image.extend({ parseHTML: () => [{ tag: 'img[src^="data:image/"]' }] }).configure({ inline: false, allowBase64: true }),
 ];
 
 // LinkButton edita el enlace de la selección en un popover propio:
@@ -129,14 +135,16 @@ const EDITOR_CLASS = [
   "[&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground",
   "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_th]:border [&_td]:p-2 [&_th]:p-2 [&_td]:align-top",
   "[&_th]:bg-muted [&_th]:text-left [&_th]:font-semibold [&_.selectedCell]:bg-accent",
-  "[&_hr]:my-3 [&_hr]:border-border [&_img]:h-auto [&_img]:max-w-full",
+  "[&_hr]:my-3 [&_hr]:border-border [&_img]:h-auto [&_img]:max-w-full [&_img.ProseMirror-selectednode]:outline-2 [&_img.ProseMirror-selectednode]:outline-primary",
 ].join(" ");
 
 type Props = {
   content: string;
   onChange: (html: string) => void;
   // Abre el selector de imágenes; sin esta prop el menú "/" no ofrece "Imagen".
-  onPickImage?: () => void;
+  onPickImage?: (editor: Editor) => void;
+  // Errores al pegar una imagen (tipo o tamaño no soportado).
+  onError?: (msg: string) => void;
   // Avisa cuando el menú "/" abre (con cómo cerrarlo) o cierra (null): su Esc no debe cerrar el diálogo.
   onSlashMenuChange?: (close: (() => void) | null) => void;
 };
@@ -147,28 +155,46 @@ const showBubble = ({ state }: { state: Editor["state"] }) => {
   return !sel.empty && !(sel instanceof NodeSelection) && !(sel instanceof CellSelection);
 };
 
-export function RichEditor({ content, onChange, onPickImage, onSlashMenuChange }: Props) {
+export function RichEditor({ content, onChange, onPickImage, onError, onSlashMenuChange }: Props) {
   const [linkOpen, setLinkOpen] = useState(false);
   // El menú "/" se arma una sola vez: lee lo último de `latest`.
   const [latest] = useState(() => {
-    let pickImage: (() => void) | undefined;
+    let pickImage: ((editor: Editor) => void) | undefined;
+    let error: ((msg: string) => void) | undefined;
     let slashMenuChange: ((close: (() => void) | null) => void) | undefined;
     return {
       getPickImage: () => pickImage,
+      getError: () => error,
       getSlashMenuChange: () => slashMenuChange,
-      set: (pick?: () => void, slash?: (close: (() => void) | null) => void) => {
+      set: (pick?: (editor: Editor) => void, slash?: (close: (() => void) | null) => void, err?: (msg: string) => void) => {
         pickImage = pick;
+        error = err;
         slashMenuChange = slash;
       },
     };
   });
   useEffect(() => {
-    latest.set(onPickImage, onSlashMenuChange);
-  }, [latest, onPickImage, onSlashMenuChange]);
+    latest.set(onPickImage, onSlashMenuChange, onError);
+  }, [latest, onPickImage, onSlashMenuChange, onError]);
   const [extensions] = useState(() => [
     ...baseExtensions,
+    FileHandler.configure({
+      allowedMimeTypes: IMAGE_TYPES,
+      onPaste: (editor, files) => {
+        for (const file of files) {
+          const msg = imageError(file);
+          if (msg) {
+            latest.getError()?.(msg);
+            continue;
+          }
+          void readAsDataURL(file)
+            .then((src) => editor.chain().focus().setImage({ src, alt: file.name }).run())
+            .catch(() => latest.getError()?.("No se pudo leer la imagen."));
+        }
+      },
+    }),
     createSlashCommand(
-      () => ({ pickImage: () => latest.getPickImage()?.(), openLink: () => setLinkOpen(true) }),
+      () => ({ pickImage: (editor) => latest.getPickImage()?.(editor), openLink: () => setLinkOpen(true) }),
       (item) => item.id !== "image" || latest.getPickImage() != null,
       (close) => latest.getSlashMenuChange()?.(close),
     ),
@@ -208,6 +234,7 @@ export function RichEditor({ content, onChange, onPickImage, onSlashMenuChange }
         {tool("Lista con viñetas", <ListIcon />, editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run())}
         {tool("Lista numerada", <ListOrderedIcon />, editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run())}
         <LinkButton editor={editor} open={linkOpen} onOpenChange={setLinkOpen} />
+        {onPickImage && tool("Imagen", <ImageIcon />, false, () => onPickImage(editor))}
         {inTable && (
           <>
             <Button type="button" variant="ghost" size="sm" onClick={() => editor.chain().focus().addRowAfter().run()}>

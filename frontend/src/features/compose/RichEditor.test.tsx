@@ -270,3 +270,35 @@ describe("RichEditor: barra de formato", () => {
     await waitFor(() => expect(lastHTML(onChange)).toBe("<p>hola</p>"));
   });
 });
+
+describe("RichEditor: imágenes", () => {
+  const PNG = "data:image/png;base64,iVBORw0KGgo=";
+
+  it("pegar HTML con <img src=https://…> no agrega la imagen", async () => {
+    const { onChange, body } = await setupEmpty();
+    // jsdom no tiene DataTransfer: alcanza con lo que ProseMirror lee.
+    const clip: Record<string, string> = { "text/html": '<p>hola</p><img src="https://x.test/a.png">', "text/plain": "hola" };
+    const data = { getData: (t: string) => clip[t] ?? "", types: Object.keys(clip), files: [], items: [] };
+    act(() => {
+      const ev = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, "clipboardData", { value: data });
+      body.dispatchEvent(ev);
+    });
+    await waitFor(() => expect(lastHTML(onChange)).toContain("hola"));
+    expect(lastHTML(onChange)).not.toContain("<img");
+  });
+
+  it("el contenido con <img src=data:image/png…> se conserva", async () => {
+    const onChange = vi.fn();
+    render(<RichEditor content={`<p>a</p><img src="${PNG}">`} onChange={onChange} />);
+    const body = await screen.findByLabelText("Cuerpo del mensaje");
+    expect(body.querySelector("img")?.getAttribute("src")).toBe(PNG);
+  });
+
+  it("el botón Imagen llama a onPickImage", async () => {
+    const onPickImage = vi.fn();
+    const { user } = await setupEmpty({ onPickImage });
+    await user.click(toolbar().getByRole("button", { name: "Imagen" }));
+    expect(onPickImage).toHaveBeenCalledTimes(1);
+  });
+});

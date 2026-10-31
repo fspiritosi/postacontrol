@@ -11,6 +11,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListLocalDrafts: vi.fn(),
   DeleteLocalDraft: vi.fn(),
   OpenExternal: vi.fn(),
+  PickImage: vi.fn(),
 }));
 vi.mock("sonner", () => ({
   toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -171,5 +172,32 @@ describe("Composer", () => {
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
     expect(screen.getByRole("dialog", { name: "Nuevo correo" })).toBeInTheDocument();
     expect(screen.queryByText("¿Descartar este correo?")).toBeNull();
+  });
+
+  it("insertar imagen agrega el img al cuerpo enviado", async () => {
+    vi.mocked(svc.PickImage).mockResolvedValue({ dataUrl: "data:image/png;base64,iVBORw0KGgo=", filename: "foto.png" } as never);
+    vi.mocked(svc.QueueSend).mockResolvedValue(3);
+    const user = setup();
+    await user.click(screen.getByText("responder"));
+    await screen.findByLabelText("Para");
+    const body = await screen.findByLabelText("Cuerpo del mensaje");
+    act(() => body.focus());
+    await user.click(screen.getByRole("button", { name: "Imagen" }));
+    await waitFor(() => expect(body.querySelector("img")).not.toBeNull());
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].bodyHtml).toContain("data:image/png");
+  });
+
+  it("cancelar el diálogo no cambia nada", async () => {
+    vi.mocked(svc.PickImage).mockResolvedValue({ dataUrl: "", filename: "" } as never);
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    const body = await screen.findByLabelText("Cuerpo del mensaje");
+    act(() => body.focus());
+    await user.click(screen.getByRole("button", { name: "Imagen" }));
+    await waitFor(() => expect(svc.PickImage).toHaveBeenCalled());
+    expect(body.querySelector("img")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
