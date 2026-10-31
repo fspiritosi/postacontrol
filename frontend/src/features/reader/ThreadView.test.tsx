@@ -52,10 +52,10 @@ function detail(s: MessageSummary): MessageDetail {
   };
 }
 
-function setup() {
-  vi.mocked(svc.GetThread).mockResolvedValue(thread);
+function setup(msgs: MessageSummary[] = thread) {
+  vi.mocked(svc.GetThread).mockResolvedValue(msgs);
   vi.mocked(svc.GetMessage).mockImplementation(
-    (id: number) => Promise.resolve(detail(thread.find((m) => m.id === id)!)) as never,
+    (id: number) => Promise.resolve(detail(msgs.find((m) => m.id === id)!)) as never,
   );
   vi.mocked(svc.ListFolders).mockResolvedValue(folders);
   const selectThread = vi.fn();
@@ -71,12 +71,13 @@ function setup() {
     selectThread,
   };
   const user = userEvent.setup();
+  const qc = new QueryClient();
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={qc}>
       <ThreadView accounts={[account]} state={state} />
     </QueryClientProvider>,
   );
-  return { user, selectThread, selectMessage };
+  return { user, selectThread, selectMessage, qc };
 }
 
 const items = () => screen.getAllByTestId("thread-message");
@@ -127,5 +128,30 @@ describe("ThreadView", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Trabajo" }));
     await waitFor(() => expect(selectThread).toHaveBeenCalledWith(null));
     expect(svc.MoveMessages).toHaveBeenCalledWith([3], 5);
+  });
+
+  it("expande el no leído más nuevo (sin contar Enviados), y solo ese", async () => {
+    const unread = (m: MessageSummary) => ({ ...m, seen: false });
+    const msgs = [
+      unread(summary(1, 3, "Ana", 19)),
+      unread(summary(2, 3, "Ana", 20)),
+      unread(summary(3, 4, "Yo", 21)),
+      summary(4, 3, "Ana", 22),
+    ];
+    const { qc } = setup(msgs);
+    expect(await screen.findByText("Cuerpo 2")).toBeTruthy();
+    expect(svc.GetMessage).toHaveBeenCalledTimes(1);
+    expect(svc.GetMessage).toHaveBeenCalledWith(2);
+    expect(screen.queryByText("Cuerpo 4")).toBeNull();
+    // El último queda plegado y se puede abrir.
+    expect(within(items()[3]).getByRole("button", { name: /Ana/ }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    // Abrirlo lo marca leído y el hilo se recarga: sigue abierto el mismo.
+    vi.mocked(svc.GetThread).mockResolvedValue(msgs.map((m) => ({ ...m, seen: true })));
+    await qc.invalidateQueries({ queryKey: ["thread"] });
+    await waitFor(() => expect(svc.GetThread).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Cuerpo 2")).toBeTruthy();
+    expect(screen.queryByText("Cuerpo 4")).toBeNull();
   });
 });

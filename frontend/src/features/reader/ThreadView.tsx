@@ -42,11 +42,15 @@ function Header({ message: m, sent, expanded }: { message: MessageSummary; sent:
 export function ThreadView({ accounts, state, onCompose }: Props) {
   const folderId = state.view?.kind === "folder" ? state.view.folderId : null;
   const thread = useThread(folderId, state.threadRoot);
-  const { folders } = useAllFolders(accounts);
-  // Mensajes plegados que se abrieron; el último siempre está abierto.
+  const { folders, pending: foldersPending } = useAllFolders(accounts);
+  // Mensajes plegados que se abrieron; el enfocado siempre está abierto.
   const [opened, setOpened] = useState<Set<number>>(() => new Set());
+  // El que se abre solo: se fija al cargar el hilo para que no salte a otro
+  // cuando abrirlo lo marca leído y el hilo se recarga.
+  const [focusId, setFocusId] = useState<number | null>(null);
 
-  if (thread.isPending) return <div className="h-full" aria-busy />;
+  // Hacen falta las carpetas para saber cuáles son de Enviados.
+  if (thread.isPending || foldersPending) return <div className="h-full" aria-busy />;
   if (thread.isError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm">
@@ -68,6 +72,10 @@ export function ThreadView({ accounts, state, onCompose }: Props) {
 
   const sentIds = new Set(folders.filter((f) => f.role === "sent").map((f) => f.id));
   const last = messages[messages.length - 1];
+  // Se abre el no leído más nuevo (los de Enviados no cuentan); si no hay, el último.
+  const pinned = messages.find((m) => m.id === focusId);
+  const focus = pinned ?? [...messages].reverse().find((m) => !m.seen && !sentIds.has(m.folderId)) ?? last;
+  if (!pinned) setFocusId(focus.id);
   const toggle = (id: number) =>
     setOpened((prev) => {
       const next = new Set(prev);
@@ -85,12 +93,12 @@ export function ThreadView({ accounts, state, onCompose }: Props) {
       </h1>
       <ul className="flex-1 overflow-y-auto">
         {messages.map((m) => {
-          const isLast = m.id === last.id;
-          const expanded = isLast || opened.has(m.id);
+          const isFocus = m.id === focus.id;
+          const expanded = isFocus || opened.has(m.id);
           const sent = sentIds.has(m.folderId);
           return (
             <li key={m.id} className="border-b" data-testid="thread-message">
-              {isLast ? (
+              {isFocus ? (
                 <div className="flex items-center gap-2 px-4 py-2.5">
                   <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <Header message={m} sent={sent} expanded />
