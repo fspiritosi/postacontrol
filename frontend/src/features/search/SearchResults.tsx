@@ -32,10 +32,18 @@ export function SearchResults({ accounts, state, search }: Props) {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const key = `${search.text}\u0000${folderId}`;
-  const local = results.data?.pages.flatMap((p) => p.messages) ?? [];
-  const seen = new Set(local.map((m) => m.id));
-  const extra = (server?.key === key ? server.items : []).filter((m) => !seen.has(m.id));
-  const items = [...local, ...extra];
+  // Si entra un correo entre página y página los resultados se corren y uno
+  // puede repetirse: cada mensaje aparece una sola vez.
+  const seen = new Set<number>();
+  const items: MessageSummary[] = [];
+  for (const m of [
+    ...(results.data?.pages.flatMap((p) => p.messages) ?? []),
+    ...(server?.key === key ? server.items : []),
+  ]) {
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    items.push(m);
+  }
   const pending = results.data?.pages[0]?.pending ?? 0;
 
   const colorOf = (accountId: number) => accounts.find((a) => a.id === accountId)?.color;
@@ -43,6 +51,9 @@ export function SearchResults({ accounts, state, search }: Props) {
     const f = folders.find((x) => x.id === id);
     return f ? folderLabel(f) : undefined;
   };
+
+  const currentLabel = inFolder ? labelOf(view.folderId) : undefined;
+  const serverLabel = currentLabel ? `Buscar en el servidor en ${currentLabel}` : "Buscar en el servidor";
 
   const searchServer = async () => {
     if (!inFolder) return;
@@ -83,7 +94,7 @@ export function SearchResults({ accounts, state, search }: Props) {
           <p>Todavía faltan indexar {pending} correos.</p>
           {inFolder && (
             <Button variant="outline" size="sm" onClick={() => void searchServer()} disabled={serverLoading}>
-              Buscar también en el servidor
+              {serverLabel}
             </Button>
           )}
         </div>

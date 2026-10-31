@@ -135,10 +135,25 @@ describe("buscador", () => {
     const user = setup();
     await user.type(screen.getByRole("searchbox", { name: "Buscar correo" }), "hola{Enter}");
     expect(await screen.findByText("Todavía faltan indexar 5 correos.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Buscar también en el servidor" }));
+    await user.click(screen.getByRole("button", { name: "Buscar en el servidor en Entrada" }));
     expect(await screen.findByRole("button", { name: /Asunto 2/ })).toBeTruthy();
     expect(svc.SearchServer).toHaveBeenCalledWith(3, "hola");
     expect(screen.getAllByRole("button", { name: /Asunto 1/ })).toHaveLength(1);
+  });
+
+  it("si las páginas se corren no repite resultados", async () => {
+    vi.mocked(svc.Search).mockImplementation(({ offset }) => {
+      // Entró un correo nuevo entre página y página: el 100 vuelve a aparecer.
+      const ids = offset === 0 ? Array.from({ length: 100 }, (_, i) => i + 1) : [100, 101];
+      return Promise.resolve({ messages: ids.map((id) => summary(id, 3)), pending: 0 }) as ReturnType<
+        typeof svc.Search
+      >;
+    });
+    const user = setup();
+    await user.type(screen.getByRole("searchbox", { name: "Buscar correo" }), "hola{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Cargar más" }));
+    expect(await screen.findByRole("button", { name: /Asunto 101(?!\d)/ })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Asunto 100(?!\d)/ })).toHaveLength(1);
   });
 
   it("elegir un resultado lo abre", async () => {
