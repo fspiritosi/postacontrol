@@ -200,7 +200,7 @@ func TestSyncFolder_RemovesExpunged(t *testing.T) {
 }
 
 func TestSyncFolder_UIDValidityChangeResets(t *testing.T) {
-	c, imap, smtp, _ := newTestCore(t)
+	c, imap, smtp, n := newTestCore(t)
 	deliverN(t, imap, 3, "viejo")
 	_, inboxID := setupSynced(t, imap, smtp, c)
 	_, before, err := c.store.GetFolder(context.Background(), inboxID)
@@ -217,6 +217,8 @@ func TestSyncFolder_UIDValidityChangeResets(t *testing.T) {
 	_, after, err := c.store.GetFolder(context.Background(), inboxID)
 	require.NoError(t, err)
 	assert.Equal(t, newValidity, after.UIDValidity)
+	// Volver a bajar el buzón recreado no es correo nuevo: sin aviso.
+	assert.Empty(t, newMailEvents(n), "el reinicio por UIDVALIDITY no avisa correo nuevo")
 }
 
 func TestSyncFolder_LargeFolderBatchesNewestFirst(t *testing.T) {
