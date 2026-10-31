@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"postacontrol/core/imapx"
 	"postacontrol/core/model"
 	"postacontrol/core/secrets"
 	"postacontrol/core/testenv"
@@ -19,9 +20,10 @@ import (
 // indexLog registra lo que hace el indexador por el gancho indexHook.
 type indexLog struct {
 	mu       sync.Mutex
-	order    []int64         // mensajes indexados, en orden
-	attempts map[int64]int   // intentos por mensaje (con o sin error)
-	errs     map[int64]error // último error por mensaje
+	order    []int64               // mensajes indexados, en orden
+	attempts map[int64]int         // intentos por mensaje (con o sin error)
+	errs     map[int64]error       // último error por mensaje
+	times    map[int64][]time.Time // cuándo fue cada intento
 }
 
 func (l *indexLog) indexed() []int64 {
@@ -36,6 +38,12 @@ func (l *indexLog) tries(id int64) int {
 	return l.attempts[id]
 }
 
+func (l *indexLog) attemptTimes(id int64) []time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]time.Time{}, l.times[id]...)
+}
+
 func (l *indexLog) lastErr(id int64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -45,14 +53,16 @@ func (l *indexLog) lastErr(id int64) error {
 // fastIndex achica las esperas del indexador e instala el registro. Se llama
 // antes de StartIndexing.
 func fastIndex(c *Core) *indexLog {
-	l := &indexLog{attempts: map[int64]int{}, errs: map[int64]error{}}
+	l := &indexLog{attempts: map[int64]int{}, errs: map[int64]error{}, times: map[int64][]time.Time{}}
 	c.indexPause = 10 * time.Millisecond
 	c.indexIdle = 10 * time.Millisecond
+	c.indexBackoff = []time.Duration{10 * time.Millisecond}
 	c.indexHook = func(id int64, err error) {
 		l.mu.Lock()
 		defer l.mu.Unlock()
 		l.attempts[id]++
 		l.errs[id] = err
+		l.times[id] = append(l.times[id], time.Now())
 		if err == nil {
 			l.order = append(l.order, id)
 		}
@@ -154,9 +164,10 @@ func TestIndexer_SkipsAfterThreeFailures(t *testing.T) {
 	log := fastIndex(c)
 
 	c.StartIndexing(context.Background())
-	require.Eventually(t, func() bool { return log.tries(broken) >= 3 && len(log.indexed()) == 4 },
-		10*time.Second, 5*time.Millisecond)
-	assert.Equal(t, 0, pendingIn(t, c, inboxID), "el roto quedó salteado y el resto se indexó")
+	// El gancho corre antes de anotar la falla: se espera también a la caché.
+	require.Eventually(t, func() bool {
+		return log.tries(broken) >= 3 && len(log.indexed()) == 4 && pendingIn(t, c, inboxID) == 0
+	}, 10*time.Second, 5*time.Millisecond, "el roto quedó salteado y el resto se indexó")
 	assert.False(t, bodyCached(t, c, broken))
 
 	// El indexador sigue andando (indexa un correo nuevo de otra carpeta) y
@@ -329,7 +340,10 @@ func TestIndexer_StaleFolderResyncs(t *testing.T) {
 	_, inboxID := setupSynced(t, imap, smtp, c)
 	imap.RecreateMailbox(t, "INBOX")
 	deliverN(t, imap, 2, "nuevo")
+	staleID := firstMessage(t, c, inboxID).ID
 	log := fastIndex(c)
+	const wait = 150 * time.Millisecond
+	c.indexBackoff = []time.Duration{wait}
 
 	c.StartIndexing(context.Background())
 	require.Eventually(t, func() bool { return len(log.indexed()) == 2 }, 10*time.Second, 5*time.Millisecond)
@@ -337,6 +351,12 @@ func TestIndexer_StaleFolderResyncs(t *testing.T) {
 	assert.ElementsMatch(t, []string{"nuevo-1", "nuevo-2"}, subjects(ms))
 	assert.ElementsMatch(t, ids(ms), log.indexed())
 	assert.Equal(t, 0, pendingIn(t, c, inboxID))
+	// Después de resincronizar la cuenta espera un escalón de indexBackoff.
+	staleAt := log.attemptTimes(staleID)
+	require.Len(t, staleAt, 1)
+	firstNew := log.attemptTimes(log.indexed()[0])
+	require.NotEmpty(t, firstNew)
+	assert.GreaterOrEqual(t, firstNew[0].Sub(staleAt[0]), wait)
 }
 
 func TestIndexer_StartIsIdempotent(t *testing.T) {
@@ -351,4 +371,77 @@ func TestIndexer_StartIsIdempotent(t *testing.T) {
 	running := c.indexRunning
 	c.lifeMu.Unlock()
 	assert.Equal(t, 1, running)
+}
+
+// Un mensaje cuyo pedido corta la conexión (con el servidor andando) cuenta
+// como falla del mensaje: llega a 3 y el resto de la cuenta se indexa.
+func TestIndexer_PoisonMessageThatDropsConnectionIsSkipped(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	deliverN(t, imap, 5, "m")
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	poison := firstMessage(t, c, inboxID) // el más nuevo: el primero de cada lote
+	c.beforeFetchBody = func(conn *imapx.Conn, uid uint32) {
+		if uid == poison.UID {
+			_ = conn.Abort()
+		}
+	}
+	log := fastIndex(c)
+
+	c.StartIndexing(context.Background())
+	// El gancho corre antes del NOOP y de anotar la falla: se espera también a la caché.
+	require.Eventually(t, func() bool {
+		return log.tries(poison.ID) >= 3 && len(log.indexed()) == 4 && pendingIn(t, c, inboxID) == 0
+	}, 10*time.Second, 5*time.Millisecond, "el que corta la conexión quedó salteado y el resto se indexó")
+	var ue *UserError
+	require.ErrorAs(t, log.lastErr(poison.ID), &ue)
+	assert.Equal(t, "network", ue.Code)
+
+	imap.Deliver(t, "Sent", datedMail("enviado", time.Now(), "hola"))
+	require.NoError(t, c.SyncFolder(context.Background(), folderID(t, c, acc.ID, "Sent")))
+	require.Eventually(t, func() bool { return len(log.indexed()) == 5 }, 10*time.Second, 5*time.Millisecond)
+	assert.Equal(t, 3, log.tries(poison.ID), "tres intentos y no más")
+}
+
+// Sin red, la espera entre intentos de una cuenta crece escalón por escalón y
+// se queda en el último.
+func TestIndexer_BackoffGrowsWhileOffline(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	deliverN(t, imap, 3, "m")
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	newest := firstMessage(t, c, inboxID)
+	imap.Close()
+	c.dropConn(newest.AccountID)
+	log := fastIndex(c)
+	sched := []time.Duration{10 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond, 300 * time.Millisecond}
+	c.indexBackoff = sched
+
+	c.StartIndexing(context.Background())
+	require.Eventually(t, func() bool { return log.tries(newest.ID) >= 6 }, 10*time.Second, 5*time.Millisecond)
+	at := log.attemptTimes(newest.ID)
+	for i := range 5 {
+		gap := at[i+1].Sub(at[i])
+		want := sched[min(i, len(sched)-1)]
+		assert.GreaterOrEqual(t, gap, want, "espera %d", i)
+	}
+	assert.Less(t, at[1].Sub(at[0]), sched[len(sched)-1], "la primera espera es el primer escalón")
+	assert.Empty(t, log.indexed())
+}
+
+func TestAccountBackoff_GrowsCapsAndResets(t *testing.T) {
+	b := newAccountBackoff([]time.Duration{time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute})
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	assert.True(t, b.ready(1, now))
+	got := []time.Duration{}
+	for range 6 {
+		got = append(got, b.cut(1, now))
+	}
+	assert.Equal(t, []time.Duration{time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute,
+		10 * time.Minute, 10 * time.Minute}, got)
+	assert.False(t, b.ready(1, now.Add(9*time.Minute)))
+	assert.True(t, b.ready(1, now.Add(10*time.Minute)))
+	assert.True(t, b.ready(2, now), "las otras cuentas no esperan")
+
+	b.reset(1)
+	assert.True(t, b.ready(1, now))
+	assert.Equal(t, time.Minute, b.cut(1, now), "indexar algo vuelve al primer escalón")
 }

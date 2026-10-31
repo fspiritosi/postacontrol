@@ -18,11 +18,15 @@ const (
 	// indexPause es el descanso entre pasadas mientras quedan pendientes.
 	indexPause = 2 * time.Second
 	// indexIdle es la espera cuando no hay nada que bajar (o todo lo que
-	// queda es de cuentas que no se pueden usar por ahora). También es lo que
-	// espera una cuenta para volver a probar después de un problema de
-	// conexión o de un rechazo del servidor.
+	// queda es de cuentas que no se pueden usar por ahora).
 	indexIdle = time.Minute
 )
+
+// indexBackoff son las esperas antes de volver a probar una cuenta cuyo lote
+// se cortó (sin red, el servidor rechaza, la carpeta se recreó, la caché
+// falla): avanza un escalón por cada corte seguido y se queda en el último.
+// Vuelve al primero cuando la cuenta indexa un mensaje.
+var indexBackoff = []time.Duration{time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute}
 
 // StartIndexing lanza el indexador: una goroutine que baja en segundo plano
 // los cuerpos que faltan en la caché, de lo más nuevo a lo más viejo, para que
@@ -38,8 +42,10 @@ const (
 //   - Saltea las cuentas en pausa por contraseña rechazada (authPaused), y lo
 //     vuelve a mirar antes de cada mensaje.
 //   - Un mensaje que falla 3 veces (borrado en el servidor, MIME roto, el
-//     servidor lo rechaza) se saltea para siempre; los problemas de conexión
-//     no cuentan como fallas.
+//     servidor lo rechaza, corta la conexión cada vez que se lo pide) se
+//     saltea para siempre; los problemas de conexión no cuentan como fallas.
+//   - Una cuenta cuyo lote se cortó espera según indexBackoff antes de
+//     volver a probarla.
 //
 // Al terminar cada lote emite EventFolderUpdated por cada carpeta en la que
 // indexó algo. No emite EventSyncError: withConn ya avisa los problemas de
@@ -75,14 +81,12 @@ func (c *Core) StartIndexing(ctx context.Context) {
 // indexLoop repite pasadas hasta que ctx se cancele. Descansa indexPause si
 // la pasada avanzó e indexIdle si no.
 func (c *Core) indexLoop(ctx context.Context) {
-	// retryAt anota hasta cuándo no se prueba una cuenta cuyo lote se cortó
-	// por la conexión o por un rechazo del servidor: sin esto, con la red
-	// caída el indexador volvería a conectar (y withConn a avisar el error)
-	// cada indexPause.
-	retryAt := map[int64]time.Time{}
+	// Sin la espera por cuenta, con la red caída el indexador volvería a
+	// conectar (y withConn a avisar el error) cada indexPause.
+	b := newAccountBackoff(c.indexBackoff)
 	for ctx.Err() == nil {
 		wait := c.indexIdle
-		if c.indexPass(ctx, retryAt) {
+		if c.indexPass(ctx, b) {
 			wait = c.indexPause
 		}
 		if !sleepCtx(ctx, wait) {
@@ -92,7 +96,7 @@ func (c *Core) indexLoop(ctx context.Context) {
 }
 
 // indexPass hace un lote por cuenta. Devuelve true si alguna avanzó.
-func (c *Core) indexPass(ctx context.Context, retryAt map[int64]time.Time) bool {
+func (c *Core) indexPass(ctx context.Context, b *accountBackoff) bool {
 	accs, err := c.store.ListAccounts(ctx)
 	if err != nil {
 		return false
@@ -102,27 +106,76 @@ func (c *Core) indexPass(ctx context.Context, retryAt map[int64]time.Time) bool 
 		if ctx.Err() != nil {
 			return false
 		}
-		if c.authPaused(a.ID) || time.Now().Before(retryAt[a.ID]) {
+		if c.authPaused(a.ID) || !b.ready(a.ID, time.Now()) {
 			continue
 		}
-		delete(retryAt, a.ID)
-		advanced, cut := c.indexAccount(ctx, a.ID)
-		progress = progress || advanced
-		if cut {
-			retryAt[a.ID] = time.Now().Add(c.indexIdle)
+		r := c.indexAccount(ctx, a.ID)
+		progress = progress || r.advanced
+		if r.indexed {
+			b.reset(a.ID)
+		}
+		if r.cut {
+			b.cut(a.ID, time.Now())
 		}
 	}
 	return progress
 }
 
-// indexAccount baja un lote de cuerpos de la cuenta. advanced dice si cambió
-// algo (cuerpos guardados, fallas anotadas o una carpeta resincronizada); cut,
-// si el lote se cortó por un problema que no es del mensaje y conviene
-// esperar antes de volver a probar la cuenta.
+// accountBackoff lleva, por cuenta, cuántos cortes seguidos tuvo y hasta
+// cuándo no se la vuelve a probar. Lo usa una sola goroutine (indexLoop).
+type accountBackoff struct {
+	sched   []time.Duration
+	step    map[int64]int
+	retryAt map[int64]time.Time
+}
+
+func newAccountBackoff(sched []time.Duration) *accountBackoff {
+	return &accountBackoff{sched: sched, step: map[int64]int{}, retryAt: map[int64]time.Time{}}
+}
+
+// ready dice si la cuenta ya se puede probar.
+func (b *accountBackoff) ready(accountID int64, now time.Time) bool {
+	return !now.Before(b.retryAt[accountID])
+}
+
+// cut anota un corte: la cuenta espera el escalón actual y avanza uno.
+// Devuelve la espera.
+func (b *accountBackoff) cut(accountID int64, now time.Time) time.Duration {
+	if len(b.sched) == 0 {
+		return 0
+	}
+	step := b.step[accountID]
+	d := b.sched[step]
+	b.step[accountID] = min(step+1, len(b.sched)-1)
+	b.retryAt[accountID] = now.Add(d)
+	return d
+}
+
+// reset vuelve la cuenta al primer escalón (indexó algo).
+func (b *accountBackoff) reset(accountID int64) {
+	delete(b.step, accountID)
+	delete(b.retryAt, accountID)
+}
+
+// batchResult es cómo terminó el lote de una cuenta. advanced: cambió algo
+// (cuerpos guardados, fallas anotadas o una carpeta resincronizada). indexed:
+// guardó al menos un cuerpo. cut: se cortó por algo que no es del mensaje y
+// conviene esperar (indexBackoff) antes de volver a probar la cuenta.
+type batchResult struct {
+	advanced, indexed, cut bool
+}
+
+// indexAccount baja un lote de cuerpos de la cuenta.
 //
 // Cómo se trata cada error:
-//   - contexto, red, contraseña o TLS: corta el lote sin anotar fallas (la
+//   - contexto, contraseña o TLS: corta el lote sin anotar fallas (la
 //     contraseña rechazada además deja la cuenta en pausa, lo hace withConn);
+//   - red: puede ser la red o el mensaje (un BODYSTRUCTURE que no se puede
+//     leer, un servidor que corta la conexión al pedir ese UID). Se prueba la
+//     cuenta con un NOOP: si anda, la falla es del mensaje (se anota y se
+//     sigue con el siguiente); si no, corta el lote sin anotar fallas. Sin
+//     esto un mensaje así, siendo el más nuevo, trabaría la cuenta para
+//     siempre;
 //   - "stale" (la carpeta se recreó en el servidor): corta el lote y
 //     resincroniza esa carpeta, que resetea la caché. Sin esto una carpeta
 //     que no es la Entrada (la sincronización periódica solo mira la Entrada)
@@ -131,12 +184,14 @@ func (c *Core) indexPass(ctx context.Context, retryAt map[int64]time.Time) bool 
 //     del servidor y no del mensaje (por ejemplo, un límite de uso): sin el
 //     corte, un servidor que rechaza todo agotaría los reintentos de lotes
 //     enteros cada pocos segundos;
-//   - el resto (el mensaje ya no está, MIME roto, un error de la caché):
-//     anota la falla y sigue con el siguiente.
-func (c *Core) indexAccount(ctx context.Context, accountID int64) (advanced, cut bool) {
+//   - la caché no puede guardar el cuerpo o anotar la falla: corta el lote;
+//   - el resto (el mensaje ya no está, MIME roto): anota la falla y sigue con
+//     el siguiente.
+func (c *Core) indexAccount(ctx context.Context, accountID int64) (r batchResult) {
 	ms, err := c.store.NextToIndex(ctx, accountID, indexBatch)
 	if err != nil {
-		return false, false
+		r.cut = c.ctxErr(ctx) == nil
+		return r
 	}
 	var touched []int64
 	defer func() {
@@ -149,52 +204,83 @@ func (c *Core) indexAccount(ctx context.Context, accountID int64) (advanced, cut
 	}()
 	for _, d := range ms {
 		if c.ctxErr(ctx) != nil || c.authPaused(accountID) {
-			return advanced, false
+			return r
 		}
-		err := c.indexOne(ctx, d)
+		storeFailed, err := c.indexOne(ctx, d)
 		if c.indexHook != nil {
 			c.indexHook(d.ID, err)
 		}
 		if err == nil {
-			advanced = true
+			r.advanced, r.indexed = true, true
 			if !slices.Contains(touched, d.FolderID) {
 				touched = append(touched, d.FolderID)
 			}
 			continue
 		}
-		if c.ctxErr(ctx) != nil || isConnProblem(err) {
-			return advanced, true
+		if c.ctxErr(ctx) != nil {
+			return r
 		}
-		if userErrorCode(err) == "stale" {
-			// Los errores de la resincronización los avisa withConn; si
-			// falla, se vuelve a probar después de indexIdle.
-			if c.SyncFolder(ctx, d.FolderID) != nil {
-				return advanced, true
+		switch {
+		case storeFailed:
+			r.cut = true
+			return r
+		case errors.Is(err, store.ErrNotFound):
+			continue // el mensaje se borró de la caché mientras tanto
+		case errors.Is(err, imapx.ErrNetwork):
+			// ¿La red o este mensaje? Los errores del NOOP los avisa withConn.
+			if !c.accountReachable(ctx, accountID) {
+				r.cut = c.ctxErr(ctx) == nil
+				return r
 			}
-			return true, false
+		case isConnProblem(err):
+			r.cut = true
+			return r
+		case userErrorCode(err) == "stale":
+			// Los errores de la resincronización los avisa withConn. Con o
+			// sin éxito se espera: un servidor que cambia el UIDVALIDITY a
+			// cada rato no tiene que resincronizar cada indexPause.
+			if c.SyncFolder(ctx, d.FolderID) == nil {
+				r.advanced = true
+			}
+			r.cut = c.ctxErr(ctx) == nil
+			return r
 		}
 		if nerr := c.store.NoteIndexFailure(ctx, d.ID); nerr != nil && !errors.Is(nerr, store.ErrNotFound) {
-			return advanced, true // la caché no anda: mejor esperar
+			r.cut = c.ctxErr(ctx) == nil // la caché no anda: mejor esperar
+			return r
 		}
-		advanced = true
+		r.advanced = true
 		if userErrorCode(err) == "server" {
-			return advanced, true
+			r.cut = true
+			return r
 		}
 	}
-	return advanced, false
+	return r
 }
 
 // indexOne baja el cuerpo de un mensaje y lo guarda en la caché, que lo suma
-// al índice de búsqueda (triggers de messages_fts).
-func (c *Core) indexOne(ctx context.Context, d model.MessageDetail) error {
+// al índice de búsqueda (triggers de messages_fts). storeFailed dice si lo que
+// falló fue guardar en la caché (y no el mensaje); si el mensaje ya no está en
+// la caché, el error es store.ErrNotFound y storeFailed es false.
+func (c *Core) indexOne(ctx context.Context, d model.MessageDetail) (storeFailed bool, err error) {
 	row, err := c.fetchBody(ctx, d)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := c.store.SetBody(ctx, d.ID, row); err != nil {
-		return c.ctxOrUserError(ctx, err)
+		if errors.Is(err, store.ErrNotFound) {
+			return false, err
+		}
+		return true, c.ctxOrUserError(ctx, err)
 	}
-	return nil
+	return false, nil
+}
+
+// accountReachable dice si la cuenta se puede usar ahora (conecta si hace
+// falta y manda NOOP).
+func (c *Core) accountReachable(ctx context.Context, accountID int64) bool {
+	err := c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error { return conn.Noop() })
+	return err == nil
 }
 
 // isConnProblem dice si err es de la conexión o del contexto y no del mensaje.

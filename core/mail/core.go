@@ -55,6 +55,10 @@ type Core struct {
 	// afterServerSeen es un gancho solo para tests: corre después de que el
 	// servidor aceptó \Seen y antes de actualizar la caché.
 	afterServerSeen func()
+	// beforeFetchBody es un gancho solo para tests: fetchBody lo llama con la
+	// conexión y el UID después de abrir la carpeta y antes de pedir el
+	// mensaje (por ejemplo, para cortar la conexión con un UID dado).
+	beforeFetchBody func(conn *imapx.Conn, uid uint32)
 
 	poolMu sync.Mutex
 	pool   map[int64]*pooledConn // una conexión IMAP por cuenta
@@ -84,12 +88,14 @@ type Core struct {
 	watchers      map[int64]*watcher
 	watchLive     int
 
-	// Indexador (index.go). indexPause e indexIdle se inyectan en los tests;
-	// indexHook es un gancho solo para tests: corre después de cada intento
-	// de bajar un cuerpo, con su resultado (nil = indexado). indexStarted e
-	// indexRunning (goroutines del indexador vivas) los protege lifeMu.
+	// Indexador (index.go). indexPause, indexIdle e indexBackoff se inyectan
+	// en los tests; indexHook es un gancho solo para tests: corre después de
+	// cada intento de bajar un cuerpo, con su resultado (nil = indexado).
+	// indexStarted e indexRunning (goroutines del indexador vivas) los
+	// protege lifeMu.
 	indexPause   time.Duration
 	indexIdle    time.Duration
+	indexBackoff []time.Duration
 	indexHook    func(messageID int64, err error)
 	indexStarted bool
 	indexRunning int
@@ -111,7 +117,7 @@ func New(cfg Config) (*Core, error) {
 		now: time.Now, authFailedAt: map[int64]time.Time{},
 		dialWatch: imapx.DialWatch, watchDebounce: watchDebounce,
 		watchBackoff: slices.Clone(watchBackoff), watchers: map[int64]*watcher{},
-		indexPause: indexPause, indexIdle: indexIdle}, nil
+		indexPause: indexPause, indexIdle: indexIdle, indexBackoff: slices.Clone(indexBackoff)}, nil
 }
 
 // Close cancela las sincronizaciones en curso, espera a que terminen, cierra

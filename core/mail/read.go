@@ -147,6 +147,9 @@ func (c *Core) fetchBody(ctx context.Context, d model.MessageDetail) (store.Body
 		if err := selectChecked(conn, f, last, false); err != nil {
 			return err
 		}
+		if c.beforeFetchBody != nil {
+			c.beforeFetchBody(conn, d.UID)
+		}
 		bs, err := conn.FetchStructure(d.UID)
 		if err != nil {
 			return err
