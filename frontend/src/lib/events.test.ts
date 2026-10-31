@@ -18,8 +18,10 @@ import { toast } from "sonner";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
 import {
   PROGRESS_REFRESH_MS,
+  onPasswordRequest,
   resetSyncStateForTests,
   syncFolder,
+  toastSyncError,
   useFolderSyncing,
   useMailEvents,
   useSyncProgress,
@@ -130,5 +132,27 @@ describe("syncFolder", () => {
     expect(toast.error).toHaveBeenCalledWith("No pudimos conectarnos al servidor.", {
       id: "sync-error-1",
     });
+  });
+});
+
+describe("error de credenciales", () => {
+  it("ofrece Cambiar contraseña, que pide el diálogo de esa cuenta", () => {
+    vi.mocked(toast.error).mockClear();
+    const cb = vi.fn();
+    const off = onPasswordRequest(cb);
+    toastSyncError(4, "El servidor rechazó el usuario o la contraseña.");
+    const opts = vi.mocked(toast.error).mock.calls[0][1] as {
+      action: { label: string; onClick: () => void };
+    };
+    expect(opts.action.label).toBe("Cambiar contraseña");
+    opts.action.onClick();
+    expect(cb).toHaveBeenCalledWith(4);
+    off();
+  });
+
+  it("otros errores no llevan acción", () => {
+    vi.mocked(toast.error).mockClear();
+    toastSyncError(4, "Se cortó la conexión.");
+    expect(vi.mocked(toast.error).mock.calls[0][1]).not.toHaveProperty("action");
   });
 });

@@ -1,11 +1,13 @@
 import { ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
+import { onPasswordRequest } from "@/lib/events";
 import { useAllFolders, useDrafts, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { UNIFIED_LABEL, type UnifiedRole } from "@/lib/view";
 import { AccountSetupDialog } from "../accounts/AccountSetupDialog";
+import { PasswordDialog } from "../accounts/PasswordDialog";
 import type { ShellState } from "../layout/MailShell";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { AccountSection, ROLE_ICON } from "./AccountSection";
@@ -73,12 +75,9 @@ function OutboxRow({ state }: { state: ShellState }) {
 export function FolderSidebar({
   accounts,
   state,
-  onChangePassword,
 }: {
   accounts: Account[];
   state: ShellState;
-  // Lo conecta el diálogo de contraseña; sin esto el menú no ofrece la opción.
-  onChangePassword?: (account: Account) => void;
 }) {
   const { folders } = useAllFolders(accounts);
   const settings = useSettings();
@@ -87,6 +86,10 @@ export function FolderSidebar({
   const [expandedIds, setExpandedIds] = useState(() => loadIds(EXPANDED_KEY));
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Dueño único del diálogo de contraseña: lo abren el menú y el toast de error.
+  const [passwordAccountId, setPasswordAccountId] = useState<number | null>(null);
+  useEffect(() => onPasswordRequest(setPasswordAccountId), []);
+  const passwordAccount = accounts.find((a) => a.id === passwordAccountId) ?? null;
 
   // El estado guardado manda; sin él, con la unificada activa arrancan plegadas.
   const isOpen = (id: number) => {
@@ -149,7 +152,7 @@ export function FolderSidebar({
             state={state}
             open={isOpen(a.id)}
             onOpenChange={(o) => setOpen(a.id, o)}
-            onChangePassword={onChangePassword}
+            onChangePassword={(acc) => setPasswordAccountId(acc.id)}
           />
         ))}
       </nav>
@@ -166,6 +169,12 @@ export function FolderSidebar({
         </Button>
       </div>
       <AccountSetupDialog open={addOpen} onOpenChange={setAddOpen} />
+      <PasswordDialog
+        key={passwordAccountId ?? "none"}
+        account={passwordAccount}
+        open={passwordAccount !== null}
+        onOpenChange={(o) => !o && setPasswordAccountId(null)}
+      />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );

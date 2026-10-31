@@ -47,6 +47,23 @@ export function useFolderSyncing(folderId: number | null): boolean {
   );
 }
 
+const REJECTED_CREDENTIALS = "El servidor rechazó el usuario o la contraseña.";
+
+// Emisor simple de módulo: el toast vive fuera del árbol de la barra lateral,
+// que es quien abre el diálogo de contraseña.
+const passwordListeners = new Set<(accountId: number) => void>();
+
+export function onPasswordRequest(cb: (accountId: number) => void): () => void {
+  passwordListeners.add(cb);
+  return () => {
+    passwordListeners.delete(cb);
+  };
+}
+
+export function requestPassword(accountId: number): void {
+  passwordListeners.forEach((l) => l(accountId));
+}
+
 export function syncErrorToastId(accountId: number): string {
   return `sync-error-${accountId}`;
 }
@@ -54,7 +71,13 @@ export function syncErrorToastId(accountId: number): string {
 // Un solo aviso por cuenta: el evento mail:sync-error y el rechazo de la
 // llamada traen el mismo mensaje y comparten id, así que se reemplazan.
 export function toastSyncError(accountId: number, e: unknown): void {
-  toast.error(errorMessage(e), { id: syncErrorToastId(accountId) });
+  const message = errorMessage(e);
+  toast.error(message, {
+    id: syncErrorToastId(accountId),
+    ...(message === REJECTED_CREDENTIALS && {
+      action: { label: "Cambiar contraseña", onClick: () => requestPassword(accountId) },
+    }),
+  });
 }
 
 // syncFolder pide sincronizar una carpeta, la marca como "sincronizando"
