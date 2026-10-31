@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"postacontrol/app"
 )
@@ -32,6 +33,7 @@ func main() {
 	// 'Mac' options tailor the application when running an macOS.
 	mailService := app.NewMailService()
 	var desktop *app.Desktop
+	notifier := notifications.New()
 	wailsApp := application.New(application.Options{
 		Name:        "PostaControl",
 		Description: "Cliente de correo personal",
@@ -44,6 +46,7 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(mailService),
+			application.NewService(notifier),
 		},
 		// Con Wayland, GNOME asocia la ventana al .desktop por este id.
 		Linux: application.LinuxOptions{
@@ -87,6 +90,7 @@ func main() {
 	})
 
 	desktop = app.SetupDesktop(wailsApp, win, mailService)
+	app.SetupNotifications(wailsApp, mailService, desktop, notifier)
 
 	// Run the application. This blocks until the application has been exited.
 	err := wailsApp.Run()

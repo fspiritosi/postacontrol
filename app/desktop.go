@@ -56,6 +56,9 @@ func (d *Desktop) ShowWindow() {
 	d.win.Focus()
 }
 
+func (d *Desktop) windowVisible() bool { return d.win.IsVisible() && !d.win.IsMinimised() }
+func (d *Desktop) windowFocused() bool { return d.win.IsFocused() }
+
 // WindowVisibleAndFocused dice si el usuario está viendo la ventana ahora.
 func (d *Desktop) WindowVisibleAndFocused() bool {
 	return d.win.IsVisible() && d.win.IsFocused() && !d.win.IsMinimised()

@@ -26,6 +26,7 @@ const syncEvery = 5 * time.Minute
 type MailService struct {
 	app  *application.App
 	core *mail.Core
+	hub  notifyHub
 }
 
 func NewMailService() *MailService { return &MailService{} }
@@ -42,7 +43,7 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 	core, err := mail.New(mail.Config{
 		DBPath:   filepath.Join(dir, "postacontrol.db"),
 		Secrets:  secrets.NewKeyring(),
-		Notifier: wailsNotifier{app: s.app},
+		Notifier: wailsNotifier{app: s.app, hub: &s.hub},
 	})
 	if err != nil {
 		return err

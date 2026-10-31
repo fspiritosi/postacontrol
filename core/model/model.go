@@ -177,4 +177,6 @@ type ListQuery struct {
 // opciones no exige migrar.
 type Settings struct {
 	UnifiedInbox bool `json:"unifiedInbox"`
+	// DisableNotifications apaga los avisos de escritorio de correo nuevo (cero = activados).
+	DisableNotifications bool `json:"disableNotifications"`
 }

@@ -189,6 +189,11 @@ export interface ServerSettings {
  */
 export interface Settings {
     "unifiedInbox": boolean;
+
+    /**
+     * DisableNotifications apaga los avisos de escritorio de correo nuevo (cero = activados).
+     */
+    "disableNotifications": boolean;
 }
 
 /**
