@@ -1,0 +1,23 @@
+CODECONTROL MAIL — PAQUETE DE ICONOS
+
+PNG: 16, 20, 24, 32, 40, 48, 64, 96, 128, 180, 192, 256, 384, 512 y 1024 px.
+Los iconos tienen transparencia exterior, sin el marco blanco de la imagen original.
+
+WAILS: copiar el contenido de wails/build en build/ del proyecto.
+Incluye appicon.png (1024 px) y windows/icon.ico (multitamaño).
+Wails v2 usa build/appicon.png y build/windows/icon.ico.
+Wails v3: generar los recursos propios de la plantilla con:
+wails3 generate icons -input build/appicon.png
+Documentación: https://v2.wails.io/docs/v2.15.0/guides/manual-builds/
+https://v3.wails.io/concepts/build-system/
+
+WEB: copiar los archivos de web/ al directorio público y añadir head.html al <head>.
+Ajustar rutas si la app se sirve desde un subdirectorio.
+site.webmanifest usa el nombre provisional CodeControl Mail: cambiarlo al nombre definitivo.
+Incluye favicon ICO (16/32/48), PNG, Apple Touch 180 y PWA 192/512, incluyendo maskable.
+
+NATIVA: Windows ICO 16/24/32/48/64/128/256.
+macOS ICNS y .iconset con resoluciones Retina hasta 1024; margen transparente para Dock.
+Linux: PNG en estructura hicolor por tamaño.
+
+Fuente: original-approved.png. Exportaciones raster; no se incluye SVG vectorial.

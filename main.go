@@ -18,6 +18,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var appIcon []byte
+
 // main inicializa la aplicación, crea la ventana principal y corre el loop de Wails.
 func main() {
 
@@ -33,11 +36,17 @@ func main() {
 		// Explícito: en Debug, Wails registra los argumentos de cada llamada
 		// enlazada, y AddAccount/TestAccount llevan la contraseña.
 		LogLevel: slog.LevelInfo,
+		Icon:     appIcon,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Services: []application.Service{
 			application.NewService(mailService),
+		},
+		// Con Wayland, GNOME asocia la ventana al .desktop por este id.
+		Linux: application.LinuxOptions{
+			ApplicationID: "ar.com.codecontrol.postacontrol",
+			ProgramName:   "postacontrol",
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
