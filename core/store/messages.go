@@ -50,7 +50,8 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
    answered = excluded.answered,
    thread_root = CASE WHEN messages.thread_root = '' THEN excluded.thread_root ELSE messages.thread_root END,
    has_attachments = CASE WHEN messages.body_cached = 1 THEN messages.has_attachments
-                          ELSE excluded.has_attachments END`)
+                          ELSE excluded.has_attachments END
+ RETURNING thread_root`)
 	if err != nil {
 		return err
 	}
@@ -88,11 +89,22 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
 		if err != nil {
 			return err
 		}
-		if _, err := stmt.ExecContext(ctx, folderID, r.UID, r.MessageID, r.InReplyTo, refs,
+		var stored string // la raíz que quedó guardada (al actualizar se conserva la anterior)
+		if err := stmt.QueryRowContext(ctx, folderID, r.UID, r.MessageID, r.InReplyTo, refs,
 			r.From.Name, r.From.Email, to, cc, replyTo,
 			r.Subject, r.Snippet, r.Date.Unix(), r.Size, b2i(r.Seen), b2i(r.Flagged), b2i(r.Answered),
-			b2i(r.HasAttachments), root); err != nil {
+			b2i(r.HasAttachments), root).Scan(&stored); err != nil {
 			return err
+		}
+		if r.MessageID != "" && stored != "" {
+			// Las respuestas que llegaron antes que este mensaje (la sincronización
+			// va de lo más nuevo a lo más viejo) quedaron con su Message-ID como
+			// raíz: se suman a su hilo.
+			if _, err := tx.ExecContext(ctx, `UPDATE messages SET thread_root = ?
+ WHERE thread_root = ? AND thread_root <> ? AND folder_id IN (SELECT id FROM folders WHERE account_id = ?)`,
+				stored, r.MessageID, stored, accountID); err != nil {
+				return err
+			}
 		}
 		if root == "" { // sin ningún identificador: el hilo es el propio mensaje
 			if _, err := tx.ExecContext(ctx, `UPDATE messages SET thread_root = 'id:' || id

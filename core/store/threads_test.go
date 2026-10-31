@@ -173,3 +173,33 @@ func TestThreads_NoDuplicatesInSent(t *testing.T) {
 	require.Len(t, ts, 1)
 	assert.Equal(t, 2, ts[0].Count)
 }
+
+func rootOf(t *testing.T, s *Store, folderID int64, uid uint32) string {
+	t.Helper()
+	var root string
+	require.NoError(t, s.db.QueryRow(`SELECT thread_root FROM messages WHERE folder_id = ? AND uid = ?`, folderID, uid).Scan(&root))
+	return root
+}
+
+func TestThreads_RepliesBeforeParentsWithoutReferences(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	in, sent := threadSeed(t, s)
+	other := seedSecondFolder(t, s)
+	b := time.Unix(1700000000, 0)
+	// Otra cuenta con un mensaje que también responde a <b>: no se toca.
+	require.NoError(t, s.UpsertHeaders(ctx, other, []HeaderRow{msg(1, "<z>", "<b>", nil, "zoe", b, true)}))
+	// La sincronización va de lo más nuevo a lo más viejo: C, después B, después A.
+	require.NoError(t, s.UpsertHeaders(ctx, in, []HeaderRow{msg(3, "<c>", "<b>", nil, "ana", b.Add(2*time.Hour), true)}))
+	require.NoError(t, s.UpsertHeaders(ctx, sent, []HeaderRow{msg(2, "<b>", "<a>", nil, "yo", b.Add(time.Hour), true)}))
+	require.NoError(t, s.UpsertHeaders(ctx, in, []HeaderRow{msg(1, "<a>", "", nil, "ana", b, true)}))
+
+	assert.Equal(t, "<a>", rootOf(t, s, in, 3))
+	assert.Equal(t, "<a>", rootOf(t, s, sent, 2))
+	assert.Equal(t, "<a>", rootOf(t, s, in, 1))
+	assert.Equal(t, "<b>", rootOf(t, s, other, 1))
+	ts, err := s.ListThreads(ctx, in, model.ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, ts, 1)
+	assert.Equal(t, 3, ts[0].Count)
+}
