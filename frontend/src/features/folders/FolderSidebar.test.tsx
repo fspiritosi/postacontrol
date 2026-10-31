@@ -38,6 +38,9 @@ const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X",
 const inbox = (id: number, accountId: number, unread: number) =>
   ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true }) as const;
 
+// Carpeta sin rol: no choca con la fila "Entrada" de Todas las cuentas.
+const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true } as const;
+
 function renderSidebar(accounts: Account[], state: ShellState = baseState) {
   return render(
     <QueryClientProvider client={new QueryClient()}>
@@ -49,6 +52,8 @@ function renderSidebar(accounts: Account[], state: ShellState = baseState) {
 describe("FolderSidebar", () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: false });
+    vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0)]);
   });
 
   it("muestra una sección por cuenta con su árbol", async () => {
@@ -73,7 +78,6 @@ describe("FolderSidebar", () => {
     expect(selectView).toHaveBeenCalledWith({ kind: "unified", role: "inbox" });
     expect(screen.getByRole("button", { name: "Destacados" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Papelera" })).toBeNull();
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: false });
   });
 
   it("plegar una cuenta oculta sus carpetas y se recuerda", async () => {
@@ -88,6 +92,38 @@ describe("FolderSidebar", () => {
     renderSidebar([account]);
     await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Entrada" })).toBeNull();
+  });
+
+  it("sin la bandeja unificada no muestra Todas las cuentas", async () => {
+    renderSidebar([account]);
+    expect(await screen.findByRole("button", { name: "Entrada" })).toBeTruthy();
+    expect(screen.queryByText("Todas las cuentas")).toBeNull();
+  });
+
+  it("con la unificada y sin estado guardado, las secciones arrancan plegadas", async () => {
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true });
+    vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
+    renderSidebar([account]);
+    expect(await screen.findByText("Todas las cuentas")).toBeTruthy();
+    await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Proyectos" })).toBeNull();
+  });
+
+  it("con la unificada, una sección expandida a mano (pc:expanded) arranca abierta", async () => {
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true });
+    localStorage.setItem("pc:expanded", JSON.stringify([7]));
+    vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
+    renderSidebar([account]);
+    expect(await screen.findByText("Todas las cuentas")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Proyectos" })).toBeTruthy();
+  });
+
+  it("sin la unificada, lo plegado guardado (pc:collapsed) gana", async () => {
+    localStorage.setItem("pc:collapsed", JSON.stringify([7]));
+    vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
+    renderSidebar([account]);
+    await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Proyectos" })).toBeNull();
   });
 
   it("Agregar cuenta abre el alta", async () => {
