@@ -23,7 +23,7 @@ SELECT id, subject, from_name || ' ' || from_email, COALESCE((SELECT group_conca
 
 ALTER TABLE messages ADD COLUMN index_failures INTEGER NOT NULL DEFAULT 0;
 -- Lo que le falta al indexador (NextToIndex), de lo más nuevo a lo más viejo.
-CREATE INDEX idx_messages_to_index ON messages(date DESC) WHERE body_cached = 0 AND index_failures < 3;
+CREATE INDEX idx_messages_to_index ON messages(date DESC, id DESC) WHERE body_cached = 0 AND index_failures < 3;
 
 ALTER TABLE messages ADD COLUMN thread_root TEXT NOT NULL DEFAULT '';
 CREATE INDEX idx_messages_thread_root ON messages(thread_root);

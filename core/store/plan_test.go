@@ -48,3 +48,12 @@ func TestListThreads_PlanUsesFolderThreadIndex(t *testing.T) {
 		require.True(t, found, "plan:\n%s", strings.Join(plan, "\n"))
 	}
 }
+
+func TestNextToIndex_PlanUsesPartialIndex(t *testing.T) {
+	s := newStore(t)
+	plan := queryPlan(t, s, listSQL(nextToIndexWhere, false), int64(1), 10, 0)
+	t.Logf("plan:\n%s", strings.Join(plan, "\n"))
+	joined := strings.Join(plan, "\n")
+	require.Contains(t, joined, "idx_messages_to_index")
+	require.NotContains(t, joined, "TEMP B-TREE", "el índice ya da el orden por fecha")
+}

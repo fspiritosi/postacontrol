@@ -187,13 +187,18 @@ func scanSummary(sc interface{ Scan(...any) error }, extra ...any) (model.Messag
 // listWhere es el único armador de consultas de listas: filtra por where (con
 // sus args), aplica UnreadOnly, ordena por fecha descendente y pagina.
 // Limit <= 0 = sin tope.
-func (s *Store) listWhere(ctx context.Context, where string, args []any, q model.ListQuery) ([]model.MessageSummary, error) {
+// listSQL arma la consulta de listWhere. Parámetros: los de where, limit y offset.
+func listSQL(where string, unreadOnly bool) string {
 	var sb strings.Builder
 	sb.WriteString(`SELECT ` + summaryCols + ` FROM messages m JOIN folders f ON f.id = m.folder_id WHERE ` + where)
-	if q.UnreadOnly {
+	if unreadOnly {
 		sb.WriteString(` AND m.seen = 0`)
 	}
 	sb.WriteString(` ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?`)
+	return sb.String()
+}
+
+func (s *Store) listWhere(ctx context.Context, where string, args []any, q model.ListQuery) ([]model.MessageSummary, error) {
 	limit, offset := -1, 0
 	if q.Limit > 0 {
 		limit = q.Limit
@@ -201,7 +206,7 @@ func (s *Store) listWhere(ctx context.Context, where string, args []any, q model
 	if q.Offset > 0 {
 		offset = q.Offset
 	}
-	rows, err := s.db.QueryContext(ctx, sb.String(), append(args, limit, offset)...)
+	rows, err := s.db.QueryContext(ctx, listSQL(where, q.UnreadOnly), append(args, limit, offset)...)
 	if err != nil {
 		return nil, err
 	}
@@ -384,8 +389,7 @@ func (s *Store) NextToIndex(ctx context.Context, accountID int64, n int) ([]mode
 	if n <= 0 {
 		return []model.MessageDetail{}, nil
 	}
-	ms, err := s.listWhere(ctx, `f.account_id = ? AND m.body_cached = 0 AND m.index_failures < 3`,
-		[]any{accountID}, model.ListQuery{Limit: n})
+	ms, err := s.listWhere(ctx, nextToIndexWhere, []any{accountID}, model.ListQuery{Limit: n})
 	if err != nil {
 		return nil, err
 	}
@@ -395,6 +399,13 @@ func (s *Store) NextToIndex(ctx context.Context, accountID int64, n int) ([]mode
 	}
 	return out, nil
 }
+
+// nextToIndexWhere filtra lo pendiente de la cuenta. El "+" delante de
+// m.folder_id le saca ese término al planificador: si no, prefiere
+// idx_messages_folder_date por carpeta y ordena todo lo de la cuenta en un
+// B-tree temporal; así recorre idx_messages_to_index (solo lo pendiente, ya
+// ordenado) y corta al llegar a n.
+const nextToIndexWhere = `+m.folder_id IN (SELECT id FROM folders WHERE account_id = ?) AND m.body_cached = 0 AND m.index_failures < 3`
 
 // NoteIndexFailure anota una falla al bajar el cuerpo del mensaje: con 3, el
 // indexador deja de intentarlo. Si el mensaje ya no está devuelve ErrNotFound.
