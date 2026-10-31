@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Que Fabricio use sus 4 cuentas en PostaControl. Cada cuenta tiene su árbol de carpetas, hay una bandeja unificada opcional y se puede mover, borrar, destacar y marcar como leído o no leído.
+**Goal:** Que la app tenga su logo y que Fabricio use sus 4 cuentas en PostaControl. Cada cuenta tiene su árbol de carpetas, hay una bandeja unificada opcional y se puede mover, borrar, destacar y marcar como leído o no leído.
 
 **Architecture:** Se extiende lo que ya existe sin cambiar la forma.
 - **Núcleo:** `core/mail.Core` suma las acciones sobre mensajes (con un `UIDVALIDITY` verificado antes de escribir), las consultas unificadas por rol, la configuración y una pausa para las cuentas con la contraseña rechazada. Las escrituras IMAP nuevas viven en `core/imapx`.
@@ -41,6 +41,7 @@ Cada uno deja la app usable. En 2A la sincronización periódica cada 5 minutos 
 ## File Structure
 
 ```
+build/brand/                # paquete de íconos aprobado (fuente, no se embebe) (Task 0)
 core/
   model/model.go            # + Settings, UnifiedView
   store/
@@ -67,6 +68,72 @@ frontend/src/
   features/reader/MessageActions.tsx     # Destacar, No leído, Mover a…, Borrar (Task 10)
   features/accounts/PasswordDialog.tsx   # Cambiar contraseña (Task 11)
 ```
+
+---
+
+### Task 0: Identidad visual (logo e íconos)
+
+Fabricio dejó el paquete de íconos aprobado en `frontend/public/mail-icons/`:
+- `original-approved.png`
+- PNG de 16 a 1024 px
+- `.ico`, `.icns` y la estructura `hicolor` de Linux
+- favicons
+- un `LEEME.txt` (con el nombre provisional "CodeControl Mail")
+
+Esta tarea lo aplica a la app sin agrandar el binario. Es independiente del resto y se puede hacer primero.
+
+**Files:**
+- Move: `frontend/public/mail-icons/` → `build/brand/`, con `git mv` si ya está trackeado y si no `mv`.
+  - Es la fuente del logo.
+  - No se embebe: todo lo que está en `public/` termina en `frontend/dist` y en el binario, y son 6,6 MB.
+  - `site.webmanifest` queda ahí, sin usar: es una app de escritorio, no una PWA.
+- Replace (desde `build/brand/`):
+  - `build/appicon.png` ← `wails/build/appicon.png`
+  - `build/windows/icon.ico` ← `native/windows/icon.ico`
+  - `build/darwin/icons.icns` ← `native/macos/icon.icns`
+- Create (desde `build/brand/`), en `frontend/public/`:
+  - `favicon.ico`, `favicon-16x16.png` y `favicon-32x32.png` ← `web/`
+  - `logo.png` ← `png/icon-256.png`
+- Delete: `frontend/public/wails.png` y `frontend/public/Inter-Medium.ttf`, restos de la plantilla que nada referencia (verificar con `grep -rn` antes de borrar).
+- Modify:
+  - **`frontend/index.html`:** links de favicon (`/favicon.ico` sizes any, PNG de 16 y 32) y `<meta name="theme-color" content="#3597C7">`, el color del logo.
+  - **`main.go`:**
+    - `//go:embed build/appicon.png` en `application.Options.Icon`.
+    - `Linux: application.LinuxOptions{ApplicationID: "ar.com.codecontrol.postacontrol", ProgramName: "postacontrol"}`. Con Wayland, GNOME asocia la ventana al `.desktop` por este id.
+  - **`build/linux/Taskfile.yml`:** en `generate:dotdesktop`, `CATEGORIES: 'Network;Email;'`.
+  - **`frontend/src/features/accounts/Welcome.tsx`:** el logo (`<img src="/logo.png" alt="PostaControl">`, 64 px) arriba de "Bienvenido a PostaControl".
+- Create, en `Taskfile.yml` (raíz): tarea `install:desktop` para usar la app a diario con su ícono en el dock y el lanzador.
+  1. Corre `task build`.
+  2. Copia `bin/postacontrol` a `~/.local/bin/postacontrol`.
+  3. Copia cada `build/brand/native/linux/hicolor/<tam>/apps/codecontrol-mail.png` a `~/.local/share/icons/hicolor/<tam>/apps/postacontrol.png`.
+  4. Escribe `~/.local/share/applications/ar.com.codecontrol.postacontrol.desktop` con:
+     - `Name=PostaControl`
+     - `Comment=Cliente de correo`
+     - `Exec=<HOME>/.local/bin/postacontrol`
+     - `Icon=postacontrol`
+     - `Categories=Network;Email;`
+     - `Keywords=correo;mail;email;`
+     - `StartupWMClass=ar.com.codecontrol.postacontrol`
+     - `Terminal=false`
+  5. Corre `gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor` y `update-desktop-database ~/.local/share/applications`, de mejor esfuerzo (`|| true`).
+
+  La tarea **no** la corre el implementador: escribe fuera del repo. La corre Fabricio en la Task 12.
+
+**Interfaces:**
+- Produces:
+  - `/logo.png`, que la Fase 2B usa para el ícono de la bandeja del sistema junto con los PNG de `build/brand/png/`.
+  - El id de aplicación `ar.com.codecontrol.postacontrol`, que 2B necesita para las notificaciones.
+
+- [ ] **Step 1: Test que falla.** En `frontend/src/features/accounts/Welcome.test.tsx` (crear): "muestra el logo de PostaControl", con `getByRole("img", { name: "PostaControl" })` que tiene `src` `/logo.png`.
+- [ ] **Step 2:** `npx vitest run src/features/accounts/Welcome.test.tsx`. Debe fallar.
+- [ ] **Step 3: Implementar** los movimientos, los reemplazos y los cambios de arriba.
+- [ ] **Step 4: Verificar.**
+  - `task check` da PASS.
+  - Después de `task build`:
+    - `ls frontend/dist` no tiene `mail-icons`, pero sí `logo.png` y los favicons.
+    - El binario pesa lo mismo que antes, ±1 MB.
+  - `task --list` muestra `install:desktop`.
+- [ ] **Step 5: Commit** `feat(marca): logo e íconos de PostaControl en la app, el binario y el escritorio`
 
 ---
 
@@ -491,6 +558,8 @@ func TestUpdatePassword_ClearsPause(t *testing.T)            // A en pausa; Upda
 ### Task 12: Prueba de aceptación con las 4 cuentas reales (Fabricio)
 
 Es manual, con `task dev` en la ventana nativa (no en el navegador).
+
+- [ ] **Instalación:** correr `task install:desktop` y abrir PostaControl desde el lanzador. Se ve el logo en el lanzador, en el dock y en la barra de la ventana.
 
 - [ ] **Alta:** sumar las otras 3 cuentas, entre ellas la de "otro hosting". Cada una tiene su color y su árbol.
 - [ ] **Configuración:** activar la bandeja unificada.
