@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { RichEditor } from "./RichEditor";
 
 // jsdom no calcula layout: ProseMirror pide rectángulos al mover la selección.
@@ -111,10 +112,51 @@ describe("RichEditor: menú /", () => {
     expect(lastHTML(onChange)).toContain("/ta");
   });
 
-  it("y/o no abre el menú", async () => {
+  it("y/o no abre el menú, pero un espacio antes de la barra sí", async () => {
     const { user } = await setupEmpty();
     await user.keyboard("y/o");
     expect(screen.queryByRole("listbox")).toBeNull();
+    await user.keyboard(" /");
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("a / b + Enter deja el texto y hace un renglón nuevo", async () => {
+    const { user, onChange } = await setupEmpty();
+    await user.keyboard("a / b");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(lastHTML(onChange)).toBe("<p>a / b</p><p></p>"));
+  });
+
+  it("/ + espacio cierra el menú", async () => {
+    const { user } = await setupEmpty();
+    await user.keyboard("/");
+    await screen.findByRole("listbox");
+    await user.keyboard(" ");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+  });
+
+  it("una consulta con espacios sin coincidencias cierra el menú", async () => {
+    const { user } = await setupEmpty();
+    await user.keyboard("/hola mundo");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+  });
+
+  it("dentro de un diálogo el menú se monta en el diálogo", async () => {
+    const user = userEvent.setup();
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>t</DialogTitle>
+          <DialogDescription>d</DialogDescription>
+          <RichEditor content="" onChange={() => {}} />
+        </DialogContent>
+      </Dialog>,
+    );
+    act(() => screen.getByLabelText("Cuerpo del mensaje").focus());
+    await user.keyboard("/");
+    const list = await screen.findByRole("listbox", { name: "Insertar" });
+    expect(screen.getByRole("dialog")).toContainElement(list);
   });
 
   it("sin coincidencias muestra Sin resultados", async () => {
@@ -141,6 +183,38 @@ describe("RichEditor: menú /", () => {
     await user.keyboard("{Enter}");
     await waitFor(() => expect(lastHTML(onChange)).toContain("<h1"));
     expect(lastHTML(onChange)).not.toContain("/titulo");
+  });
+});
+
+describe("RichEditor: enlace desde el menú y la barra", () => {
+  it("/enlace + Enter + URL + Aplicar inserta el enlace como texto", async () => {
+    const { user, onChange } = await setupEmpty();
+    await user.keyboard("/enlace");
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    await user.keyboard("{Enter}");
+    await user.type(await screen.findByLabelText("URL del enlace"), "ejemplo.com");
+    await user.click(screen.getByRole("button", { name: "Aplicar" }));
+    await waitFor(() => expect(lastHTML(onChange)).toMatch(/href="https:\/\/ejemplo\.com"[^>]*>https:\/\/ejemplo\.com<\/a>/));
+  });
+
+  it("al abrir desde la barra de formato carga el enlace actual y limpia errores", async () => {
+    const { user } = await setup('<p><a href="https://x.y">hola</a></p>');
+    // Primero se deja un error y una URL vieja en el popover.
+    await user.click(toolbar().getByRole("button", { name: "Enlace" }));
+    const input = await screen.findByLabelText("URL del enlace");
+    await user.clear(input);
+    await user.type(input, "javascript:x");
+    await user.click(screen.getByRole("button", { name: "Aplicar" }));
+    await screen.findByRole("alert");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByLabelText("URL del enlace")).toBeNull());
+    // Se reabre desde la barra flotante.
+    act(() => screen.getByLabelText("Cuerpo del mensaje").focus());
+    await user.keyboard("{Control>}a{/Control}");
+    const bubble = await screen.findByRole("toolbar", { name: "Formato del texto" });
+    await user.click(within(bubble).getByRole("button", { name: "Enlace" }));
+    expect(await screen.findByLabelText("URL del enlace")).toHaveValue("https://x.y");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

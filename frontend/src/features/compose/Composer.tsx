@@ -96,6 +96,8 @@ export function Composer({ init, onClose }: Props) {
     onClose();
   };
 
+  const closeSlashRef = useRef<(() => void) | null>(null);
+
   const requestClose = () => {
     if (sending) return;
     if (dirty) setConfirmDiscard(true);
@@ -108,7 +110,16 @@ export function Composer({ init, onClose }: Props) {
   return (
     <>
       <Dialog open onOpenChange={(o) => !o && requestClose()}>
-        <DialogContent className="flex h-[80vh] max-w-3xl flex-col gap-4 sm:max-w-3xl">
+        <DialogContent
+          className="flex h-[80vh] max-w-3xl flex-col gap-4 sm:max-w-3xl"
+          // Radix escucha Esc antes que el redactor: si el menú "/" está abierto, ese Esc es suyo.
+          onEscapeKeyDown={(e) => {
+            if (closeSlashRef.current) {
+              e.preventDefault();
+              closeSlashRef.current();
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{TITLES[mode] ?? "Nuevo correo"}</DialogTitle>
             <DialogDescription className="sr-only">Redactá y enviá un correo.</DialogDescription>
@@ -169,6 +180,9 @@ export function Composer({ init, onClose }: Props) {
 
             <RichEditor
               content={init.bodyHtml}
+              onSlashMenuChange={(close) => {
+                closeSlashRef.current = close;
+              }}
               onChange={(html) => {
                 bodyRef.current = html;
                 setDirty(true);

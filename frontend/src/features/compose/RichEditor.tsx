@@ -46,13 +46,16 @@ function LinkButton({ editor, open, onOpenChange: setOpen }: { editor: Editor; o
   const [error, setError] = useState("");
   const active = editor.isActive("link");
 
-  const onOpenChange = (next: boolean) => {
-    if (next) {
+  // Al abrir, sea quien sea que lo abra (botón, barra de formato o "/"), se carga el enlace actual.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
       setUrl((editor.getAttributes("link").href as string | undefined) ?? "");
       setError("");
     }
-    setOpen(next);
-  };
+  }
+  const onOpenChange = setOpen;
   const remove = () => {
     editor.chain().focus().extendMarkRange("link").unsetLink().run();
     setOpen(false);
@@ -69,7 +72,12 @@ function LinkButton({ editor, open, onOpenChange: setOpen }: { editor: Editor; o
       setError("Solo se permiten enlaces http, https o mailto.");
       return;
     }
-    editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+    if (editor.state.selection.empty && !active) {
+      // Sin texto seleccionado (p. ej. desde "/"), la URL misma queda como texto del enlace.
+      editor.chain().focus().insertContent({ type: "text", text: href, marks: [{ type: "link", attrs: { href } }] }).run();
+    } else {
+      editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+    }
     setOpen(false);
   };
 
@@ -129,6 +137,8 @@ type Props = {
   onChange: (html: string) => void;
   // Abre el selector de imágenes; sin esta prop el menú "/" no ofrece "Imagen".
   onPickImage?: () => void;
+  // Avisa cuando el menú "/" abre (con cómo cerrarlo) o cierra (null): su Esc no debe cerrar el diálogo.
+  onSlashMenuChange?: (close: (() => void) | null) => void;
 };
 
 // La barra de formato sale con texto seleccionado, no con una imagen ni con celdas de tabla.
@@ -137,21 +147,30 @@ const showBubble = ({ state }: { state: Editor["state"] }) => {
   return !sel.empty && !(sel instanceof NodeSelection) && !(sel instanceof CellSelection);
 };
 
-export function RichEditor({ content, onChange, onPickImage }: Props) {
+export function RichEditor({ content, onChange, onPickImage, onSlashMenuChange }: Props) {
   const [linkOpen, setLinkOpen] = useState(false);
   // El menú "/" se arma una sola vez: lee lo último de `latest`.
   const [latest] = useState(() => {
     let pickImage: (() => void) | undefined;
-    return { getPickImage: () => pickImage, setPickImage: (fn?: () => void) => (pickImage = fn) };
+    let slashMenuChange: ((close: (() => void) | null) => void) | undefined;
+    return {
+      getPickImage: () => pickImage,
+      getSlashMenuChange: () => slashMenuChange,
+      set: (pick?: () => void, slash?: (close: (() => void) | null) => void) => {
+        pickImage = pick;
+        slashMenuChange = slash;
+      },
+    };
   });
   useEffect(() => {
-    latest.setPickImage(onPickImage);
-  }, [latest, onPickImage]);
+    latest.set(onPickImage, onSlashMenuChange);
+  }, [latest, onPickImage, onSlashMenuChange]);
   const [extensions] = useState(() => [
     ...baseExtensions,
     createSlashCommand(
       () => ({ pickImage: () => latest.getPickImage()?.(), openLink: () => setLinkOpen(true) }),
       (item) => item.id !== "image" || latest.getPickImage() != null,
+      (close) => latest.getSlashMenuChange()?.(close),
     ),
   ]);
   const bubbleRef = useRef<HTMLDivElement>(null);

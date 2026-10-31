@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComposerProvider, useComposer } from "./ComposerContext";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
@@ -70,6 +70,13 @@ function setup() {
   );
   return user;
 }
+
+// jsdom no calcula layout: ProseMirror pide rectángulos al mover la selección.
+beforeAll(() => {
+  const noRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList;
+  Range.prototype.getClientRects = noRects;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+});
 
 describe("Composer", () => {
   beforeEach(() => {
@@ -151,5 +158,18 @@ describe("Composer", () => {
     await user.type(await screen.findByLabelText("Asunto"), "algo");
     await user.keyboard("{Escape}");
     expect(await screen.findByText("¿Descartar este correo?")).toBeInTheDocument();
+  });
+
+  it("Esc con el menú / abierto lo cierra y no cierra el redactor", async () => {
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    const body = await screen.findByLabelText("Cuerpo del mensaje");
+    act(() => body.focus());
+    await user.keyboard("/ta");
+    await screen.findByRole("listbox");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Nuevo correo" })).toBeInTheDocument();
+    expect(screen.queryByText("¿Descartar este correo?")).toBeNull();
   });
 });
