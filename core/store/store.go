@@ -15,6 +15,9 @@ import (
 
 var ErrNotFound = errors.New("no encontrado")
 
+// ErrBusy: el correo de la bandeja de salida ya se está enviando.
+var ErrBusy = errors.New("ocupado")
+
 type Store struct {
 	db *sql.DB
 }

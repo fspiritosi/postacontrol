@@ -16,6 +16,7 @@ import (
 	"postacontrol/core/model"
 	"postacontrol/core/secrets"
 	"postacontrol/core/smtpx"
+	"postacontrol/core/store"
 )
 
 const (
@@ -24,6 +25,7 @@ const (
 	modeForward  model.ComposeMode = "forward"
 
 	msgSentCopyWarning = "El correo se envió, pero no pudimos guardar la copia en Enviados."
+	msgSendInterrupted = "El envío se interrumpió. Revisá Enviados antes de reintentar: puede que el correo haya salido."
 	bodyWrapperOpen    = `<div style="font-family:Arial,sans-serif;font-size:14px">`
 )
 
@@ -161,42 +163,84 @@ func (c *Core) PrepareCompose(ctx context.Context, messageID int64, mode model.C
 	return out, nil
 }
 
-// Send arma el mensaje, lo envía por SMTP y, si funciona, guarda la copia en
-// Enviados y marca \Answered en el original. Si el SMTP falla, guarda un
-// borrador local y devuelve un UserError.
+// Send envía req y espera el resultado. Como QueueSend, el correo pasa por la
+// bandeja de salida: si el envío falla queda ahí con el motivo y se devuelve un
+// UserError.
 func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResult, error) {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
-	if err := c.ctxErr(ctx); err != nil {
+	id, acc, err := c.enqueue(ctx, req)
+	if err != nil {
 		return model.SendResult{}, err
 	}
-	acc, err := c.store.GetAccount(ctx, req.AccountID)
-	if err != nil {
-		return model.SendResult{}, c.ctxOrUserError(ctx, err)
-	}
+	return c.deliver(ctx, id, acc, req)
+}
 
-	replying, forwarding := false, false
+// QueueSend valida req, lo guarda en la bandeja de salida y lo envía en
+// segundo plano. Devuelve enseguida el id del correo en la bandeja; el
+// resultado llega por EventSendFinished. Con req.DraftID reintenta ese correo.
+func (c *Core) QueueSend(ctx context.Context, req model.SendRequest) (int64, error) {
+	qctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	id, acc, err := c.enqueue(qctx, req)
+	if err != nil {
+		return 0, err
+	}
+	if !c.spawn(func(life context.Context) { _, _ = c.deliver(life, id, acc, req) }) {
+		// El núcleo se está cerrando: el correo queda en la bandeja y al volver
+		// figura como interrumpido.
+		return 0, context.Canceled
+	}
+	return id, nil
+}
+
+// enqueue valida req y lo pone en la bandeja de salida como "enviando". Los
+// errores de validación no guardan nada: el redactor sigue abierto.
+func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (int64, model.Account, error) {
+	if err := c.ctxErr(ctx); err != nil {
+		return 0, model.Account{}, err
+	}
 	if req.Reply != nil {
 		switch req.Reply.Mode {
-		case modeReply, modeReplyAll:
-			replying = true
-		case modeForward:
-			forwarding = true
-		case "", "new":
+		case modeReply, modeReplyAll, modeForward, "", "new":
 		default:
-			return model.SendResult{}, &UserError{Code: "invalid", Msg: "No pudimos preparar la respuesta."}
+			return 0, model.Account{}, &UserError{Code: "invalid", Msg: "No pudimos preparar la respuesta."}
 		}
 	}
 	if len(mimex.Recipients(mimex.Outgoing{To: req.To, Cc: req.Cc, Bcc: req.Bcc})) == 0 {
-		return model.SendResult{}, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
+		return 0, model.Account{}, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
+	}
+	acc, err := c.store.GetAccount(ctx, req.AccountID)
+	if err != nil {
+		return 0, model.Account{}, c.ctxOrUserError(ctx, err)
+	}
+	id, err := c.store.QueueLocalDraft(ctx, req.DraftID, req)
+	if errors.Is(err, store.ErrBusy) {
+		return 0, model.Account{}, &UserError{Code: "busy", Msg: "Este correo ya se está enviando."}
+	}
+	if err != nil {
+		return 0, model.Account{}, c.ctxOrUserError(ctx, err)
+	}
+	c.emit(EventOutboxUpdated, nil)
+	return id, acc, nil
+}
+
+// deliver arma el mensaje del correo id de la bandeja de salida y lo envía por
+// SMTP. Si sale, lo quita de la bandeja, guarda la copia en Enviados y marca
+// \Answered en el original; si no, lo deja en la bandeja con el motivo.
+// Siempre termina emitiendo EventSendFinished.
+func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req model.SendRequest) (model.SendResult, error) {
+	replying, forwarding := false, false
+	if req.Reply != nil {
+		replying = req.Reply.Mode == modeReply || req.Reply.Mode == modeReplyAll
+		forwarding = req.Reply.Mode == modeForward
 	}
 
-	// Desde acá, cualquier falla guarda un borrador local para no perder lo escrito.
 	var orig *model.MessageDetail
 	if replying || forwarding {
 		d, err := c.GetMessage(ctx, req.Reply.OriginalMessageID)
 		if err != nil {
-			return model.SendResult{}, c.failWithDraft(ctx, req, err)
+			return model.SendResult{}, c.failSend(ctx, id, err)
 		}
 		orig = &d
 	}
@@ -231,7 +275,7 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 		for i := range orig.Attachments {
 			att, data, err := c.attachmentBytes(ctx, orig.ID, i)
 			if err != nil {
-				return model.SendResult{}, c.failWithDraft(ctx, req, err)
+				return model.SendResult{}, c.failSend(ctx, id, err)
 			}
 			name := att.Filename
 			if name == "" {
@@ -243,14 +287,17 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 	rcpts := mimex.Recipients(out)
 	raw, err := mimex.Build(out)
 	if err != nil {
-		return model.SendResult{}, c.failWithDraft(ctx, req,
+		return model.SendResult{}, c.failSend(ctx, id,
 			&UserError{Code: "invalid", Msg: "No pudimos armar el correo: " + err.Error(), Err: err})
 	}
 	if err := c.smtpSend(ctx, acc, rcpts, raw); err != nil {
-		return model.SendResult{}, c.failWithDraft(ctx, req, err)
+		return model.SendResult{}, c.failSend(ctx, id, err)
 	}
 
 	// El correo ya salió: de acá en adelante nada convierte el envío en error.
+	// Se quita de la bandeja aunque se esté cerrando la app.
+	_ = c.store.DeleteLocalDraft(context.WithoutCancel(ctx), id)
+	c.emit(EventOutboxUpdated, nil)
 	res := model.SendResult{}
 	if acc.SaveSentCopy { // si el usuario no quiere copia, no es una falla
 		if sentID, ok := c.appendSent(ctx, acc, raw); ok {
@@ -263,21 +310,29 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 	if replying {
 		c.markAnswered(ctx, *orig)
 	}
+	c.emit(EventSendFinished, map[string]any{"draftId": id, "ok": true, "message": "", "warning": res.Warning})
 	return res, nil
 }
 
-// failWithDraft guarda req como borrador local y devuelve err como UserError.
-// Si el contexto se canceló devuelve ese error y no guarda nada. Si no se
-// puede guardar el borrador, igual devuelve el error original del envío.
-func (c *Core) failWithDraft(ctx context.Context, req model.SendRequest, err error) error {
-	if cerr := c.ctxErr(ctx); cerr != nil {
-		return cerr
-	}
+// failSend deja el correo id en la bandeja de salida con el motivo, lo avisa y
+// devuelve err como UserError (o el error del contexto si se canceló).
+func (c *Core) failSend(ctx context.Context, id int64, err error) error {
 	var ue *UserError
 	if !errors.As(asUserError(err), &ue) {
 		ue = &UserError{Code: "send", Msg: "No pudimos enviar el correo.", Err: err}
 	}
-	_, _ = c.store.SaveLocalDraft(ctx, req, ue.Msg) // si falla, el error útil es el del envío
+	msg := ue.Msg
+	cerr := c.ctxErr(ctx)
+	if cerr != nil {
+		msg = msgSendInterrupted
+	}
+	// Sin cancelación: aunque la app se esté cerrando, el motivo queda guardado.
+	_ = c.store.FailLocalDraft(context.WithoutCancel(ctx), id, msg)
+	c.emit(EventOutboxUpdated, nil)
+	c.emit(EventSendFinished, map[string]any{"draftId": id, "ok": false, "message": msg, "warning": ""})
+	if cerr != nil {
+		return cerr
+	}
 	return ue
 }
 
@@ -351,7 +406,8 @@ func (c *Core) markAnswered(ctx context.Context, d model.MessageDetail) {
 	}
 }
 
-// ListLocalDrafts devuelve los envíos que fallaron y quedaron guardados.
+// ListLocalDrafts devuelve la bandeja de salida: los correos en camino y los
+// que no se pudieron enviar.
 func (c *Core) ListLocalDrafts(ctx context.Context) ([]model.LocalDraft, error) {
 	ds, err := c.store.ListLocalDrafts(ctx)
 	if err != nil {

@@ -181,6 +181,7 @@ func TestSend_EndToEnd(t *testing.T) {
 	require.Len(t, sent, 1)
 	assert.True(t, sent[0].Seen)
 	assert.Equal(t, "Información", sent[0].Subject)
+	assert.Empty(t, outbox(t, c), "el correo enviado no queda en la bandeja de salida")
 }
 
 // La conexión del pool puede estar muerta (el servidor la cortó mientras la
@@ -279,6 +280,7 @@ func TestSend_SMTPFailureSavesLocalDraft(t *testing.T) {
 	require.Len(t, ds, 1)
 	assert.Equal(t, "Fallido", ds[0].Request.Subject)
 	assert.Equal(t, ue.Msg, ds[0].Error)
+	assert.Equal(t, model.DraftFailed, ds[0].Status)
 	assert.Empty(t, sentMessages(t, c, acc.ID))
 	assert.Empty(t, smtp.Received())
 

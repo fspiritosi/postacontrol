@@ -176,8 +176,10 @@ func (s *MailService) PrepareCompose(ctx context.Context, messageID int64, mode 
 	return s.core.PrepareCompose(ctx, messageID, mode)
 }
 
-func (s *MailService) Send(ctx context.Context, req model.SendRequest) (model.SendResult, error) {
-	return s.core.Send(ctx, req)
+// QueueSend pone el correo en la bandeja de salida y lo envía en segundo
+// plano; el resultado llega por el evento mail:send-finished.
+func (s *MailService) QueueSend(ctx context.Context, req model.SendRequest) (int64, error) {
+	return s.core.QueueSend(ctx, req)
 }
 
 func (s *MailService) ListLocalDrafts(ctx context.Context) ([]model.LocalDraft, error) {

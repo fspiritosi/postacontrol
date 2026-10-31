@@ -62,6 +62,14 @@ export function PrepareCompose(messageID: number, mode: model$0.ComposeMode): $C
     return $Call.ByID(1128403450, messageID, mode);
 }
 
+/**
+ * QueueSend pone el correo en la bandeja de salida y lo envía en segundo
+ * plano; el resultado llega por el evento mail:send-finished.
+ */
+export function QueueSend(req: model$0.SendRequest): $CancellablePromise<number> {
+    return $Call.ByID(2221525140, req);
+}
+
 export function RemoveAccount(id: number): $CancellablePromise<void> {
     return $Call.ByID(670503326, id);
 }
@@ -72,10 +80,6 @@ export function RemoveAccount(id: number): $CancellablePromise<void> {
  */
 export function SaveAttachment(messageID: number, index: number): $CancellablePromise<boolean> {
     return $Call.ByID(731861391, messageID, index);
-}
-
-export function Send(req: model$0.SendRequest): $CancellablePromise<model$0.SendResult> {
-    return $Call.ByID(2176208561, req);
 }
 
 /**

@@ -67,6 +67,11 @@ func New(cfg Config) (*Core, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Envíos que quedaron a medias porque la app se cerró en el medio.
+	if err := st.FailInterruptedDrafts(context.Background(), msgSendInterrupted); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
 		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{}}, nil
@@ -88,18 +93,19 @@ func (c *Core) Close() error {
 }
 
 // spawn corre fn en una goroutine atada al ciclo de vida del núcleo. Después
-// de Close no lanza nada.
-func (c *Core) spawn(fn func(ctx context.Context)) {
+// de Close no lanza nada y devuelve false.
+func (c *Core) spawn(fn func(ctx context.Context)) bool {
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
 	if c.closed {
-		return
+		return false
 	}
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		fn(c.ctx)
 	}()
+	return true
 }
 
 // emit avisa por Notifier. Ver la advertencia de Notifier: se puede llamar con

@@ -20,6 +20,5 @@ export type {
     MessageSummary,
     ReplyContext,
     SendRequest,
-    SendResult,
     ServerSettings
 } from "./models.js";

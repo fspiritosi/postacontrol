@@ -9,8 +9,11 @@ import (
 //go:embed schema.sql
 var schemaV1 string
 
+//go:embed schema_v2.sql
+var schemaV2 string
+
 // migrations[i] lleva la base de la versión i a la i+1.
-var migrations = []string{schemaV1}
+var migrations = []string{schemaV1, schemaV2}
 
 func migrate(db *sql.DB) error {
 	var current int

@@ -80,10 +80,19 @@ export interface ListQuery {
     "limit": number;
 }
 
+/**
+ * LocalDraft es un correo de la bandeja de salida: entra antes de enviarse y
+ * sale cuando el servidor lo acepta.
+ */
 export interface LocalDraft {
     "id": number;
     "createdAt": string;
     "request": SendRequest;
+
+    /**
+     * DraftSending o DraftFailed
+     */
+    "status": string;
     "error": string;
 }
 
@@ -161,11 +170,11 @@ export interface SendRequest {
      * nil si es un correo nuevo
      */
     "reply": ReplyContext | null;
-}
 
-export interface SendResult {
-    "sentCopySaved": boolean;
-    "warning": string;
+    /**
+     * DraftID es el correo de la bandeja de salida que se reintenta (0 si es nuevo).
+     */
+    "draftId"?: number;
 }
 
 export interface ServerSettings {

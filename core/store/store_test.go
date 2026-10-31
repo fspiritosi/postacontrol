@@ -67,7 +67,7 @@ func TestOpen_MigratesAndIsIdempotent(t *testing.T) {
 	defer s.Close()
 	var v int
 	require.NoError(t, s.db.QueryRow("PRAGMA user_version").Scan(&v))
-	assert.Equal(t, 1, v)
+	assert.Equal(t, len(migrations), v)
 	var fk int
 	require.NoError(t, s.db.QueryRow("PRAGMA foreign_keys").Scan(&fk))
 	assert.Equal(t, 1, fk)
@@ -316,7 +316,7 @@ func TestDeleteAccount_Cascades(t *testing.T) {
 	ctx := context.Background()
 	accID, fid := seedFolder(t, s)
 	require.NoError(t, s.UpsertHeaders(ctx, fid, []HeaderRow{hdr(1, time.Now(), false)}))
-	_, err := s.SaveLocalDraft(ctx, model.SendRequest{AccountID: accID, Subject: "x"}, "boom")
+	_, err := s.QueueLocalDraft(ctx, 0, model.SendRequest{AccountID: accID, Subject: "x"})
 	require.NoError(t, err)
 	require.NoError(t, s.DeleteAccount(ctx, accID))
 	for _, tbl := range []string{"folders", "messages", "local_drafts"} {
@@ -335,21 +335,84 @@ func TestLocalDrafts_RoundTrip(t *testing.T) {
 		AccountID: accID, To: []model.Address{{Name: "B", Email: "b@x.com"}}, Subject: "Re: hola", BodyHTML: "<p>ok</p>",
 		Reply: &model.ReplyContext{Mode: "reply", OriginalMessageID: 42},
 	}
-	id, err := s.SaveLocalDraft(ctx, req, "smtp caído")
+	id, err := s.QueueLocalDraft(ctx, 0, req)
 	require.NoError(t, err)
 	list, err := s.ListLocalDrafts(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, id, list[0].ID)
-	assert.Equal(t, "smtp caído", list[0].Error)
+	assert.Equal(t, model.DraftSending, list[0].Status)
+	assert.Empty(t, list[0].Error)
 	assert.Equal(t, req.Subject, list[0].Request.Subject)
 	require.NotNil(t, list[0].Request.Reply)
 	assert.Equal(t, int64(42), list[0].Request.Reply.OriginalMessageID)
 	assert.WithinDuration(t, time.Now(), list[0].CreatedAt, time.Minute)
+
+	require.NoError(t, s.FailLocalDraft(ctx, id, "smtp caído"))
+	list, err = s.ListLocalDrafts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, model.DraftFailed, list[0].Status)
+	assert.Equal(t, "smtp caído", list[0].Error)
+
 	require.NoError(t, s.DeleteLocalDraft(ctx, id))
 	list, err = s.ListLocalDrafts(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, list)
+}
+
+// Reintentar un correo de la bandeja de salida reusa su fila: no se duplica,
+// guarda lo editado y no se puede poner en cola dos veces a la vez.
+func TestQueueLocalDraft_RequeueReusesRow(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, err := s.InsertAccount(ctx, hostinger())
+	require.NoError(t, err)
+	id, err := s.QueueLocalDraft(ctx, 0, model.SendRequest{AccountID: accID, Subject: "v1"})
+	require.NoError(t, err)
+
+	_, err = s.QueueLocalDraft(ctx, id, model.SendRequest{AccountID: accID, Subject: "v2"})
+	assert.ErrorIs(t, err, ErrBusy, "ya se está enviando")
+
+	require.NoError(t, s.FailLocalDraft(ctx, id, "boom"))
+	again, err := s.QueueLocalDraft(ctx, id, model.SendRequest{AccountID: accID, Subject: "v2", DraftID: id})
+	require.NoError(t, err)
+	assert.Equal(t, id, again)
+	list, err := s.ListLocalDrafts(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "v2", list[0].Request.Subject)
+	assert.Zero(t, list[0].Request.DraftID, "el id no se guarda dentro del pedido")
+	assert.Equal(t, model.DraftSending, list[0].Status)
+	assert.Empty(t, list[0].Error)
+
+	// Si la fila ya no existe (la borraron mientras se editaba), se crea otra.
+	require.NoError(t, s.DeleteLocalDraft(ctx, id))
+	fresh, err := s.QueueLocalDraft(ctx, id, model.SendRequest{AccountID: accID, Subject: "v3"})
+	require.NoError(t, err)
+	assert.NotEqual(t, id, fresh)
+}
+
+func TestFailInterruptedDrafts(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, err := s.InsertAccount(ctx, hostinger())
+	require.NoError(t, err)
+	sending, err := s.QueueLocalDraft(ctx, 0, model.SendRequest{AccountID: accID, Subject: "a"})
+	require.NoError(t, err)
+	failed, err := s.QueueLocalDraft(ctx, 0, model.SendRequest{AccountID: accID, Subject: "b"})
+	require.NoError(t, err)
+	require.NoError(t, s.FailLocalDraft(ctx, failed, "rechazado"))
+
+	require.NoError(t, s.FailInterruptedDrafts(ctx, "se cortó"))
+	list, err := s.ListLocalDrafts(ctx)
+	require.NoError(t, err)
+	byID := map[int64]model.LocalDraft{}
+	for _, d := range list {
+		byID[d.ID] = d
+	}
+	assert.Equal(t, model.DraftFailed, byID[sending].Status)
+	assert.Equal(t, "se cortó", byID[sending].Error)
+	assert.Equal(t, "rechazado", byID[failed].Error)
 }
 
 func TestSetSaveSentCopy(t *testing.T) {

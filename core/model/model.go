@@ -105,6 +105,8 @@ type SendRequest struct {
 	Subject   string        `json:"subject"`
 	BodyHTML  string        `json:"bodyHtml"`
 	Reply     *ReplyContext `json:"reply"` // nil si es un correo nuevo
+	// DraftID es el correo de la bandeja de salida que se reintenta (0 si es nuevo).
+	DraftID int64 `json:"draftId,omitempty"`
 }
 
 type ComposeDraft struct {
@@ -121,10 +123,19 @@ type SendResult struct {
 	Warning       string `json:"warning"`
 }
 
+// Estados de un correo de la bandeja de salida.
+const (
+	DraftSending = "sending" // en camino; si la app se cierra, pasa a failed al volver
+	DraftFailed  = "failed"
+)
+
+// LocalDraft es un correo de la bandeja de salida: entra antes de enviarse y
+// sale cuando el servidor lo acepta.
 type LocalDraft struct {
 	ID        int64       `json:"id"`
 	CreatedAt time.Time   `json:"createdAt"`
 	Request   SendRequest `json:"request"`
+	Status    string      `json:"status"` // DraftSending o DraftFailed
 	Error     string      `json:"error"`
 }
 
