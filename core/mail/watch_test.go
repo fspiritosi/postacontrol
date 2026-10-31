@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"postacontrol/core/imapx"
 	"postacontrol/core/model"
+	"postacontrol/core/secrets"
 )
 
 // fastWatch acorta las esperas de los vigías y envuelve c.dialWatch para
@@ -162,6 +164,65 @@ func TestWatcher_StopsOnRemoveAccount(t *testing.T) {
 	t0 := time.Now()
 	require.NoError(t, c.Close())
 	assert.Less(t, time.Since(t0), time.Second)
+}
+
+// spySecrets anota, al borrar el secreto, si el vigía de la cuenta seguía
+// registrado; fail hace que Delete falle.
+type spySecrets struct {
+	secrets.Store
+	c            *Core
+	accountID    int64
+	fail         bool
+	watcherAtDel atomic.Bool
+	deleted      atomic.Bool
+}
+
+func (s *spySecrets) Delete(email string) error {
+	s.c.watchMu.Lock()
+	s.watcherAtDel.Store(s.c.watchers[s.accountID] != nil)
+	s.c.watchMu.Unlock()
+	s.deleted.Store(true)
+	if s.fail {
+		return errors.New("llavero bloqueado")
+	}
+	return s.Store.Delete(email)
+}
+
+// El vigía se frena antes de borrar el secreto: si no, uno que reconecta en
+// ese momento avisaría "No encontramos la contraseña…" de una cuenta borrada.
+func TestWatcher_RemoveAccountStopsWatcherBeforeSecret(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	dials := fastWatch(c)
+	spy := &spySecrets{Store: c.cfg.Secrets, c: c, accountID: acc.ID}
+	c.cfg.Secrets = spy // antes de arrancar los vigías, que leen cfg.Secrets
+	before := len(n.matching(EventFolderUpdated))
+	c.StartWatching(context.Background())
+	waitWatching(t, n, dials, 1, before)
+
+	require.NoError(t, c.RemoveAccount(context.Background(), acc.ID))
+	require.True(t, spy.deleted.Load())
+	assert.False(t, spy.watcherAtDel.Load(), "el vigía seguía andando al borrar el secreto")
+	assert.Eventually(t, func() bool { return c.watcherCount() == 0 }, time.Second, 5*time.Millisecond)
+	assert.Empty(t, n.matching(EventSyncError))
+}
+
+// Si el llavero no deja borrar el secreto, la cuenta queda y su vigía vuelve.
+func TestWatcher_RemoveAccountSecretFailureKeepsWatcher(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	dials := fastWatch(c)
+	c.cfg.Secrets = &spySecrets{Store: c.cfg.Secrets, c: c, accountID: acc.ID, fail: true}
+	before := len(n.matching(EventFolderUpdated))
+	c.StartWatching(context.Background())
+	waitWatching(t, n, dials, 1, before)
+
+	require.Error(t, c.RemoveAccount(context.Background(), acc.ID))
+	c.watchMu.Lock()
+	registered := c.watchers[acc.ID] != nil
+	c.watchMu.Unlock()
+	assert.True(t, registered, "la cuenta sigue y tiene que tener su vigía")
+	require.Eventually(t, func() bool { return dials.Load() >= 2 }, 5*time.Second, 10*time.Millisecond, "el vigía nuevo conecta")
 }
 
 func TestWatcher_StartWatchingIsIdempotent(t *testing.T) {

@@ -108,20 +108,23 @@ func (c *Core) SetSaveSentCopy(ctx context.Context, accountID int64, save bool) 
 	return nil
 }
 
-// RemoveAccount borra la caché local y el secreto, y frena el vigía de la
-// cuenta. No toca el servidor.
+// RemoveAccount frena el vigía de la cuenta y borra el secreto y la caché
+// local. No toca el servidor.
 func (c *Core) RemoveAccount(ctx context.Context, id int64) error {
 	acc, err := c.store.GetAccount(ctx, id)
 	if err != nil {
 		return asUserError(err)
 	}
+	// Primero el vigía: si reconectara después de borrar el secreto, avisaría
+	// que falta la contraseña de una cuenta que se está borrando.
+	c.stopWatcher(id)
 	if err := c.cfg.Secrets.Delete(acc.Email); err != nil && !errors.Is(err, secrets.ErrNotFound) {
+		c.startWatcher(id) // la cuenta queda: vuelve su vigía
 		return err
 	}
 	if err := c.store.DeleteAccount(ctx, id); err != nil {
 		return asUserError(err)
 	}
-	c.stopWatcher(id)
 	c.dropConn(id)
 	c.emit(EventAccountsChanged, nil)
 	return nil
