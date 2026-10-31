@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -28,7 +29,7 @@ func NewMailNotification(ev model.NewMail, accountEmail string) notifications.No
 	if ev.Count <= 1 && len(ev.Items) > 0 {
 		it := ev.Items[0]
 		n.Title = senderName(it)
-		n.Body = it.Subject
+		n.Body = escapeBody(it.Subject)
 		if n.Body == "" {
 			n.Body = "(sin asunto)"
 		}
@@ -37,13 +38,21 @@ func NewMailNotification(ev model.NewMail, accountEmail string) notifications.No
 	}
 	names := make([]string, 0, len(ev.Items))
 	for _, it := range ev.Items {
-		names = append(names, senderName(it))
+		if name := senderName(it); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
 	}
 	n.Title = fmt.Sprintf("%d correos nuevos", ev.Count)
-	n.Body = strings.Join(names, ", ")
+	n.Body = escapeBody(strings.Join(names, ", "))
 	n.Data = map[string]interface{}{"folderId": ev.FolderID}
 	return n
 }
+
+// bodyEscaper escapa lo que el cuerpo de una notificación de freedesktop
+// interpreta como markup. El título se muestra tal cual y no se escapa.
+var bodyEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+func escapeBody(s string) string { return bodyEscaper.Replace(s) }
 
 func senderName(it model.NewMailItem) string {
 	if it.FromName != "" {

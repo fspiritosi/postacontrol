@@ -41,6 +41,32 @@ func TestNewMailNotification_Summary(t *testing.T) {
 	}
 }
 
+// El cuerpo de las notificaciones de freedesktop admite markup: &, < y >
+// tienen que llegar escapados para verse tal cual.
+func TestNewMailNotification_EscapesBodyMarkup(t *testing.T) {
+	one := NewMailNotification(model.NewMail{Count: 1, Items: []model.NewMailItem{
+		{FromName: "Ana & Cía", Subject: "Oferta <b>2x1</b> & más"},
+	}}, "")
+	if one.Body != "Oferta &lt;b&gt;2x1&lt;/b&gt; &amp; más" || one.Title != "Ana & Cía" {
+		t.Fatalf("got %+v", one)
+	}
+	many := NewMailNotification(model.NewMail{Count: 2, Items: []model.NewMailItem{
+		{FromName: "Ana & Cía"}, {FromEmail: "<beto@x.com>"},
+	}}, "")
+	if many.Body != "Ana &amp; Cía, &lt;beto@x.com&gt;" {
+		t.Fatalf("got %q", many.Body)
+	}
+}
+
+func TestNewMailNotification_SummaryDedupesSenders(t *testing.T) {
+	n := NewMailNotification(model.NewMail{Count: 4, Items: []model.NewMailItem{
+		{FromName: "Ana"}, {FromName: "Ana"}, {FromName: "Beto"}, {FromName: "Ana"},
+	}}, "")
+	if n.Body != "Ana, Beto" {
+		t.Fatalf("got %q", n.Body)
+	}
+}
+
 func TestNewMailNotification_ReplacesPerAccount(t *testing.T) {
 	a := NewMailNotification(model.NewMail{AccountID: 5, Count: 1, Items: []model.NewMailItem{{FromName: "A"}}}, "")
 	b := NewMailNotification(model.NewMail{AccountID: 5, Count: 4, Items: []model.NewMailItem{{FromName: "B"}}}, "")
