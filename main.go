@@ -44,9 +44,12 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
+		// Wails arranca los servicios en orden y los cierra al revés: las
+		// notificaciones arrancan antes que el correo (que puede avisar en su
+		// arranque) y se cierran después.
 		Services: []application.Service{
-			application.NewService(mailService),
 			application.NewService(notifier),
+			application.NewService(mailService),
 		},
 		// Con Wayland, GNOME asocia la ventana al .desktop por este id.
 		Linux: application.LinuxOptions{
