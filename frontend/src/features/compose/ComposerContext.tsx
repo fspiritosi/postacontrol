@@ -3,8 +3,10 @@ import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type {
   Address,
+  Attachment,
   LocalDraft,
   ReplyContext,
+  StagedAttachment,
 } from "../../../bindings/postacontrol/core/model/models";
 import { errorMessage } from "@/lib/errors";
 import { Composer } from "./Composer";
@@ -20,12 +22,15 @@ export type ComposerInit = {
   quotedHtml: string;
   reply: ReplyContext | null; // null: correo nuevo
   draftId?: number; // correo de la bandeja de salida que se está reintentando
+  attachments: StagedAttachment[];
+  originalAttachments: Attachment[]; // solo al reenviar
+  skipOriginalAttachments: number[];
 };
 
 type ComposerApi = {
   openNew(accountId: number): void;
   openFrom(messageId: number, mode: "reply" | "replyAll" | "forward"): Promise<void>;
-  openDraft(d: LocalDraft): void;
+  openDraft(d: LocalDraft): Promise<void>;
   // Abre un correo de la bandeja de salida por id (p. ej. desde un aviso).
   openDraftById(id: number): Promise<void>;
 };
@@ -43,7 +48,10 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
   const open = useCallback((init: ComposerInit) => setState((s) => ({ key: (s?.key ?? 0) + 1, init })), []);
 
   const api = useMemo<ComposerApi>(() => {
-    const openDraft = (d: LocalDraft) =>
+    const openDraft = async (d: LocalDraft) => {
+      const ids = d.request.attachments ?? [];
+      // Los nombres y tamaños no viajan en el pedido: se piden por id.
+      const attachments = ids.length > 0 ? ((await svc.StagedInfo(ids)) ?? []) : [];
       open({
         accountId: d.request.accountId,
         to: d.request.to ?? [],
@@ -54,10 +62,15 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         quotedHtml: "",
         reply: d.request.reply,
         draftId: d.id,
+        attachments,
+        originalAttachments: [],
+        skipOriginalAttachments: d.request.skipOriginalAttachments ?? [],
       });
+    };
     return {
       openNew: (accountId) =>
-        open({ accountId, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null }),
+        open({ accountId, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
+          attachments: [], originalAttachments: [], skipOriginalAttachments: [] }),
       openFrom: async (messageId, mode) => {
         try {
           const d = await svc.PrepareCompose(messageId, mode);
@@ -70,6 +83,9 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             bodyHtml: "",
             quotedHtml: d.quotedHtml,
             reply: d.reply,
+            attachments: [],
+            originalAttachments: d.originalAttachments ?? [],
+            skipOriginalAttachments: [],
           });
         } catch (e) {
           toast.error(errorMessage(e));
@@ -79,7 +95,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       openDraftById: async (id) => {
         try {
           const d = ((await svc.ListLocalDrafts()) ?? []).find((x) => x.id === id);
-          if (d) openDraft(d);
+          if (d) await openDraft(d);
           else toast.error("Ese correo ya no está en la Bandeja de salida.");
         } catch (e) {
           toast.error(errorMessage(e));

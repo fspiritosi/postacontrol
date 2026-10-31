@@ -3,7 +3,7 @@ import { Events } from "@wailsio/runtime";
 import { useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
-import type { UnifiedView } from "../../bindings/postacontrol/core/model/models";
+import type { StagedAttachment, UnifiedView } from "../../bindings/postacontrol/core/model/models";
 import { errorMessage } from "./errors";
 import type { UnifiedRole } from "./view";
 
@@ -80,6 +80,14 @@ export function onOpenMessage(cb: (r: OpenMessageRequest) => void): () => void {
 
 export function requestOpenMessage(r: OpenMessageRequest): void {
   openListeners.forEach((l) => l(r));
+}
+
+// Archivos soltados sobre el redactor (ya preparados por Go) o el motivo por
+// el que no se pudieron preparar. Lo escucha el redactor mientras está abierto.
+export type FilesStaged = { attachments: StagedAttachment[]; error: string };
+
+export function onFilesStaged(cb: (p: FilesStaged) => void): () => void {
+  return Events.On("files-staged", (ev) => cb(ev.data as FilesStaged));
 }
 
 export function syncErrorToastId(accountId: number): string {

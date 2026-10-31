@@ -27,6 +27,14 @@ function OutboxItem({ draft, onDelete }: { draft: LocalDraft; onDelete: () => vo
   const { openDraft } = useComposer();
   const sending = draft.status === "sending";
 
+  const reopen = async () => {
+    try {
+      await openDraft(draft);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   const retry = async () => {
     try {
       sendStarted(await svc.QueueSend({ ...draft.request, draftId: draft.id }));
@@ -53,7 +61,7 @@ function OutboxItem({ draft, onDelete }: { draft: LocalDraft; onDelete: () => vo
         <Button size="sm" variant="outline" disabled={sending} onClick={() => void retry()}>
           Reintentar
         </Button>
-        <Button size="sm" variant="ghost" disabled={sending} onClick={() => openDraft(draft)}>
+        <Button size="sm" variant="ghost" disabled={sending} onClick={() => void reopen()}>
           Abrir
         </Button>
         <Button size="sm" variant="ghost" disabled={sending} onClick={onDelete}>

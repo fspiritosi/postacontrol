@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { PaperclipIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,9 +21,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { errorMessage } from "@/lib/errors";
+import { onFilesStaged } from "@/lib/events";
+import { formatSize } from "@/lib/format";
 import { useAccounts } from "@/lib/queries";
 import { formatRecipients, parseRecipients } from "@/lib/recipients";
 import { SafeHtmlFrame } from "../reader/SafeHtmlFrame";
+import type { StagedAttachment } from "../../../bindings/postacontrol/core/model/models";
+import { AttachmentList } from "./AttachmentList";
 import type { ComposerInit } from "./ComposerContext";
 import { RecipientInput } from "./RecipientInput";
 import { RichEditor } from "./RichEditor";
@@ -30,6 +35,8 @@ import { sendStarted } from "./sendNotices";
 
 // Cuánto se ve "Enviando…" antes de cerrar: el envío sigue en segundo plano.
 export const SENDING_FEEDBACK_MS = 800;
+// Tope del total de adjuntos; el mismo que valida el núcleo al encolar.
+const MAX_ATTACHMENTS_BYTES = 25 * 1024 * 1024;
 
 const TITLES: Record<string, string> = {
   reply: "Responder",
@@ -51,14 +58,54 @@ export function Composer({ init, onClose }: Props) {
   const [sending, setSending] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [staged, setStaged] = useState<StagedAttachment[]>(init.attachments);
+  const [skipped, setSkipped] = useState<number[]>(init.skipOriginalAttachments);
   const bodyRef = useRef(init.bodyHtml);
+
+  const addStaged = (added: StagedAttachment[]) => {
+    if (added.length === 0) return;
+    setStaged((cur) => [...cur, ...added]);
+    setDirty(true);
+  };
+
+  // Los archivos soltados sobre el redactor llegan por evento mientras está abierto.
+  useEffect(
+    () =>
+      onFilesStaged(({ attachments, error }) => {
+        addStaged(attachments ?? []);
+        if (error) setError(error);
+      }),
+    [],
+  );
+
+  const pickAttachments = () => {
+    void svc
+      .PickAttachments()
+      .then((picked) => addStaged(picked ?? []))
+      .catch((e) => setError(errorMessage(e)));
+  };
+
+  const keptOriginals = init.originalAttachments.filter((a) => !skipped.includes(a.index));
+  const attachmentItems = [
+    ...keptOriginals.map((a) => ({ key: `o${a.index}`, filename: a.filename, size: a.size })),
+    ...staged.map((a) => ({ key: `s${a.id}`, filename: a.filename, size: a.size })),
+  ];
+  const attachmentsTotal = attachmentItems.reduce((n, a) => n + a.size, 0);
+  const tooBig = attachmentsTotal > MAX_ATTACHMENTS_BYTES;
+
+  const removeAttachment = (key: string) => {
+    setDirty(true);
+    const n = Number(key.slice(1));
+    if (key[0] === "o") setSkipped((cur) => [...cur, n]);
+    else setStaged((cur) => cur.filter((a) => a.id !== n));
+  };
 
   const parsedTo = parseRecipients(to);
   const parsedCc = parseRecipients(cc);
   const parsedBcc = parseRecipients(bcc);
   const invalid = [...parsedTo.invalid, ...parsedCc.invalid, ...parsedBcc.invalid];
   const recipientCount = parsedTo.valid.length + parsedCc.valid.length + parsedBcc.valid.length;
-  const canSend = recipientCount > 0 && invalid.length === 0 && !sending;
+  const canSend = recipientCount > 0 && invalid.length === 0 && !sending && !tooBig;
 
   const edit = <T,>(set: (v: T) => void) => (v: T) => {
     setDirty(true);
@@ -82,8 +129,8 @@ export function Composer({ init, onClose }: Props) {
         bodyHtml: bodyRef.current,
         reply: init.reply && init.reply.mode !== "new" ? init.reply : null,
         draftId: init.draftId,
-        attachments: [],
-        skipOriginalAttachments: [],
+        attachments: staged.map((a) => a.id),
+        skipOriginalAttachments: skipped,
       });
       sendStarted(id);
     } catch (e) {
@@ -111,7 +158,9 @@ export function Composer({ init, onClose }: Props) {
     <>
       <Dialog open onOpenChange={(o) => !o && requestClose()}>
         <DialogContent
-          className="flex h-[80vh] max-w-3xl flex-col gap-4 sm:max-w-3xl"
+          id="compose-drop"
+          data-file-drop-target
+          className="group/compose flex h-[80vh] max-w-3xl flex-col gap-4 sm:max-w-3xl"
           // Radix escucha Esc antes que el redactor: si el menú "/" está abierto, ese Esc es suyo.
           onEscapeKeyDown={(e) => {
             if (closeSlashRef.current) {
@@ -120,6 +169,12 @@ export function Composer({ init, onClose }: Props) {
             }
           }}
         >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-10 hidden items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/90 text-sm font-medium group-[.file-drop-target-active]/compose:flex"
+          >
+            Soltá los archivos para adjuntarlos
+          </div>
           <DialogHeader>
             <DialogTitle>{TITLES[mode] ?? "Nuevo correo"}</DialogTitle>
             <DialogDescription className="sr-only">Redactá y enviá un correo.</DialogDescription>
@@ -173,6 +228,7 @@ export function Composer({ init, onClose }: Props) {
                   onChange={(e) => edit(setSubject)(e.target.value)}
                 />
               </div>
+              <AttachmentList items={attachmentItems} onRemove={removeAttachment} />
               {invalid.length > 0 && (
                 <p className="text-xs text-destructive">Revisá estas direcciones: {invalid.join(", ")}</p>
               )}
@@ -206,19 +262,29 @@ export function Composer({ init, onClose }: Props) {
             )}
           </div>
 
+          {tooBig && (
+            <p className="text-xs text-destructive">
+              Los adjuntos suman {formatSize(attachmentsTotal)}; el máximo es {formatSize(MAX_ATTACHMENTS_BYTES)}.
+            </p>
+          )}
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={requestClose} disabled={sending}>
-              Cancelar
+          <DialogFooter className="sm:justify-between">
+            <Button type="button" variant="ghost" onClick={pickAttachments} disabled={sending}>
+              <PaperclipIcon /> Adjuntar
             </Button>
-            <Button type="button" onClick={() => void send()} disabled={!canSend}>
-              {sending ? "Enviando…" : "Enviar"}
-            </Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="ghost" onClick={requestClose} disabled={sending}>
+                Cancelar
+              </Button>
+              <Button type="button" onClick={() => void send()} disabled={!canSend}>
+                {sending ? "Enviando…" : "Enviar"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
