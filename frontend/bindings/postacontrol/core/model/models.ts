@@ -182,3 +182,27 @@ export interface ServerSettings {
     "port": number;
     "security": Security;
 }
+
+/**
+ * Settings es la configuración de la app. Se guarda como JSON, así sumar
+ * opciones no exige migrar.
+ */
+export interface Settings {
+    "unifiedInbox": boolean;
+}
+
+/**
+ * UnifiedView es una vista que junta carpetas de todas las cuentas.
+ */
+export enum UnifiedView {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    UnifiedInbox = "inbox",
+    UnifiedFlagged = "flagged",
+    UnifiedSent = "sent",
+    UnifiedDrafts = "drafts",
+    UnifiedTrash = "trash",
+};

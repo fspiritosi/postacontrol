@@ -189,3 +189,39 @@ func (s *MailService) ListLocalDrafts(ctx context.Context) ([]model.LocalDraft, 
 func (s *MailService) DeleteLocalDraft(ctx context.Context, id int64) error {
 	return s.core.DeleteLocalDraft(ctx, id)
 }
+
+func (s *MailService) GetSettings(ctx context.Context) (model.Settings, error) {
+	return s.core.GetSettings(ctx)
+}
+
+func (s *MailService) SetSettings(ctx context.Context, st model.Settings) error {
+	return s.core.SetSettings(ctx, st)
+}
+
+func (s *MailService) SetSeen(ctx context.Context, ids []int64, seen bool) error {
+	return s.core.SetSeen(ctx, ids, seen)
+}
+
+func (s *MailService) SetFlagged(ctx context.Context, ids []int64, flagged bool) error {
+	return s.core.SetFlagged(ctx, ids, flagged)
+}
+
+func (s *MailService) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) error {
+	return s.core.MoveMessages(ctx, ids, destFolderID)
+}
+
+func (s *MailService) DeleteMessages(ctx context.Context, ids []int64) error {
+	return s.core.DeleteMessages(ctx, ids)
+}
+
+func (s *MailService) ListUnified(ctx context.Context, view model.UnifiedView, q model.ListQuery) ([]model.MessageSummary, error) {
+	return s.core.ListUnified(ctx, view, q)
+}
+
+func (s *MailService) SyncUnified(ctx context.Context, view model.UnifiedView) error {
+	return s.core.SyncUnified(ctx, view)
+}
+
+func (s *MailService) UpdatePassword(ctx context.Context, accountID int64, password string) error {
+	return s.core.UpdatePassword(ctx, accountID, password)
+}

@@ -27,12 +27,20 @@ export function DeleteLocalDraft(id: number): $CancellablePromise<void> {
     return $Call.ByID(1825177514, id);
 }
 
+export function DeleteMessages(ids: number[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2312673024, ids);
+}
+
 export function DetectSettings(email: string): $CancellablePromise<autoconfig$0.Settings> {
     return $Call.ByID(1057426541, email);
 }
 
 export function GetMessage(id: number): $CancellablePromise<model$0.MessageDetail> {
     return $Call.ByID(2261231336, id);
+}
+
+export function GetSettings(): $CancellablePromise<model$0.Settings> {
+    return $Call.ByID(761770908);
 }
 
 export function ListAccounts(): $CancellablePromise<model$0.Account[] | null> {
@@ -49,6 +57,14 @@ export function ListLocalDrafts(): $CancellablePromise<model$0.LocalDraft[] | nu
 
 export function ListMessages(folderID: number, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
     return $Call.ByID(3544686215, folderID, q);
+}
+
+export function ListUnified(view: model$0.UnifiedView, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
+    return $Call.ByID(3067513259, view, q);
+}
+
+export function MoveMessages(ids: number[] | null, destFolderID: number): $CancellablePromise<void> {
+    return $Call.ByID(2219385610, ids, destFolderID);
 }
 
 /**
@@ -82,11 +98,23 @@ export function SaveAttachment(messageID: number, index: number): $CancellablePr
     return $Call.ByID(731861391, messageID, index);
 }
 
+export function SetFlagged(ids: number[] | null, flagged: boolean): $CancellablePromise<void> {
+    return $Call.ByID(831695113, ids, flagged);
+}
+
 /**
  * SetSaveSentCopy cambia si se guarda la copia de lo enviado en Enviados.
  */
 export function SetSaveSentCopy(accountID: number, save: boolean): $CancellablePromise<void> {
     return $Call.ByID(672415571, accountID, save);
+}
+
+export function SetSeen(ids: number[] | null, seen: boolean): $CancellablePromise<void> {
+    return $Call.ByID(476234770, ids, seen);
+}
+
+export function SetSettings(st: model$0.Settings): $CancellablePromise<void> {
+    return $Call.ByID(2928394400, st);
 }
 
 export function SyncAccount(accountID: number): $CancellablePromise<void> {
@@ -97,6 +125,14 @@ export function SyncFolder(folderID: number): $CancellablePromise<void> {
     return $Call.ByID(2985952900, folderID);
 }
 
+export function SyncUnified(view: model$0.UnifiedView): $CancellablePromise<void> {
+    return $Call.ByID(2019396610, view);
+}
+
 export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void> {
     return $Call.ByID(1412243062, $in);
+}
+
+export function UpdatePassword(accountID: number, password: string): $CancellablePromise<void> {
+    return $Call.ByID(995610539, accountID, password);
 }
