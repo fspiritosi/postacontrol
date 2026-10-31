@@ -265,3 +265,30 @@ func TestNoteIndexFailure_CountsUpToSkip(t *testing.T) {
 	assert.Empty(t, ms)
 	assert.ErrorIs(t, s.NoteIndexFailure(ctx, 9999), ErrNotFound)
 }
+
+func TestSearch_IndexIsContentlessAndFollowsUpdates(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, f := seedFolder(t, s)
+	id := put(t, s, f, 1, "asunto viejo", "a", t0)
+	require.NoError(t, s.SetBody(ctx, id, BodyRow{Text: "cuerpo primero"}))
+	assert.Len(t, search(t, s, "primero", 0), 1)
+
+	// El índice no guarda otra copia del texto (ya está en messages).
+	var n int
+	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'messages_fts_content'`).Scan(&n))
+	assert.Zero(t, n)
+
+	require.NoError(t, s.SetBody(ctx, id, BodyRow{Text: "cuerpo segundo"}))
+	assert.Empty(t, search(t, s, "primero", 0))
+	assert.Len(t, search(t, s, "segundo", 0), 1)
+
+	h := hdr(1, t0, false)
+	h.Subject, h.From = "asunto nuevo", model.Address{Name: "a", Email: "x@ejemplo.com"}
+	require.NoError(t, s.UpsertHeaders(ctx, f, []HeaderRow{h}))
+	assert.Empty(t, search(t, s, "viejo", 0))
+	assert.Len(t, search(t, s, "nuevo", 0), 1)
+	assert.Len(t, search(t, s, "segundo", 0), 1)
+	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM messages_fts`).Scan(&n))
+	assert.Equal(t, 1, n)
+}

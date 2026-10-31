@@ -1,5 +1,7 @@
--- Índice de búsqueda local (FTS5). rowid = messages.id.
-CREATE VIRTUAL TABLE messages_fts USING fts5(subject, sender, recipients, body, tokenize='unicode61 remove_diacritics 2');
+-- Índice de búsqueda local (FTS5). rowid = messages.id. Sin contenido propio
+-- (el texto ya está en messages): solo sirve para MATCH y devolver rowid.
+-- contentless_delete permite borrar por rowid (SQLite >= 3.43).
+CREATE VIRTUAL TABLE messages_fts USING fts5(subject, sender, recipients, body, content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2');
 
 CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
   INSERT INTO messages_fts(rowid, subject, sender, recipients, body)
