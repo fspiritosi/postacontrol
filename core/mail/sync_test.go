@@ -605,3 +605,75 @@ func TestSyncFolder_ConcurrentSameFolderFetchesOnce(t *testing.T) {
 	assert.Len(t, n.matching(EventSyncProgress)[before:], 3, "una sola pasada de 3 lotes")
 	assert.Len(t, listAll(t, c, inboxID), 450)
 }
+
+// newMailEvents devuelve los datos de los eventos mail:new-mail, en orden.
+func newMailEvents(n *recNotifier) []model.NewMail {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	out := []model.NewMail{}
+	for _, e := range n.events {
+		if e.Name == EventNewMail {
+			out = append(out, e.Data.(model.NewMail))
+		}
+	}
+	return out
+}
+
+func TestNewMail_NotOnFirstSync(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	deliverN(t, imap, 50, "p")
+	setupSynced(t, imap, smtp, c)
+	assert.Empty(t, newMailEvents(n))
+}
+
+func TestNewMail_AfterFirstSync(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "nuevo"))
+	require.NoError(t, c.SyncFolder(context.Background(), inboxID))
+	evs := newMailEvents(n)
+	require.Len(t, evs, 1)
+	assert.Equal(t, 1, evs[0].Count)
+	assert.Equal(t, acc.ID, evs[0].AccountID)
+	assert.Equal(t, inboxID, evs[0].FolderID)
+	require.Len(t, evs[0].Items, 1)
+	assert.Equal(t, "nuevo", evs[0].Items[0].Subject)
+	assert.Equal(t, "Bea", evs[0].Items[0].FromName)
+	assert.Equal(t, "bea@ej.com", evs[0].Items[0].FromEmail)
+	assert.NotZero(t, evs[0].Items[0].MessageID)
+}
+
+func TestNewMail_OnlyUnseen(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "leido"), goimap.FlagSeen)
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "sinleer"))
+	require.NoError(t, c.SyncFolder(context.Background(), inboxID))
+	evs := newMailEvents(n)
+	require.Len(t, evs, 1)
+	assert.Equal(t, 1, evs[0].Count)
+	require.Len(t, evs[0].Items, 1)
+	assert.Equal(t, "sinleer", evs[0].Items[0].Subject)
+}
+
+func TestNewMail_SummarizesBurst(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	deliverN(t, imap, 20, "r")
+	require.NoError(t, c.SyncFolder(context.Background(), inboxID))
+	evs := newMailEvents(n)
+	require.Len(t, evs, 1)
+	assert.Equal(t, 20, evs[0].Count)
+	assert.Len(t, evs[0].Items, 3)
+}
+
+func TestNewMail_NotForOtherFolders(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	require.NoError(t, imap.User.Create("Varios", nil))
+	acc, _ := setupSynced(t, imap, smtp, c)
+	variosID := folderID(t, c, acc.ID, "Varios")
+	require.NoError(t, c.SyncFolder(context.Background(), variosID))
+	imap.Deliver(t, "Varios", rawMail("Bea <bea@ej.com>", "otro"))
+	require.NoError(t, c.SyncFolder(context.Background(), variosID))
+	assert.Empty(t, newMailEvents(n))
+}

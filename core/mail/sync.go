@@ -36,6 +36,12 @@ func (c *Core) ListMessages(ctx context.Context, folderID int64, q model.ListQue
 	return ms, asUserError(err)
 }
 
+// InboxUnreadTotal suma los no leídos de las Entradas de todas las cuentas.
+func (c *Core) InboxUnreadTotal(ctx context.Context) (int, error) {
+	n, err := c.store.InboxUnreadTotal(ctx)
+	return n, asUserError(err)
+}
+
 // SyncAccount trae la lista de carpetas con sus contadores (LIST + STATUS),
 // la guarda en la caché y sincroniza INBOX.
 func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
@@ -159,7 +165,39 @@ func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
 		return err
 	}
 	c.emit(EventFolderUpdated, map[string]any{"folderId": folderID})
+	c.announceNewMail(ctx, f.AccountID, p)
 	return nil
+}
+
+// maxNewMailItems es cuántos correos detalla un aviso NewMail.
+const maxNewMailItems = 3
+
+// announceNewMail emite EventNewMail si la pasada fue sobre una Entrada que ya
+// había completado una sincronización y trajo correo sin leer. Es un aviso: si
+// falla leer la caché, no se emite y la sincronización sigue siendo exitosa.
+func (c *Core) announceNewMail(ctx context.Context, accountID int64, p syncPlan) {
+	if p.folder.Role != "inbox" || p.firstSync || len(p.fresh) == 0 {
+		return
+	}
+	ms, err := c.store.MessagesByUIDs(ctx, p.folder.ID, p.fresh)
+	if err != nil {
+		return
+	}
+	ev := model.NewMail{AccountID: accountID, FolderID: p.folder.ID, Items: []model.NewMailItem{}}
+	for _, m := range ms {
+		if m.Seen {
+			continue
+		}
+		ev.Count++
+		if len(ev.Items) < maxNewMailItems {
+			ev.Items = append(ev.Items, model.NewMailItem{
+				MessageID: m.ID, FromName: m.From.Name, FromEmail: m.From.Email, Subject: m.Subject,
+			})
+		}
+	}
+	if ev.Count > 0 {
+		c.emit(EventNewMail, ev)
+	}
 }
 
 // syncPlan es lo que prepareSync calcula para los lotes y el refresco de flags.
@@ -168,6 +206,8 @@ type syncPlan struct {
 	info   imapx.SelectInfo
 	known  []uint32 // UID en la caché antes de bajar cabeceras (⊆ remotos)
 	fresh  []uint32 // UID que faltan, lo más nuevo primero
+	// firstSync: la carpeta nunca completó una pasada (UIDNext en 0, R19).
+	firstSync bool
 }
 
 // prepareSync abre la carpeta, resetea la caché si cambió el UIDVALIDITY,
@@ -188,8 +228,10 @@ func (c *Core) prepareSync(ctx context.Context, conn *imapx.Conn, folderID int64
 	if err != nil {
 		return syncPlan{}, err
 	}
+	firstSync := last.UIDNext == 0
 	if last.UIDValidity != info.UIDValidity {
 		if last.UIDValidity != 0 {
+			firstSync = true // caché reseteada: lo que baja no es "nuevo"
 			if err := c.store.ResetFolder(ctx, folderID); err != nil {
 				return syncPlan{}, err
 			}
@@ -220,7 +262,7 @@ func (c *Core) prepareSync(ctx context.Context, conn *imapx.Conn, folderID int64
 			fresh = append(fresh, remote[i])
 		}
 	}
-	return syncPlan{folder: f, info: info, known: known, fresh: fresh}, nil
+	return syncPlan{folder: f, info: info, known: known, fresh: fresh, firstSync: firstSync}, nil
 }
 
 // refreshFlags trae los flags de uids, guarda solo los que cambiaron y

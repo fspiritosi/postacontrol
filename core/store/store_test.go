@@ -569,3 +569,31 @@ func TestListFlagged_AcrossFolders(t *testing.T) {
 	assert.Equal(t, fb["Varios"], got[0].FolderID)
 	assert.Equal(t, fa["INBOX"], got[1].FolderID)
 }
+
+func TestInboxUnreadTotal_SumsAccounts(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, fa := seedAccountFolders(t, s, "a@x.com", "INBOX", "Varios")
+	_, fb := seedAccountFolders(t, s, "b@x.com", "INBOX")
+	require.NoError(t, s.SetFolderCounts(ctx, fa["INBOX"], 2, 10))
+	require.NoError(t, s.SetFolderCounts(ctx, fa["Varios"], 9, 10))
+	require.NoError(t, s.SetFolderCounts(ctx, fb["INBOX"], 5, 10))
+	got, err := s.InboxUnreadTotal(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 7, got)
+}
+
+func TestMessagesByUIDs_NewestFirst(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+	_, f := seedAccountFolders(t, s, "a@x.com", "INBOX")
+	require.NoError(t, s.UpsertHeaders(ctx, f["INBOX"], []HeaderRow{hdr(1, day(1), false), hdr(2, day(3), false), hdr(3, day(2), true)}))
+	got, err := s.MessagesByUIDs(ctx, f["INBOX"], []uint32{1, 2, 3})
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, []uint32{2, 3, 1}, []uint32{got[0].UID, got[1].UID, got[2].UID})
+	none, err := s.MessagesByUIDs(ctx, f["INBOX"], nil)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}

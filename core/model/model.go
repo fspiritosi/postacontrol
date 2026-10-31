@@ -78,6 +78,23 @@ type MessageSummary struct {
 	HasAttachments bool      `json:"hasAttachments"`
 }
 
+// NewMailItem es un correo nuevo dentro de un aviso NewMail.
+type NewMailItem struct {
+	MessageID int64  `json:"messageId"`
+	FromName  string `json:"fromName"`
+	FromEmail string `json:"fromEmail"`
+	Subject   string `json:"subject"`
+}
+
+// NewMail es el aviso de correo nuevo no leído en una Entrada. Count es el
+// total; Items lleva como mucho 3, los más nuevos primero.
+type NewMail struct {
+	AccountID int64         `json:"accountId"`
+	FolderID  int64         `json:"folderId"`
+	Count     int           `json:"count"`
+	Items     []NewMailItem `json:"items"`
+}
+
 type Attachment struct {
 	Index    int    `json:"index"`
 	Filename string `json:"filename"`

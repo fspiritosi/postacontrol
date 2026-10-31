@@ -1,9 +1,11 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -195,6 +197,34 @@ func (s *Store) listWhere(ctx context.Context, where string, args []any, q model
 // ListMessages devuelve los mensajes de la carpeta por fecha descendente. Limit <= 0 = sin tope.
 func (s *Store) ListMessages(ctx context.Context, folderID int64, q model.ListQuery) ([]model.MessageSummary, error) {
 	return s.listWhere(ctx, `m.folder_id = ?`, []any{folderID}, q)
+}
+
+// MessagesByUIDs devuelve los mensajes de la carpeta con esos UID, por fecha
+// descendente. Parte la lista en tramos para no pasar el tope de parámetros.
+func (s *Store) MessagesByUIDs(ctx context.Context, folderID int64, uids []uint32) ([]model.MessageSummary, error) {
+	const chunk = 500
+	out := []model.MessageSummary{}
+	for i := 0; i < len(uids); i += chunk {
+		part := uids[i:min(i+chunk, len(uids))]
+		args := make([]any, 0, len(part)+1)
+		args = append(args, folderID)
+		for _, u := range part {
+			args = append(args, int64(u))
+		}
+		where := `m.folder_id = ? AND m.uid IN (?` + strings.Repeat(`,?`, len(part)-1) + `)`
+		ms, err := s.listWhere(ctx, where, args, model.ListQuery{})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ms...)
+	}
+	slices.SortStableFunc(out, func(a, b model.MessageSummary) int {
+		if c := b.Date.Compare(a.Date); c != 0 {
+			return c
+		}
+		return cmp.Compare(b.ID, a.ID)
+	})
+	return out, nil
 }
 
 // ListByRole junta, por fecha descendente, las carpetas con ese rol de todas las cuentas.
