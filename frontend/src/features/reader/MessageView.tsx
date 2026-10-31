@@ -21,6 +21,11 @@ type Props = {
   state: ShellState;
   // Por defecto abre el redactor del contexto; se puede reemplazar (tests).
   onCompose?: (messageId: number, mode: ComposeMode) => void;
+  // Para embeberlo en un hilo: el mensaje a mostrar (por defecto el abierto),
+  // qué hacer al cerrarlo (por defecto state.selectMessage) y sin scroll propio.
+  messageId?: number | null;
+  selectMessage?: (id: number | null) => void;
+  embedded?: boolean;
 };
 
 const addr = (a: Address) => a.name || a.email;
@@ -30,12 +35,14 @@ function Body({
   account,
   onCompose,
   selectMessage,
+  embedded,
 }: {
   message: MessageDetail;
   // Puede faltar si la cuenta se quitó mientras el correo estaba abierto.
   account: Account | undefined;
   onCompose?: Props["onCompose"];
   selectMessage: (id: number | null) => void;
+  embedded: boolean;
 }) {
   // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
   const [allowRemote, setAllowRemote] = useState(false);
@@ -48,7 +55,7 @@ function Body({
     { mode: "forward", label: "Reenviar", icon: <ForwardIcon /> },
   ];
   return (
-    <div className="flex h-full flex-col">
+    <div className={embedded ? "flex flex-col" : "flex h-full flex-col"}>
       <div className="flex flex-wrap gap-2 border-b px-4 py-2">
         {actions.map((a) => (
           <Button
@@ -63,9 +70,12 @@ function Body({
         ))}
         <MessageActions message={message} selectMessage={selectMessage} />
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className={embedded ? undefined : "flex-1 overflow-y-auto"}>
         <div className="space-y-3 px-6 pt-5">
-          <h1 className="text-lg font-semibold leading-snug">{message.subject || "(sin asunto)"}</h1>
+          {/* En un hilo el asunto va una sola vez, arriba de todo. */}
+          {!embedded && (
+            <h1 className="text-lg font-semibold leading-snug">{message.subject || "(sin asunto)"}</h1>
+          )}
           <div className="flex items-start gap-3">
             <Avatar className="size-9">
               <AvatarFallback>{initials(message.from.name, message.from.email)}</AvatarFallback>
@@ -113,19 +123,26 @@ function Body({
   );
 }
 
-export function MessageView({ accounts, state, onCompose }: Props) {
+export function MessageView({
+  accounts,
+  state,
+  onCompose,
+  messageId = state.messageId,
+  selectMessage = state.selectMessage,
+  embedded = false,
+}: Props) {
   const queryClient = useQueryClient();
-  const message = useMessage(state.messageId);
+  const message = useMessage(messageId);
   const { folders } = useAllFolders(accounts);
 
-  if (state.messageId == null) {
+  if (messageId == null) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
         Elegí un correo para leerlo.
       </div>
     );
   }
-  if (message.isPending) return <div className="h-full" aria-busy />;
+  if (message.isPending) return <div className={embedded ? "h-24" : "h-full"} aria-busy />;
   if (message.isError) {
     const msg = errorMessage(message.error);
     const stale = isStaleError(message.error);
@@ -133,19 +150,21 @@ export function MessageView({ accounts, state, onCompose }: Props) {
     // muestra la lista y se cierra el correo.
     const refreshView = async () => {
       const v = state.view;
-      let key: unknown[] | null = null;
+      let keys: unknown[][] | null = null;
       if (v?.kind === "folder") {
         const f = folders.find((x) => x.id === v.folderId);
-        if (f && (await syncFolder(f.accountId, f.id))) key = ["messages", f.id];
+        if (f && (await syncFolder(f.accountId, f.id))) keys = [["messages", f.id], ["threads", f.id]];
       } else if (v?.kind === "unified") {
-        if (await syncUnified(v.role)) key = ["messages", "unified", v.role];
+        if (await syncUnified(v.role)) keys = [["messages", "unified", v.role]];
       }
-      if (!key) return;
-      state.selectMessage(null);
-      void queryClient.invalidateQueries({ queryKey: key });
+      if (!keys) return;
+      selectMessage(null);
+      keys.forEach((queryKey) => void queryClient.invalidateQueries({ queryKey }));
     };
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm">
+      <div
+        className={`flex flex-col items-center justify-center gap-3 p-6 text-center text-sm ${embedded ? "" : "h-full"}`}
+      >
         <p className="text-destructive">{msg}</p>
         {stale ? (
           <Button size="sm" variant="outline" onClick={() => void refreshView()}>
@@ -165,7 +184,8 @@ export function MessageView({ accounts, state, onCompose }: Props) {
       message={message.data}
       account={accounts.find((a) => a.id === message.data.accountId)}
       onCompose={onCompose}
-      selectMessage={state.selectMessage}
+      selectMessage={selectMessage}
+      embedded={embedded}
     />
   );
 }

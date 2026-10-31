@@ -41,6 +41,8 @@ export function MessageActions({ message, selectMessage }: Props) {
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["messages"] });
+    void queryClient.invalidateQueries({ queryKey: ["threads"] });
+    void queryClient.invalidateQueries({ queryKey: ["thread"] });
     void queryClient.invalidateQueries({ queryKey: ["folders"] });
   };
   const run = async (fn: () => Promise<void>, after?: () => void) => {

@@ -52,7 +52,7 @@ function messagesKey(view: View | null, unreadOnly: boolean) {
   return ["messages", view?.kind === "folder" ? view.folderId : null, unreadOnly];
 }
 
-export function useMessages(view: View | null, unreadOnly: boolean) {
+export function useMessages(view: View | null, unreadOnly: boolean, enabled = true) {
   return useInfiniteQuery({
     queryKey: messagesKey(view, unreadOnly),
     initialPageParam: 0,
@@ -66,7 +66,28 @@ export function useMessages(view: View | null, unreadOnly: boolean) {
     },
     getNextPageParam: (last, all) =>
       last.length < PAGE_SIZE ? undefined : all.length * PAGE_SIZE,
-    enabled: view?.kind === "folder" || view?.kind === "unified",
+    enabled: enabled && (view?.kind === "folder" || view?.kind === "unified"),
+  });
+}
+
+// Hilos de una carpeta, del más reciente al más viejo.
+export function useThreads(folderId: number, unreadOnly: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["threads", folderId, unreadOnly],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) =>
+      (await svc.ListThreads(folderId, { unreadOnly, offset: pageParam, limit: PAGE_SIZE })) ?? [],
+    getNextPageParam: (last, all) =>
+      last.length < PAGE_SIZE ? undefined : all.length * PAGE_SIZE,
+  });
+}
+
+// Mensajes de un hilo (también los de Enviados), del más viejo al más nuevo.
+export function useThread(folderId: number | null, root: string | null) {
+  return useQuery({
+    queryKey: ["thread", folderId, root],
+    queryFn: async () => (await svc.GetThread(folderId!, root!)) ?? [],
+    enabled: folderId != null && root != null,
   });
 }
 

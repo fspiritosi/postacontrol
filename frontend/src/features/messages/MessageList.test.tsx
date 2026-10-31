@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
@@ -8,6 +8,11 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListUnified: vi.fn(() => Promise.resolve([])),
   SyncFolder: vi.fn(() => new Promise(() => {})), // nunca termina
   SetFlagged: vi.fn(() => Promise.resolve()),
+  GetSettings: vi.fn(() =>
+    Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false }),
+  ),
+  SetSettings: vi.fn(() => Promise.resolve()),
+  ListThreads: vi.fn(() => Promise.resolve([])),
 }));
 
 import type { Account, MessageSummary } from "../../../bindings/postacontrol/core/model/models";
@@ -42,7 +47,10 @@ function renderList(view: View, selectMessage = vi.fn()) {
     <QueryClientProvider client={new QueryClient()}>
       <MessageList
         accounts={accounts}
-        state={{ view, messageId: null, selectView: vi.fn(), selectMessage, search: null, setSearch: vi.fn() }}
+        state={{
+          view, messageId: null, selectView: vi.fn(), selectMessage, search: null, setSearch: vi.fn(),
+          threadRoot: null, selectThread: vi.fn(),
+        }}
       />
     </QueryClientProvider>,
   );
@@ -84,5 +92,40 @@ describe("MessageList", () => {
     fireEvent.click(star);
     expect(svc.SetFlagged).toHaveBeenCalledWith([1], true);
     expect(selectMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("MessageList conversaciones", () => {
+  beforeEach(() => {
+    resetSyncStateForTests();
+    vi.clearAllMocks();
+  });
+
+  it("el interruptor guarda threadedList y muestra hilos", async () => {
+    const settings = { unifiedInbox: true, disableNotifications: true, threadedList: false };
+    vi.mocked(svc.GetSettings).mockResolvedValue(settings);
+    vi.mocked(svc.ListThreads).mockResolvedValue([
+      { threadRoot: "<r@x>", latest: summary(1, 7), count: 2, unread: 0, participants: ["Ana", "Beto"] },
+    ]);
+    renderList({ kind: "folder", folderId: 3 });
+    const sw = await screen.findByRole("switch", { name: "Conversaciones" });
+    await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
+    vi.mocked(svc.GetSettings).mockResolvedValue({ ...settings, threadedList: true });
+    fireEvent.click(sw);
+    await waitFor(() =>
+      expect(svc.SetSettings).toHaveBeenCalledWith({ ...settings, threadedList: true }),
+    );
+    expect(await screen.findByText("Ana, Beto")).toBeTruthy();
+    expect(svc.ListThreads).toHaveBeenCalledWith(3, { unreadOnly: false, offset: 0, limit: 100 });
+  });
+
+  it("en vista unificada no aparece el interruptor", async () => {
+    vi.mocked(svc.GetSettings).mockResolvedValue({
+      unifiedInbox: true, disableNotifications: false, threadedList: true,
+    });
+    renderList({ kind: "unified", role: "inbox" });
+    expect(await screen.findByText("No hay correos en esta vista.")).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Conversaciones" })).toBeNull();
+    expect(svc.ListThreads).not.toHaveBeenCalled();
   });
 });

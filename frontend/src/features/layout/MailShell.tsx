@@ -43,12 +43,17 @@ export type SearchState = { text: string; scope: SearchScope };
 export type ShellState = {
   view: View | null;
   messageId: number | null;
-  // Cambia la vista (que se guarda y se sincroniza) y limpia el mensaje abierto.
+  // Cambia la vista (que se guarda y se sincroniza) y limpia el mensaje y el hilo abiertos.
   selectView: (v: View) => void;
+  // Abre un mensaje de la lista plana: cierra el hilo abierto.
   selectMessage: (id: number | null) => void;
-  // Búsqueda en curso (null = lista normal). Cambiar de vista la limpia.
+  // Búsqueda en curso (null = lista normal). Cambiar de vista la limpia;
+  // cambiarla cierra el hilo abierto.
   search: SearchState | null;
   setSearch: (s: SearchState | null) => void;
+  // Hilo abierto en el lector (lista en conversaciones). Abrir uno limpia el mensaje.
+  threadRoot: string | null;
+  selectThread: (root: string | null) => void;
 };
 
 type Props = {
@@ -83,7 +88,8 @@ function syncView(v: View, folders: Folder[]) {
 export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [chosen, setChosen] = useState<View | null>(loadView);
   const [messageId, setMessageId] = useState<number | null>(null);
-  const [search, setSearch] = useState<SearchState | null>(null);
+  const [search, setSearchState] = useState<SearchState | null>(null);
+  const [threadRoot, setThreadRoot] = useState<string | null>(null);
   const { folders, pending } = useAllFolders(accounts);
   const settings = useSettings();
   const [layout] = useState(loadLayout);
@@ -105,7 +111,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     if (d) {
       setChosen(d);
       setMessageId(null);
-      setSearch(null);
+      setSearchState(null);
+      setThreadRoot(null);
     }
   }
 
@@ -122,7 +129,23 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const selectView = useCallback((v: View) => {
     setChosen(v);
     setMessageId(null);
-    setSearch(null);
+    setSearchState(null);
+    setThreadRoot(null);
+  }, []);
+
+  const selectMessage = useCallback((id: number | null) => {
+    setMessageId(id);
+    setThreadRoot(null);
+  }, []);
+
+  const selectThread = useCallback((root: string | null) => {
+    setThreadRoot(root);
+    setMessageId(null);
+  }, []);
+
+  const setSearch = useCallback((s: SearchState | null) => {
+    setSearchState(s);
+    setThreadRoot(null);
   }, []);
 
   // Abrir desde una notificación: primero la carpeta (que limpia el mensaje) y
@@ -143,9 +166,11 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     view,
     messageId,
     selectView,
-    selectMessage: setMessageId,
+    selectMessage,
     search,
     setSearch,
+    threadRoot,
+    selectThread,
   };
 
   return (

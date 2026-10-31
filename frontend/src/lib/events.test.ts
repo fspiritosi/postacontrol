@@ -74,6 +74,12 @@ describe("useMailEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages", "unified"] });
   });
 
+  it("al actualizarse una carpeta recarga los hilos (incluyen los de Enviados)", () => {
+    emit("mail:folder-updated", { folderId: 3 });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["threads"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["thread"] });
+  });
+
   it("recarga la configuración cuando cambia", () => {
     emit("mail:settings-changed", null);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });

@@ -11,6 +11,9 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   Search: vi.fn(),
   SearchServer: vi.fn(),
   SetFlagged: vi.fn(() => Promise.resolve()),
+  GetSettings: vi.fn(() =>
+    Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false }),
+  ),
 }));
 
 import type { Account, Folder, MessageSummary } from "../../../bindings/postacontrol/core/model/models";
@@ -52,7 +55,10 @@ function Harness({ initial }: { initial: View }) {
       <button onClick={() => { setView({ kind: "folder", folderId: 4 }); setSearch(null); }}>otra</button>
       <MessageList
         accounts={accounts}
-        state={{ view, messageId: null, selectView: vi.fn(), selectMessage, search, setSearch }}
+        state={{
+          view, messageId: null, selectView: vi.fn(), selectMessage, search, setSearch,
+          threadRoot: null, selectThread: vi.fn(),
+        }}
       />
     </>
   );

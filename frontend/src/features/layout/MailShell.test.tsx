@@ -146,3 +146,26 @@ describe("MailShell búsqueda", () => {
     expect(state().search).toBeNull();
   });
 });
+
+describe("MailShell conversaciones", () => {
+  afterEach(() => localStorage.clear());
+
+  it("elegir un hilo limpia el mensaje; cambiar de vista, buscar o elegir un mensaje lo cierra", async () => {
+    const { state } = setup({ kind: "folder", folderId: 21 }, false);
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 21 }));
+    act(() => state().selectMessage(7));
+    act(() => state().selectThread("<r@x>"));
+    expect(state().threadRoot).toBe("<r@x>");
+    expect(state().messageId).toBeNull();
+    act(() => state().selectMessage(8));
+    expect(state().threadRoot).toBeNull();
+    expect(state().messageId).toBe(8);
+    act(() => state().selectThread("<r@x>"));
+    act(() => state().setSearch({ text: "factura", scope: "all" }));
+    expect(state().threadRoot).toBeNull();
+    act(() => state().setSearch(null));
+    act(() => state().selectThread("<r@x>"));
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().threadRoot).toBeNull();
+  });
+});

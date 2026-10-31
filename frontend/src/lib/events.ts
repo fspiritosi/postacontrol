@@ -147,6 +147,7 @@ export function useMailEvents(queryClient: QueryClient): void {
     const refreshMessages = (folderId: number) => {
       lastRefresh.set(folderId, Date.now());
       void queryClient.invalidateQueries({ queryKey: ["messages", folderId] });
+      void queryClient.invalidateQueries({ queryKey: ["threads", folderId] });
     };
     const refreshThrottled = (folderId: number) => {
       const wait = PROGRESS_REFRESH_MS - (Date.now() - (lastRefresh.get(folderId) ?? 0));
@@ -177,6 +178,9 @@ export function useMailEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ["messages", folderId] });
         // La carpeta puede formar parte de una vista unificada.
         void queryClient.invalidateQueries({ queryKey: ["messages", "unified"] });
+        // Los hilos de una carpeta suman los de Enviados: se recargan todos.
+        void queryClient.invalidateQueries({ queryKey: ["threads"] });
+        void queryClient.invalidateQueries({ queryKey: ["thread"] });
         void queryClient.invalidateQueries({ queryKey: ["folders"] });
       }),
       Events.On("mail:settings-changed", () => {
