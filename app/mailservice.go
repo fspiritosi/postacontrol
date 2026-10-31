@@ -49,6 +49,7 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 	}
 	s.core = core
 	core.StartBackgroundSync(ctx, syncEvery)
+	core.StartWatching(ctx)
 	return nil
 }
 

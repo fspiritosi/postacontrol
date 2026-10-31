@@ -43,6 +43,13 @@ export function GetSettings(): $CancellablePromise<model$0.Settings> {
     return $Call.ByID(761770908);
 }
 
+/**
+ * GetStartAtLogin dice si la app está registrada para abrirse al iniciar sesión.
+ */
+export function GetStartAtLogin(): $CancellablePromise<boolean> {
+    return $Call.ByID(1793071539);
+}
+
 export function ListAccounts(): $CancellablePromise<model$0.Account[] | null> {
     return $Call.ByID(837905259);
 }
@@ -115,6 +122,14 @@ export function SetSeen(ids: number[] | null, seen: boolean): $CancellablePromis
 
 export function SetSettings(st: model$0.Settings): $CancellablePromise<void> {
     return $Call.ByID(2928394400, st);
+}
+
+/**
+ * SetStartAtLogin registra o quita el inicio al abrir sesión. La app arranca
+ * con --hidden para quedar solo en la bandeja.
+ */
+export function SetStartAtLogin(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2281811223, enabled);
 }
 
 export function SyncAccount(accountID: number): $CancellablePromise<void> {

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 	"log/slog"
+	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -30,6 +31,7 @@ func main() {
 	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
 	// 'Mac' options tailor the application when running an macOS.
 	mailService := app.NewMailService()
+	var desktop *app.Desktop
 	wailsApp := application.New(application.Options{
 		Name:        "PostaControl",
 		Description: "Cliente de correo personal",
@@ -49,7 +51,16 @@ func main() {
 			ProgramName:   "postacontrol",
 		},
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			// Cerrar la ventana solo la esconde: la app vive en la bandeja.
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "ar.com.codecontrol.postacontrol",
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				if desktop != nil {
+					desktop.ShowWindow()
+				}
+			},
 		},
 	})
 
@@ -58,7 +69,7 @@ func main() {
 	// 'Mac' options tailor the window when running on macOS.
 	// 'BackgroundColour' is the background colour of the window.
 	// 'URL' is the URL that will be loaded into the webview.
-	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+	win := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "PostaControl",
 		Width:     1280,
 		Height:    800,
@@ -69,9 +80,12 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
+		Hidden:           app.StartHidden(os.Args),
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
 	})
+
+	desktop = app.SetupDesktop(wailsApp, win, mailService)
 
 	// Run the application. This blocks until the application has been exited.
 	err := wailsApp.Run()
