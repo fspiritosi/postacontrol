@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emersion/go-message"
 	"github.com/emersion/go-message/mail"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,4 +226,71 @@ func TestBuild_RejectsHeaderInjection(t *testing.T) {
 	o.References = []string{"<r@x>", "<a@x>\nBcc: evil@x.com"}
 	_, err = Build(o)
 	assert.Error(t, err)
+}
+
+// mimeTree devuelve la estructura MIME real (sin aplanar) como
+// "tipo[hijo,hijo]"; las partes con Content-ID agregan " cid=<valor>".
+func mimeTree(t *testing.T, r io.Reader) string {
+	t.Helper()
+	e, err := message.Read(r)
+	require.NoError(t, err)
+	return describeEntity(t, e)
+}
+
+func describeEntity(t *testing.T, e *message.Entity) string {
+	t.Helper()
+	ct, _, err := e.Header.ContentType()
+	require.NoError(t, err)
+	if mr := e.MultipartReader(); mr != nil {
+		var kids []string
+		for {
+			p, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			kids = append(kids, describeEntity(t, p))
+		}
+		return ct + "[" + strings.Join(kids, ",") + "]"
+	}
+	if cid := e.Header.Get("Content-Id"); cid != "" {
+		return ct + " cid=" + cid
+	}
+	return ct
+}
+
+func withInline() Outgoing {
+	o := baseOutgoing()
+	o.HTML = `<p>Hola</p><img src="cid:a@pc">`
+	o.Inline = []OutInline{{CID: "a@pc", MIMEType: "image/png", Data: []byte("\x89PNG-fake")}}
+	return o
+}
+
+func TestBuild_InlineImagesUseRelated(t *testing.T) {
+	raw, err := Build(withInline())
+	require.NoError(t, err)
+	assert.Equal(t, "multipart/alternative", topType(t, raw))
+	assert.Equal(t,
+		"multipart/alternative[text/plain,multipart/related[text/html,image/png cid=<a@pc>]]",
+		mimeTree(t, bytes.NewReader(raw)))
+	s := string(raw)
+	assert.Contains(t, s, "Content-Disposition: inline; filename=\"imagen-1.png\"")
+	assert.Contains(t, s, "Content-Transfer-Encoding: base64")
+}
+
+func TestBuild_InlineImagesWithAttachments(t *testing.T) {
+	o := withInline()
+	o.Attachments = []OutAttachment{{Filename: "datos.bin", MIMEType: "application/octet-stream", Data: []byte{1, 2}}}
+	raw, err := Build(o)
+	require.NoError(t, err)
+	assert.Equal(t,
+		"multipart/mixed[multipart/alternative[text/plain,multipart/related[text/html,image/png cid=<a@pc>]],application/octet-stream]",
+		mimeTree(t, bytes.NewReader(raw)))
+}
+
+func TestBuild_NoInlineUnchanged(t *testing.T) {
+	raw, err := Build(baseOutgoing())
+	require.NoError(t, err)
+	assert.Equal(t, "multipart/alternative[text/plain,text/html]", mimeTree(t, bytes.NewReader(raw)))
+	assert.NotContains(t, string(raw), "multipart/related")
 }

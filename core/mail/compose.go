@@ -9,6 +9,7 @@ import (
 	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
+	"github.com/google/uuid"
 
 	"postacontrol/core/htmlx"
 	"postacontrol/core/imapx"
@@ -245,12 +246,16 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 		orig = &d
 	}
 
-	body := bodyWrapperOpen + htmlx.TightParagraphs(req.BodyHTML) + "</div>"
+	body := bodyWrapperOpen + htmlx.EmailHTML(req.BodyHTML) + "</div>"
 	if orig != nil {
 		// En la vista previa la cita tiene las imágenes remotas bloqueadas; el
 		// destinatario las recibe como en el original.
 		body += htmlx.RestoreRemoteImages(quotedHTML(req.Reply.Mode, *orig))
 	}
+	// El texto plano se calcula antes de sacar las imágenes; después, las
+	// pegadas y las de la cita (que GetMessage entregó como data:) viajan como cid.
+	text := htmlx.ToText(body)
+	body, imgs := htmlx.ExtractInlineImages(body, func() string { return uuid.NewString() + "@postacontrol" })
 	out := mimex.Outgoing{
 		From:      model.Address{Name: acc.DisplayName, Email: acc.Email},
 		To:        req.To,
@@ -258,9 +263,12 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 		Bcc:       req.Bcc,
 		Subject:   req.Subject,
 		HTML:      body,
-		Text:      htmlx.ToText(body),
+		Text:      text,
 		Date:      time.Now(),
 		MessageID: mimex.NewMessageID(acc.Email),
+	}
+	for _, im := range imgs {
+		out.Inline = append(out.Inline, mimex.OutInline{CID: im.CID, MIMEType: im.MIMEType, Data: im.Data})
 	}
 	if replying && orig.MessageID != "" && !strings.ContainsAny(orig.MessageID, "\r\n") {
 		out.InReplyTo = orig.MessageID

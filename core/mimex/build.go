@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-message"
 	gomail "github.com/emersion/go-message/mail"
 	"github.com/google/uuid"
 
@@ -20,6 +21,13 @@ type OutAttachment struct {
 	Data               []byte
 }
 
+// OutInline es una imagen en línea de un mensaje saliente; el HTML la
+// referencia como src="cid:CID".
+type OutInline struct {
+	CID, MIMEType string
+	Data          []byte
+}
+
 // Outgoing describe un mensaje saliente.
 type Outgoing struct {
 	From                model.Address
@@ -28,6 +36,7 @@ type Outgoing struct {
 	InReplyTo           string
 	References          []string
 	Attachments         []OutAttachment
+	Inline              []OutInline
 	Date                time.Time
 	MessageID           string // con <>, lo genera el que llama
 }
@@ -104,6 +113,10 @@ func Build(o Outgoing) ([]byte, error) {
 		h.Set("References", strings.Join(o.References, " "))
 	}
 
+	if len(o.Inline) > 0 {
+		return buildWithInline(h, o)
+	}
+
 	var buf bytes.Buffer
 	if len(o.Attachments) == 0 {
 		iw, err := gomail.CreateInlineWriter(&buf, h)
@@ -158,6 +171,108 @@ func Build(o Outgoing) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// buildWithInline arma el mensaje con imágenes en línea. go-message no sabe
+// anidar un multipart/related dentro del alternative, así que la estructura se
+// escribe con message.Writer:
+//
+//	[mixed >] alternative > text/plain, related > text/html, image/*...
+func buildWithInline(h gomail.Header, o Outgoing) ([]byte, error) {
+	var buf bytes.Buffer
+	top := "multipart/alternative"
+	if len(o.Attachments) > 0 {
+		top = "multipart/mixed"
+	}
+	h.Set("Content-Type", top)
+	mw, err := message.CreateWriter(&buf, h.Header)
+	if err != nil {
+		return nil, err
+	}
+	alt := mw
+	if len(o.Attachments) > 0 {
+		var ah message.Header
+		ah.Set("Content-Type", "multipart/alternative")
+		if alt, err = mw.CreatePart(ah); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := writePart(alt, "text/plain; charset=utf-8", "quoted-printable", nil, []byte(o.Text)); err != nil {
+		return nil, err
+	}
+	var rh message.Header
+	rh.Set("Content-Type", "multipart/related")
+	rel, err := alt.CreatePart(rh)
+	if err != nil {
+		return nil, err
+	}
+	if err := writePart(rel, "text/html; charset=utf-8", "quoted-printable", nil, []byte(o.HTML)); err != nil {
+		return nil, err
+	}
+	for i, im := range o.Inline {
+		extra := map[string]string{
+			"Content-Id":          "<" + im.CID + ">",
+			"Content-Disposition": fmt.Sprintf("inline; filename=\"imagen-%d.%s\"", i+1, imageExt(im.MIMEType)),
+		}
+		if err := writePart(rel, im.MIMEType, "base64", extra, im.Data); err != nil {
+			return nil, err
+		}
+	}
+	if err := rel.Close(); err != nil {
+		return nil, err
+	}
+	if err := alt.Close(); err != nil {
+		return nil, err
+	}
+
+	for _, a := range o.Attachments {
+		mt := a.MIMEType
+		if mt == "" {
+			mt = "application/octet-stream"
+		}
+		extra := map[string]string{
+			// Igual que en Build: RFC 2231 para nombres no ASCII.
+			"Content-Disposition": mime.FormatMediaType("attachment", map[string]string{"filename": a.Filename}),
+		}
+		if err := writePart(mw, mt, "base64", extra, a.Data); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// writePart escribe una parte hoja dentro de parent.
+func writePart(parent *message.Writer, ctype, cte string, extra map[string]string, data []byte) error {
+	var ph message.Header
+	ph.Set("Content-Type", ctype)
+	ph.Set("Content-Transfer-Encoding", cte)
+	if _, ok := extra["Content-Disposition"]; !ok {
+		ph.Set("Content-Disposition", "inline")
+	}
+	for k, v := range extra {
+		ph.Set(k, v)
+	}
+	pw, err := parent.CreatePart(ph)
+	if err != nil {
+		return err
+	}
+	if _, err := pw.Write(data); err != nil {
+		return err
+	}
+	return pw.Close()
+}
+
+// imageExt devuelve la extensión del nombre de archivo para un image/*.
+func imageExt(mimeType string) string {
+	ext := strings.TrimPrefix(mimeType, "image/")
+	if ext == "jpeg" {
+		return "jpg"
+	}
+	return ext
 }
 
 // writeTextParts escribe text/plain y text/html (en ese orden, el más rico al

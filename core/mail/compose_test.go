@@ -3,7 +3,9 @@ package mail
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -214,6 +216,62 @@ func TestSend_BodyParagraphsAreTight(t *testing.T) {
 	require.NoError(t, err)
 	html := envelopePart(t, smtp.Received()[0], "text/html")
 	assert.Contains(t, html, `<p style="margin:0">uno</p><p style="margin:0"><br/></p><p style="margin:0">dos</p>`)
+}
+
+// Una imagen pegada en el redactor (data:) sale como parte cid, no embebida.
+func TestSend_PastedImageTravelsAsCID(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	png := []byte("\x89PNG-fake")
+	_, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "s",
+		BodyHTML: `<p>mirá</p><img src="data:image/png;base64,` + base64.StdEncoding.EncodeToString(png) + `">`,
+	})
+	require.NoError(t, err)
+	env := smtp.Received()[0]
+	html := envelopePart(t, env, "text/html")
+	m := regexp.MustCompile(`src="cid:([^"]+)"`).FindStringSubmatch(html)
+	require.NotNil(t, m, html)
+	assert.NotContains(t, html, "data:")
+	assert.Contains(t, string(env.Data), "Content-Id: <"+m[1]+">")
+	assert.Contains(t, string(env.Data), "multipart/related")
+}
+
+// GetMessage entrega el original con las imágenes cid ya como data:; al
+// responder la cita las vuelve a mandar como cid.
+func TestSend_ReplyQuotesOriginalInlineImageAsCID(t *testing.T) {
+	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG-fake"))
+	body := "--b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>x</p><img src=\"cid:logo@ej\">\r\n" +
+		"--b\r\nContent-Type: image/png\r\nContent-ID: <logo@ej>\r\nContent-Transfer-Encoding: base64\r\n" +
+		"Content-Disposition: inline\r\n\r\n" + png + "\r\n--b--\r\n"
+	c, _, smtp, acc, _, m := prepared(t, mailWith("rel", "multipart/related; boundary=b", body))
+	d, err := c.PrepareCompose(context.Background(), m.ID, "reply")
+	require.NoError(t, err)
+	_, err = c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: d.To, Subject: d.Subject, BodyHTML: "<p>ok</p>",
+		Reply: &model.ReplyContext{Mode: "reply", OriginalMessageID: m.ID},
+	})
+	require.NoError(t, err)
+	env := smtp.Received()[0]
+	html := envelopePart(t, env, "text/html")
+	assert.Contains(t, html, `src="cid:`)
+	assert.NotContains(t, html, "data:image")
+	assert.Contains(t, string(env.Data), "multipart/related")
+}
+
+func TestSend_HeadingsAndTablesGetInlineStyles(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	_, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "s",
+		BodyHTML: "<h1>Título</h1><table><colgroup><col></colgroup><tr><td>a</td></tr></table>",
+	})
+	require.NoError(t, err)
+	html := envelopePart(t, smtp.Received()[0], "text/html")
+	assert.Contains(t, html, `<h1 style="margin:16px 0 8px;`)
+	assert.Contains(t, html, `<table style="border-collapse:collapse;`)
+	assert.Contains(t, html, `<td style="`)
+	assert.NotContains(t, html, "colgroup")
 }
 
 func TestSend_ReplySetsThreadingAndAnswered(t *testing.T) {
