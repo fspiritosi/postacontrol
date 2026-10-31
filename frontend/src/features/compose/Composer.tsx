@@ -82,6 +82,8 @@ export function Composer({ init, onClose }: Props) {
         bodyHtml: bodyRef.current,
         reply: init.reply && init.reply.mode !== "new" ? init.reply : null,
         draftId: init.draftId,
+        attachments: [],
+        skipOriginalAttachments: [],
       });
       sendStarted(id);
     } catch (e) {

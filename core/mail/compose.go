@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"slices"
 	"strings"
 	"time"
 
@@ -139,6 +140,11 @@ func (c *Core) PrepareCompose(ctx context.Context, messageID int64, mode model.C
 		Subject:    subjectFor(mode, d.Subject),
 		QuotedHTML: quotedHTML(mode, d),
 		Reply:      model.ReplyContext{Mode: mode, OriginalMessageID: messageID},
+
+		OriginalAttachments: []model.Attachment{},
+	}
+	if mode == modeForward {
+		out.OriginalAttachments = append(out.OriginalAttachments, d.Attachments...)
 	}
 	if mode == modeReply || mode == modeReplyAll {
 		if len(d.ReplyTo) > 0 {
@@ -215,6 +221,9 @@ func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (int64, model
 	if err != nil {
 		return 0, model.Account{}, c.ctxOrUserError(ctx, err)
 	}
+	if err := c.checkSize(ctx, req); err != nil {
+		return 0, model.Account{}, err
+	}
 	id, err := c.store.QueueLocalDraft(ctx, req.DraftID, req)
 	if errors.Is(err, store.ErrBusy) {
 		return 0, model.Account{}, &UserError{Code: "busy", Msg: "Este correo ya se está enviando."}
@@ -224,6 +233,46 @@ func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (int64, model
 	}
 	c.emit(EventOutboxUpdated, nil)
 	return id, acc, nil
+}
+
+// checkSize verifica que los adjuntos preparados existan y que el correo (esos
+// adjuntos, los del original que se reenvían y las imágenes pegadas en el
+// cuerpo) no pase de MaxMessageBytes.
+func (c *Core) checkSize(ctx context.Context, req model.SendRequest) error {
+	info, err := c.store.StagedInfo(ctx, req.Attachments)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	found := map[int64]bool{}
+	var total int64
+	for _, a := range info {
+		found[a.ID] = true
+		total += a.Size
+	}
+	for _, id := range req.Attachments {
+		if !found[id] {
+			return &UserError{Code: "attach", Msg: "Uno de los adjuntos ya no está disponible. Volvé a adjuntarlo."}
+		}
+	}
+	if req.Reply != nil && req.Reply.Mode == modeForward {
+		// Si el original ya no está, el fallo sale al enviar y el correo queda
+		// en la bandeja de salida.
+		if d, err := c.GetMessage(ctx, req.Reply.OriginalMessageID); err == nil {
+			for i, a := range d.Attachments {
+				if !slices.Contains(req.SkipOriginalAttachments, i) {
+					total += a.Size
+				}
+			}
+		}
+	}
+	_, imgs := htmlx.ExtractInlineImages(req.BodyHTML, func() string { return "x" })
+	for _, im := range imgs {
+		total += int64(len(im.Data))
+	}
+	if total > MaxMessageBytes {
+		return &UserError{Code: "too_large", Msg: "El correo pesa " + formatSize(total) + " y el máximo es " + formatSize(MaxMessageBytes) + ". Sacá algún adjunto."}
+	}
+	return nil
 }
 
 // deliver arma el mensaje del correo id de la bandeja de salida y lo envía por
@@ -281,6 +330,9 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 	}
 	if forwarding {
 		for i := range orig.Attachments {
+			if slices.Contains(req.SkipOriginalAttachments, i) {
+				continue
+			}
 			att, data, err := c.attachmentBytes(ctx, orig.ID, i)
 			if err != nil {
 				return model.SendResult{}, c.failSend(ctx, id, err)
@@ -291,6 +343,17 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 			}
 			out.Attachments = append(out.Attachments, mimex.OutAttachment{Filename: name, MIMEType: att.MIMEType, Data: data})
 		}
+	}
+	staged, err := c.store.StagedAttachments(ctx, req.Attachments)
+	if errors.Is(err, store.ErrNotFound) {
+		return model.SendResult{}, c.failSend(ctx, id,
+			&UserError{Code: "attach", Msg: "Uno de los adjuntos ya no está disponible. Volvé a adjuntarlo.", Err: err})
+	}
+	if err != nil {
+		return model.SendResult{}, c.failSend(ctx, id, err)
+	}
+	for _, f := range staged {
+		out.Attachments = append(out.Attachments, mimex.OutAttachment{Filename: f.Filename, MIMEType: f.MIMEType, Data: f.Data})
 	}
 	rcpts := mimex.Recipients(out)
 	raw, err := mimex.Build(out)
@@ -305,6 +368,7 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 	// El correo ya salió: de acá en adelante nada convierte el envío en error.
 	// Se quita de la bandeja aunque se esté cerrando la app.
 	_ = c.store.DeleteLocalDraft(context.WithoutCancel(ctx), id)
+	_ = c.store.DeleteStagedAttachments(context.WithoutCancel(ctx), req.Attachments)
 	c.emit(EventOutboxUpdated, nil)
 	res := model.SendResult{}
 	if acc.SaveSentCopy { // si el usuario no quiere copia, no es una falla
@@ -426,6 +490,14 @@ func (c *Core) ListLocalDrafts(ctx context.Context) ([]model.LocalDraft, error) 
 
 // DeleteLocalDraft descarta un borrador local.
 func (c *Core) DeleteLocalDraft(ctx context.Context, id int64) error {
+	// Los adjuntos preparados del correo se van con él.
+	if ds, err := c.store.ListLocalDrafts(ctx); err == nil {
+		for _, d := range ds {
+			if d.ID == id {
+				_ = c.store.DeleteStagedAttachments(ctx, d.Request.Attachments)
+			}
+		}
+	}
 	if err := c.store.DeleteLocalDraft(ctx, id); err != nil {
 		return c.ctxOrUserError(ctx, err)
 	}

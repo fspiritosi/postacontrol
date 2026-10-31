@@ -135,6 +135,27 @@ type SendRequest struct {
 	Reply     *ReplyContext `json:"reply"` // nil si es un correo nuevo
 	// DraftID es el correo de la bandeja de salida que se reintenta (0 si es nuevo).
 	DraftID int64 `json:"draftId,omitempty"`
+	// Attachments son los ids de los adjuntos preparados (StageFiles) que viajan.
+	Attachments []int64 `json:"attachments"`
+	// SkipOriginalAttachments son los índices de los adjuntos del original que
+	// un reenvío no incluye.
+	SkipOriginalAttachments []int `json:"skipOriginalAttachments"`
+}
+
+// StagedAttachment es un archivo elegido para adjuntar y guardado a la espera
+// del envío.
+type StagedAttachment struct {
+	ID       int64  `json:"id"`
+	Filename string `json:"filename"`
+	MIMEType string `json:"mimeType"`
+	Size     int64  `json:"size"`
+}
+
+// PickedImage es una imagen elegida del disco, lista para insertar en el
+// cuerpo. DataURL queda vacío si el usuario canceló.
+type PickedImage struct {
+	DataURL  string `json:"dataUrl"`
+	Filename string `json:"filename"`
 }
 
 type ComposeDraft struct {
@@ -144,6 +165,9 @@ type ComposeDraft struct {
 	Subject    string       `json:"subject"`
 	QuotedHTML string       `json:"quotedHtml"` // se muestra debajo del editor; no editable
 	Reply      ReplyContext `json:"reply"`
+	// OriginalAttachments son los adjuntos del original; solo al reenviar (en
+	// los otros modos va vacío).
+	OriginalAttachments []Attachment `json:"originalAttachments"`
 }
 
 type SendResult struct {

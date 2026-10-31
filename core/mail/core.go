@@ -111,6 +111,8 @@ func New(cfg Config) (*Core, error) {
 		_ = st.Close()
 		return nil, err
 	}
+	// Adjuntos de redactores cancelados que nadie reclamó (mejor esfuerzo).
+	_ = st.PruneStagedAttachments(context.Background(), time.Now().Add(-24*time.Hour))
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
 		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{},

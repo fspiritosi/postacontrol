@@ -51,6 +51,12 @@ export interface ComposeDraft {
      */
     "quotedHtml": string;
     "reply": ReplyContext;
+
+    /**
+     * OriginalAttachments son los adjuntos del original; solo al reenviar (en
+     * los otros modos va vacío).
+     */
+    "originalAttachments": Attachment[] | null;
 }
 
 /**
@@ -195,6 +201,17 @@ export interface SendRequest {
      * DraftID es el correo de la bandeja de salida que se reintenta (0 si es nuevo).
      */
     "draftId"?: number;
+
+    /**
+     * Attachments son los ids de los adjuntos preparados (StageFiles) que viajan.
+     */
+    "attachments": number[] | null;
+
+    /**
+     * SkipOriginalAttachments son los índices de los adjuntos del original que
+     * un reenvío no incluye.
+     */
+    "skipOriginalAttachments": number[] | null;
 }
 
 export interface ServerSettings {
