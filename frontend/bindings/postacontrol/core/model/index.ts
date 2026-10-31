@@ -19,11 +19,13 @@ export type {
     LocalDraft,
     MessageDetail,
     MessageSummary,
+    PickedImage,
     ReplyContext,
     SearchQuery,
     SearchResult,
     SendRequest,
     ServerSettings,
     Settings,
+    StagedAttachment,
     ThreadSummary
 } from "./models.js";

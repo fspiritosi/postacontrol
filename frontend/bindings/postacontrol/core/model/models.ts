@@ -146,6 +146,15 @@ export interface MessageSummary {
     "hasAttachments": boolean;
 }
 
+/**
+ * PickedImage es una imagen elegida del disco, lista para insertar en el
+ * cuerpo. DataURL queda vacío si el usuario canceló.
+ */
+export interface PickedImage {
+    "dataUrl": string;
+    "filename": string;
+}
+
 export interface ReplyContext {
     "mode": ComposeMode;
     "originalMessageId": number;
@@ -236,6 +245,17 @@ export interface Settings {
      * ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
      */
     "threadedList": boolean;
+}
+
+/**
+ * StagedAttachment es un archivo elegido para adjuntar y guardado a la espera
+ * del envío.
+ */
+export interface StagedAttachment {
+    "id": number;
+    "filename": string;
+    "mimeType": string;
+    "size": number;
 }
 
 /**

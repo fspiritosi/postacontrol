@@ -90,10 +90,12 @@ func main() {
 		Hidden:           app.StartHidden(os.Args),
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
+		EnableFileDrop:   true,
 	})
 
 	desktop = app.SetupDesktop(wailsApp, win)
 	app.SetupNotifications(wailsApp, mailService, desktop, notifier)
+	app.SetupFileDrop(wailsApp, win, mailService)
 
 	// Run the application. This blocks until the application has been exited.
 	err := wailsApp.Run()

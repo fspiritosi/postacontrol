@@ -136,6 +136,46 @@ func (s *MailService) SaveAttachment(ctx context.Context, messageID int64, index
 	return true, nil
 }
 
+// PickAttachments abre el diálogo nativo para elegir archivos a adjuntar y los
+// deja preparados. Devuelve una lista vacía (sin error) si se cancela.
+func (s *MailService) PickAttachments(ctx context.Context) ([]model.StagedAttachment, error) {
+	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Adjuntar archivos")
+	if w := s.app.Window.Current(); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	paths, err := dlg.PromptForMultipleSelection()
+	if err != nil {
+		return nil, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if len(paths) == 0 {
+		return []model.StagedAttachment{}, nil
+	}
+	return s.core.StageFiles(ctx, paths)
+}
+
+// PickImage abre el diálogo nativo para elegir una imagen a insertar en el
+// cuerpo. Devuelve un PickedImage vacío (sin error) si se cancela.
+func (s *MailService) PickImage(ctx context.Context) (model.PickedImage, error) {
+	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Insertar imagen").
+		AddFilter("Imágenes", "*.png;*.jpg;*.jpeg;*.gif;*.webp")
+	if w := s.app.Window.Current(); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	path, err := dlg.PromptForSingleSelection()
+	if err != nil {
+		return model.PickedImage{}, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if path == "" {
+		return model.PickedImage{}, nil
+	}
+	return s.core.LoadImage(ctx, path)
+}
+
+// StagedInfo devuelve los datos de los adjuntos preparados ids.
+func (s *MailService) StagedInfo(ctx context.Context, ids []int64) ([]model.StagedAttachment, error) {
+	return s.core.StagedInfo(ctx, ids)
+}
+
 func suggestedFilename(name string) string {
 	if name == "" {
 		return "adjunto"

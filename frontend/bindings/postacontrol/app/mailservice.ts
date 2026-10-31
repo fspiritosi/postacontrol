@@ -89,6 +89,22 @@ export function OpenExternal(link: string): $CancellablePromise<void> {
     return $Call.ByID(3633237272, link);
 }
 
+/**
+ * PickAttachments abre el diálogo nativo para elegir archivos a adjuntar y los
+ * deja preparados. Devuelve una lista vacía (sin error) si se cancela.
+ */
+export function PickAttachments(): $CancellablePromise<model$0.StagedAttachment[] | null> {
+    return $Call.ByID(100580540);
+}
+
+/**
+ * PickImage abre el diálogo nativo para elegir una imagen a insertar en el
+ * cuerpo. Devuelve un PickedImage vacío (sin error) si se cancela.
+ */
+export function PickImage(): $CancellablePromise<model$0.PickedImage> {
+    return $Call.ByID(582829903);
+}
+
 export function PrepareCompose(messageID: number, mode: model$0.ComposeMode): $CancellablePromise<model$0.ComposeDraft> {
     return $Call.ByID(1128403450, messageID, mode);
 }
@@ -146,6 +162,13 @@ export function SetSettings(st: model$0.Settings): $CancellablePromise<void> {
  */
 export function SetStartAtLogin(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(2281811223, enabled);
+}
+
+/**
+ * StagedInfo devuelve los datos de los adjuntos preparados ids.
+ */
+export function StagedInfo(ids: number[] | null): $CancellablePromise<model$0.StagedAttachment[] | null> {
+    return $Call.ByID(2296368261, ids);
 }
 
 export function SyncAccount(accountID: number): $CancellablePromise<void> {
