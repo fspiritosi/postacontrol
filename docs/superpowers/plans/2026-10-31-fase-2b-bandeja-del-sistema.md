@@ -130,7 +130,7 @@ func TestIdleWatch_NoIdleCapIsUnsupported(t *testing.T)  // StartIMAPRev1 → Er
     - `type NewMail struct { AccountID int64 \`json:"accountId"\`; FolderID int64 \`json:"folderId"\`; Count int \`json:"count"\`; Items []NewMailItem \`json:"items"\` }`. `Items` lleva como mucho 3 correos, los más nuevos primero.
   - `const EventNewMail = "mail:new-mail"`, con data `model.NewMail` (el struct, no un map).
   - `(*store.Store).MessagesByUIDs(ctx, folderID int64, uids []uint32) ([]model.MessageSummary, error)`, ordenados por fecha descendente.
-  - `(*store.Store).InboxUnreadTotal(ctx) (int, error)`: suma de `unread` de las carpetas con rol `inbox` de todas las cuentas. La usa la Task 4 para la bandeja del sistema.
+  - `(*store.Store).InboxUnreadTotal(ctx) (int, error)`: suma de `unread` de las carpetas con rol `inbox` de todas las cuentas. Pensada para el tooltip de la bandeja (Task 4); queda sin uso hasta que Wails implemente el tooltip en Linux.
   - `(*mail.Core).InboxUnreadTotal(ctx) (int, error)`: delega en el store.
 - **Reglas de `SyncFolder`:**
   - Al terminar con éxito, si la carpeta tiene rol `inbox`, la pasada no es la primera y hubo UIDs nuevos (`fresh`) no leídos, emite `EventNewMail`.
@@ -210,17 +210,15 @@ func TestWatcher_StartWatchingIsIdempotent(t *testing.T)    // StartWatching dos
   - `app/mailservice.go` (llama a `core.StartWatching` en `ServiceStartup`; expone `GetStartAtLogin`, `SetStartAtLogin`)
 
 **Interfaces:**
-- Consumes: `(*mail.Core).InboxUnreadTotal`, `StartWatching` y los eventos `mail:folder-updated` / `mail:folders-updated` (para refrescar el tooltip).
+- Consumes: `StartWatching`.
 - Produces:
   - `func StartHidden(args []string) bool`: true si `args` contiene `--hidden`.
-  - `func TrayTooltip(unread int) string`: con 0 devuelve `"PostaControl"`; con 1, `"PostaControl — 1 correo sin leer"`; con 5, `"PostaControl — 5 correos sin leer"`.
-  - `func SetupDesktop(app *application.App, win *application.WebviewWindow, svc *MailService)`, que arma:
-    - **Bandeja del sistema:** ícono `tray.png`, tooltip `TrayTooltip(...)`.
+  - `func SetupDesktop(app *application.App, win *application.WebviewWindow) *Desktop`, que arma:
+    - **Bandeja del sistema:** ícono `tray.png`, tooltip fijo `"PostaControl"`.
       - Menú: "Abrir PostaControl", separador, "Salir".
       - Clic en el ícono: muestra la ventana y le da foco.
     - **Cerrar la ventana:** `RegisterHook(events.Common.WindowClosing, …)` la esconde y cancela el cierre, como en el ejemplo `hide-window` de Wails.
     - **Ctrl+Q en la ventana:** `app.Quit()`.
-    - **Tooltip:** se actualiza con los eventos de carpetas.
   - `(*MailService).GetStartAtLogin() (bool, error)` y `SetStartAtLogin(enabled bool) error`, sobre `app.Autostart`, con `AutostartOptions{Identifier: "postacontrol", Arguments: []string{"--hidden"}}`.
 - **`main.go`:**
   - `SingleInstance: &application.SingleInstanceOptions{UniqueID: "ar.com.codecontrol.postacontrol", OnSecondInstanceLaunch: muestra la ventana y le da foco}`.
@@ -228,10 +226,11 @@ func TestWatcher_StartWatchingIsIdempotent(t *testing.T)    // StartWatching dos
   - `Mac.ApplicationShouldTerminateAfterLastWindowClosed` pasa a `false`.
 - **El servicio de notificaciones** se registra en la Task 5, no acá.
 
+> **Limitación:** en Linux, Wails 3.0.0 no implementa el tooltip de la bandeja; el contador de no leídos queda para cuando Wails lo soporte.
+
 - [ ] **Step 1: Tests que fallan.** En `app/desktop_test.go`:
   - `TestStartHidden`: `--hidden` presente da true; ausente da false; `--hiddenx` da false.
-  - `TestTrayTooltip`: 0, 1 y 5, con los textos exactos de arriba.
-- [ ] **Step 2:** `go test ./app/ -run 'StartHidden|TrayTooltip'`. Debe fallar.
+- [ ] **Step 2:** `go test ./app/ -run 'StartHidden'`. Debe fallar.
 - [ ] **Step 3: Implementar.** La bandeja, el hook de cierre y la instancia única no tienen test automático: se verifican en la Task 7.
 - [ ] **Step 4:** `task check` da PASS, y `go build .` compila.
 - [ ] **Step 5: Commit** `feat(app): bandeja del sistema, cerrar esconde, una sola instancia e inicio al abrir sesión`

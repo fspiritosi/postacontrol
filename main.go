@@ -89,7 +89,7 @@ func main() {
 		URL:              "/",
 	})
 
-	desktop = app.SetupDesktop(wailsApp, win, mailService)
+	desktop = app.SetupDesktop(wailsApp, win)
 	app.SetupNotifications(wailsApp, mailService, desktop, notifier)
 
 	// Run the application. This blocks until the application has been exited.

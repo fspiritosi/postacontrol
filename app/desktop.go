@@ -1,16 +1,11 @@
 package app
 
 import (
-	"context"
 	_ "embed"
-	"fmt"
 	"slices"
-	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-
-	"postacontrol/core/mail"
 )
 
 //go:embed tray.png
@@ -25,17 +20,10 @@ func StartHidden(args []string) bool {
 	return slices.Contains(args, "--hidden")
 }
 
-// TrayTooltip arma el texto del ícono de la bandeja según los no leídos.
-func TrayTooltip(unread int) string {
-	switch {
-	case unread <= 0:
-		return "PostaControl"
-	case unread == 1:
-		return "PostaControl — 1 correo sin leer"
-	default:
-		return fmt.Sprintf("PostaControl — %d correos sin leer", unread)
-	}
-}
+// trayTooltip es el texto fijo del ícono de la bandeja. En Linux, Wails 3.0.0
+// no implementa SetTooltip (es un stub vacío), así que el contador de no
+// leídos queda para cuando Wails lo soporte.
+const trayTooltip = "PostaControl"
 
 // Desktop agrupa la integración con el escritorio: ventana principal y
 // bandeja del sistema. Lo crea SetupDesktop; la Task 5 (notificaciones) usa
@@ -44,7 +32,6 @@ type Desktop struct {
 	app  *application.App
 	win  *application.WebviewWindow
 	tray *application.SystemTray
-	svc  *MailService
 }
 
 // ShowWindow muestra la ventana principal, la des-minimiza y le da foco.
@@ -74,10 +61,10 @@ func QuitKeyBindings(quit func()) map[string]func(application.Window) {
 	}
 }
 
-// SetupDesktop arma la bandeja (ícono, tooltip, menú, clic), hace que cerrar
-// la ventana la esconda en vez de salir, y mantiene el tooltip con los no leídos de la Entrada. Devuelve el *Desktop.
-func SetupDesktop(app *application.App, win *application.WebviewWindow, svc *MailService) *Desktop {
-	d := &Desktop{app: app, win: win, svc: svc}
+// SetupDesktop arma la bandeja (ícono, tooltip fijo, menú, clic) y hace que
+// cerrar la ventana la esconda en vez de salir. Devuelve el *Desktop.
+func SetupDesktop(app *application.App, win *application.WebviewWindow) *Desktop {
+	d := &Desktop{app: app, win: win}
 
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		win.Hide()
@@ -86,34 +73,14 @@ func SetupDesktop(app *application.App, win *application.WebviewWindow, svc *Mai
 
 	d.tray = app.SystemTray.New()
 	d.tray.SetIcon(trayIcon)
-	d.tray.SetTooltip(TrayTooltip(0))
+	d.tray.SetTooltip(trayTooltip)
 	menu := app.NewMenu()
 	menu.Add("Abrir PostaControl").OnClick(func(*application.Context) { d.ShowWindow() })
 	menu.AddSeparator()
 	menu.Add("Salir").OnClick(func(*application.Context) { app.Quit() })
 	d.tray.SetMenu(menu)
 	d.tray.OnClick(d.ShowWindow)
-
-	refresh := func(*application.CustomEvent) { go d.refreshTooltip() }
-	app.Event.On(mail.EventFolderUpdated, refresh)
-	app.Event.On(mail.EventFoldersUpdated, refresh)
-	// Tooltip inicial: ServiceStartup ya corrió cuando la app arranca.
-	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) { go d.refreshTooltip() })
 	return d
-}
-
-// refreshTooltip recalcula los no leídos de la Entrada y actualiza el tooltip.
-func (d *Desktop) refreshTooltip() {
-	if d.svc == nil || d.svc.core == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	n, err := d.svc.core.InboxUnreadTotal(ctx)
-	if err != nil {
-		return
-	}
-	d.tray.SetTooltip(TrayTooltip(n))
 }
 
 // GetStartAtLogin dice si la app está registrada para abrirse al iniciar sesión.

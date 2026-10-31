@@ -18,19 +18,6 @@ func TestStartHidden(t *testing.T) {
 	}
 }
 
-func TestTrayTooltip(t *testing.T) {
-	cases := map[int]string{
-		0: "PostaControl",
-		1: "PostaControl — 1 correo sin leer",
-		5: "PostaControl — 5 correos sin leer",
-	}
-	for n, want := range cases {
-		if got := TrayTooltip(n); got != want {
-			t.Errorf("TrayTooltip(%d) = %q, quería %q", n, got, want)
-		}
-	}
-}
-
 func TestQuitKeyBindings(t *testing.T) {
 	quit := 0
 	kb := QuitKeyBindings(func() { quit++ })
