@@ -44,7 +44,19 @@ type textWriter struct {
 	pending   int  // saltos de línea pendientes antes del próximo texto (0, 1 o 2)
 	space     bool // hubo un espacio entre inlines que todavía no se escribió
 	owedSpace bool // falta escribir el espacio que sigue a un marcador de lista
+	where     place
 }
+
+// place es el contenedor de bloques en el que estamos: TipTap envuelve el
+// contenido de cada <li> y <td>/<th> en un <p>, que no debe cortar la línea.
+type place int
+
+const (
+	inNone      place = iota
+	inItemFirst       // <li> a la espera de su primer <p>, que va pegado al marcador
+	inItemMore        // <li> después de su primer <p>
+	inCell            // <td> o <th>: sus <p> van en la misma línea
+)
 
 func (w *textWriter) String() string { return strings.TrimSpace(w.sb.String()) }
 
@@ -165,7 +177,10 @@ func normalizeSpaces(s string) string {
 func (w *textWriter) listItem(n *html.Node, marker string) {
 	w.need(1)
 	w.prefix(marker)
+	saved := w.where
+	w.where = inItemFirst
 	w.children(n)
+	w.where = saved
 	w.need(1)
 }
 
@@ -175,11 +190,35 @@ func (w *textWriter) element(n *html.Node) {
 		return
 	case atom.Br:
 		w.need(1)
-	case atom.P, atom.Div, atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6, atom.Ul, atom.Table:
+	case atom.P:
+		switch w.where {
+		case inItemFirst:
+			w.where = inItemMore
+			w.children(n)
+			w.need(1)
+		case inItemMore:
+			w.need(1)
+			w.children(n)
+			w.need(1)
+		case inCell:
+			w.children(n)
+			w.space = true
+		default:
+			w.need(2)
+			w.children(n)
+			w.need(2)
+		}
+	case atom.Div, atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6, atom.Ul, atom.Table:
+		saved := w.where
+		w.where = inNone
 		w.need(2)
 		w.children(n)
 		w.need(2)
+		w.where = saved
 	case atom.Ol:
+		saved := w.where
+		w.where = inNone
+		defer func() { w.where = saved }()
 		w.need(2)
 		i := 0
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -200,7 +239,10 @@ func (w *textWriter) element(n *html.Node) {
 		w.children(n)
 		w.need(1)
 	case atom.Td, atom.Th:
+		saved := w.where
+		w.where = inCell
 		w.children(n)
+		w.where = saved
 		for sib := n.NextSibling; sib != nil; sib = sib.NextSibling {
 			if sib.Type == html.ElementNode {
 				if sib.DataAtom == atom.Td || sib.DataAtom == atom.Th {

@@ -81,6 +81,15 @@ func TestToText_TableCells(t *testing.T) {
 	assert.Equal(t, "a b\nc d", ToText(`<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>`))
 }
 
+// TipTap envuelve el contenido de cada <li>, <td> y <th> en un <p>.
+func TestToText_TipTapShapes(t *testing.T) {
+	assert.Equal(t, "- uno\n- dos", ToText(`<ul><li><p>uno</p></li><li><p>dos</p></li></ul>`))
+	assert.Equal(t, "1. uno\n2. dos", ToText(`<ol><li><p>uno</p></li><li><p>dos</p></li></ol>`))
+	assert.Equal(t, "Nombre Edad\nAna 30", ToText(`<table><tr><th><p>Nombre</p></th><th><p>Edad</p></th></tr><tr><td><p>Ana</p></td><td><p>30</p></td></tr></table>`))
+	assert.Equal(t, "- uno\ndos", ToText(`<ul><li><p>uno</p><p>dos</p></li></ul>`))
+	assert.Equal(t, "hola\n\n- uno\n\nchau", ToText(`<p>hola</p><ul><li><p>uno</p></li></ul><p>chau</p>`))
+}
+
 func TestToText_PreKeepsLayout(t *testing.T) {
 	assert.Equal(t, "l1\n  l2", ToText("<pre>l1\n  l2</pre>"))
 }

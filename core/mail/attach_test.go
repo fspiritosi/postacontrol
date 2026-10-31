@@ -106,13 +106,29 @@ func TestStageFiles_RejectsDirectoryAndTooLarge(t *testing.T) {
 	_, err = c.StageFiles(ctx, []string{ok, big})
 	ue = userErr(t, err)
 	assert.Equal(t, "attach", ue.Code)
-	assert.Equal(t, "«enorme.iso» pesa 25.0 MB; el máximo por correo es 25.0 MB.", ue.Msg)
+	assert.Equal(t, "«enorme.iso» supera el máximo de 25.0 MB por correo.", ue.Msg)
 
 	_, err = c.StageFiles(ctx, []string{ok, filepath.Join(t.TempDir(), "fantasma.txt")})
 	assert.Equal(t, "No pudimos leer «fantasma.txt».", userErr(t, err).Msg)
 
 	// Ninguno quedó guardado.
 	info, err := c.store.StagedInfo(ctx, []int64{1, 2, 3})
+	require.NoError(t, err)
+	assert.Empty(t, info)
+}
+
+func TestStageFiles_RejectsBatchOverLimit(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	var paths []string
+	for _, n := range []string{"a.bin", "b.bin"} {
+		paths = append(paths, sparseFile(t, n, 13<<20))
+	}
+	_, err := c.StageFiles(ctx, paths)
+	ue := userErr(t, err)
+	assert.Equal(t, "attach", ue.Code)
+	assert.Equal(t, "Los archivos suman 26.0 MB; el máximo por correo es 25.0 MB.", ue.Msg)
+	info, err := c.store.StagedInfo(ctx, []int64{1, 2})
 	require.NoError(t, err)
 	assert.Empty(t, info)
 }
@@ -137,7 +153,7 @@ func TestLoadImage_TypesAndLimit(t *testing.T) {
 	_, err = c.LoadImage(ctx, big)
 	ue = userErr(t, err)
 	assert.Equal(t, "image", ue.Code)
-	assert.Equal(t, "La imagen pesa 5.0 MB; el máximo es 5.0 MB.", ue.Msg)
+	assert.Equal(t, "La imagen supera el máximo de 5.0 MB.", ue.Msg)
 }
 
 func TestFormatSize(t *testing.T) {
@@ -298,4 +314,31 @@ func TestPrepareCompose_ForwardListsOriginalAttachments(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, d.OriginalAttachments)
 	assert.Empty(t, d.OriginalAttachments)
+}
+
+// La cita de un reenvío/respuesta con imágenes data: pesadas también cuenta.
+func TestSend_TooLargeCountsQuotedImages(t *testing.T) {
+	// Contenidos distintos: ExtractInlineImages junta los repetidos.
+	one := make([]byte, 13<<20)
+	for i := range one {
+		one[i] = 1
+	}
+	bigA := base64.StdEncoding.EncodeToString(make([]byte, 13<<20))
+	bigB := base64.StdEncoding.EncodeToString(one)
+	body := "--b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>x</p><img src=\"cid:a@ej\"><img src=\"cid:b@ej\">\r\n" +
+		"--b\r\nContent-Type: image/png\r\nContent-ID: <a@ej>\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: inline\r\n\r\n" + wrap76(bigA) +
+		"--b\r\nContent-Type: image/png\r\nContent-ID: <b@ej>\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: inline\r\n\r\n" + wrap76(bigB) +
+		"--b--\r\n"
+	c, _, _, acc, _, m := prepared(t, mailWith("pesado", "multipart/related; boundary=b", body))
+	ctx := context.Background()
+	_, err := c.GetMessage(ctx, m.ID) // deja el cuerpo en la caché
+	require.NoError(t, err)
+	_, err = c.Send(ctx, model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "Re: pesado", BodyHTML: "<p>ok</p>",
+		Reply: &model.ReplyContext{Mode: "reply", OriginalMessageID: m.ID},
+	})
+	assert.Equal(t, "too_large", userErr(t, err).Code)
+	ds, err := c.ListLocalDrafts(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, ds)
 }

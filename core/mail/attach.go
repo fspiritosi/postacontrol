@@ -31,11 +31,16 @@ func formatSize(n int64) string {
 	return fmt.Sprintf("%.1f MB", float64(n)/1024/1024)
 }
 
+// sameSize dice si n y max se muestran iguales (25.0 MB contra 25.0 MB): ahí
+// "pesa X; el máximo es X" confunde y el mensaje usa otra redacción.
+func sameSize(n, max int64) bool { return formatSize(n) == formatSize(max) }
+
 func attachErr(msg string) error { return &UserError{Code: "attach", Msg: msg} }
 
 // StageFiles guarda los archivos de paths como adjuntos a la espera del envío.
 // Valida todos antes de guardar ninguno: o se adjuntan todos, o ninguno.
 func (c *Core) StageFiles(ctx context.Context, paths []string) ([]model.StagedAttachment, error) {
+	var total int64
 	for _, p := range paths {
 		name := filepath.Base(p)
 		fi, err := os.Stat(p)
@@ -44,9 +49,15 @@ func (c *Core) StageFiles(ctx context.Context, paths []string) ([]model.StagedAt
 			return nil, &UserError{Code: "attach", Msg: "No pudimos leer «" + name + "».", Err: err}
 		case fi.IsDir():
 			return nil, attachErr("«" + name + "» es una carpeta; solo se pueden adjuntar archivos.")
+		case fi.Size() > MaxMessageBytes && sameSize(fi.Size(), MaxMessageBytes):
+			return nil, attachErr("«" + name + "» supera el máximo de " + formatSize(MaxMessageBytes) + " por correo.")
 		case fi.Size() > MaxMessageBytes:
 			return nil, attachErr("«" + name + "» pesa " + formatSize(fi.Size()) + "; el máximo por correo es " + formatSize(MaxMessageBytes) + ".")
 		}
+		total += fi.Size()
+	}
+	if total > MaxMessageBytes {
+		return nil, attachErr("Los archivos suman " + formatSize(total) + "; el máximo por correo es " + formatSize(MaxMessageBytes) + ".")
 	}
 	out := make([]model.StagedAttachment, 0, len(paths))
 	rollback := func() {
@@ -107,6 +118,9 @@ func (c *Core) LoadImage(ctx context.Context, path string) (model.PickedImage, e
 }
 
 func imageTooBig(n int64) error {
+	if sameSize(n, MaxInlineImageBytes) {
+		return &UserError{Code: "image", Msg: "La imagen supera el máximo de " + formatSize(MaxInlineImageBytes) + "."}
+	}
 	return &UserError{Code: "image", Msg: "La imagen pesa " + formatSize(n) + "; el máximo es " + formatSize(MaxInlineImageBytes) + "."}
 }
 

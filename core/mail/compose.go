@@ -254,18 +254,24 @@ func (c *Core) checkSize(ctx context.Context, req model.SendRequest) error {
 			return &UserError{Code: "attach", Msg: "Uno de los adjuntos ya no está disponible. Volvé a adjuntarlo."}
 		}
 	}
-	if req.Reply != nil && req.Reply.Mode == modeForward {
-		// Si el original ya no está, el fallo sale al enviar y el correo queda
-		// en la bandeja de salida.
-		if d, err := c.GetMessage(ctx, req.Reply.OriginalMessageID); err == nil {
-			for i, a := range d.Attachments {
-				if !slices.Contains(req.SkipOriginalAttachments, i) {
-					total += a.Size
+	body := req.BodyHTML
+	if req.Reply != nil {
+		// Solo la caché: dimensionar no debe ir al servidor ni marcar \Seen. Si
+		// el original no está cacheado o ya no existe, el fallo (si lo hay)
+		// sale al enviar y el correo queda en la bandeja de salida.
+		if d, cached, err := c.store.GetMessage(ctx, req.Reply.OriginalMessageID); err == nil && cached {
+			if req.Reply.Mode == modeForward {
+				for i, a := range d.Attachments {
+					if !slices.Contains(req.SkipOriginalAttachments, i) {
+						total += a.Size
+					}
 				}
 			}
+			// deliver también manda como partes las imágenes data: de la cita.
+			body += quotedHTML(req.Reply.Mode, d)
 		}
 	}
-	_, imgs := htmlx.ExtractInlineImages(req.BodyHTML, func() string { return "x" })
+	_, imgs := htmlx.ExtractInlineImages(body, func() string { return "x" })
 	for _, im := range imgs {
 		total += int64(len(im.Data))
 	}

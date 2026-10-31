@@ -420,6 +420,20 @@ func TestSend_PlainTextAlternativeQuotesOriginal(t *testing.T) {
 	assert.Contains(t, text, "\n> cuerpo")
 }
 
+func TestSend_PlainTextOfTipTapListAndTable(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	_, err := c.Send(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs("d@x"), Subject: "s",
+		BodyHTML: `<ul><li><p>uno</p></li><li><p>dos</p></li></ul>` +
+			`<table><tr><th><p>Nombre</p></th><th><p>Edad</p></th></tr><tr><td><p>Ana</p></td><td><p>30</p></td></tr></table>`,
+	})
+	require.NoError(t, err)
+	text := envelopePart(t, smtp.Received()[0], "text/plain")
+	assert.Contains(t, text, "- uno\r\n- dos")
+	assert.Contains(t, text, "Nombre Edad\r\nAna 30")
+}
+
 func TestQuotedHTML_ZeroDateOmitsDate(t *testing.T) {
 	d := model.MessageDetail{Text: "x"}
 	d.From = model.Address{Name: "Bea", Email: "bea@ej.com"}
