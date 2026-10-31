@@ -662,3 +662,78 @@ func TestUniqueRoles(t *testing.T) {
 		})
 	}
 }
+
+func dialWatch(t *testing.T, s *testenv.IMAP, tlsc testenv.TLS, onChange func()) *imapx.Conn {
+	t.Helper()
+	c, err := imapx.DialWatch(context.Background(), s.Settings, user, pass, tlsc.Client, onChange)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Abort() })
+	return c
+}
+
+func TestIdleWatch_NotifiesOnNewMessage(t *testing.T) {
+	s, tlsc := setup(t)
+	changed := make(chan struct{}, 8)
+	c := dialWatch(t, s, tlsc, func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.IdleWatch(ctx, "INBOX") }()
+
+	// Dar tiempo a que arranque el IDLE y descartar avisos del SELECT.
+	time.Sleep(300 * time.Millisecond)
+	for len(changed) > 0 {
+		<-changed
+	}
+	s.Deliver(t, "INBOX", plainMsg("nuevo", ""))
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no llegó el aviso de correo nuevo")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("IdleWatch no volvió tras cancelar")
+	}
+}
+
+func TestIdleWatch_ServerGoneIsNetworkError(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dialWatch(t, s, tlsc, func() {})
+	done := make(chan error, 1)
+	go func() { done <- c.IdleWatch(context.Background(), "INBOX") }()
+	time.Sleep(300 * time.Millisecond)
+	s.Close()
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, imapx.ErrNetwork)
+	case <-time.After(5 * time.Second):
+		t.Fatal("IdleWatch no detectó el corte")
+	}
+}
+
+func TestIdleWatch_NoIdleCapIsUnsupported(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	// El servidor en memoria siempre anuncia IDLE; uno con guion no.
+	settings := scriptedIMAP(t, tlsc, "")
+	c, err := imapx.DialWatch(context.Background(), settings, user, pass, tlsc.Client, func() {})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Abort() })
+	done := make(chan error, 1)
+	go func() { done <- c.IdleWatch(context.Background(), "INBOX") }()
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, imapx.ErrUnsupported)
+	case <-time.After(2 * time.Second):
+		t.Fatal("debía volver enseguida")
+	}
+}

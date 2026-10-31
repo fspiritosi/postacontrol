@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -33,14 +34,20 @@ const dialTimeout = 30 * time.Second
 
 // Conn es una sesión IMAP autenticada.
 type Conn struct {
-	c  *imapclient.Client
-	rw bool // la carpeta seleccionada se abrió con SelectRW
+	c    *imapclient.Client
+	rw   bool         // la carpeta seleccionada se abrió con SelectRW
+	live *atomic.Bool // solo DialWatch: habilita onChange durante IDLE
 }
 
 // Dial conecta (TLS implícito o STARTTLS según s.Security) y hace LOGIN.
 // tlsCfg nil usa las raíces del sistema; los certificados siempre se verifican.
 // Los errores envuelven ErrAuth, ErrNetwork o ErrTLS.
 func Dial(ctx context.Context, s model.ServerSettings, username, password string, tlsCfg *tls.Config) (*Conn, error) {
+	return dial(ctx, s, username, password, tlsCfg, nil)
+}
+
+// dial es el cuerpo común de Dial y DialWatch; handler puede ser nil.
+func dial(ctx context.Context, s model.ServerSettings, username, password string, tlsCfg *tls.Config, handler *imapclient.UnilateralDataHandler) (*Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrNetwork, err)
 	}
@@ -51,6 +58,9 @@ func Dial(ctx context.Context, s model.ServerSettings, username, password string
 		// Subject y nombres del ENVELOPE llegan como palabras RFC 2047; sin
 		// esto, los charsets legacy (windows-1252, etc.) quedan sin decodificar.
 		WordDecoder: &mime.WordDecoder{CharsetReader: charset.Reader},
+	}
+	if handler != nil {
+		opts.UnilateralDataHandler = handler
 	}
 
 	type result struct {
