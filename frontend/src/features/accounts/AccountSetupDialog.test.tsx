@@ -107,6 +107,20 @@ describe("AccountSetupDialog", () => {
     expect(svc.AddAccount).not.toHaveBeenCalled();
   });
 
+  it("ajusta la seguridad según el puerto estándar", async () => {
+    vi.mocked(svc.DetectSettings).mockRejectedValue(new Error("x"));
+    const { user } = await openStep2();
+    await screen.findByLabelText("Puerto IMAP");
+    await user.type(screen.getByLabelText("Puerto IMAP"), "993");
+    expect(screen.getByLabelText("Seguridad IMAP")).toHaveTextContent("TLS");
+    expect(screen.getByLabelText("Seguridad IMAP")).not.toHaveTextContent("STARTTLS");
+    await user.type(screen.getByLabelText("Puerto SMTP"), "587");
+    expect(screen.getByLabelText("Seguridad SMTP")).toHaveTextContent("STARTTLS");
+    await user.clear(screen.getByLabelText("Puerto SMTP"));
+    await user.type(screen.getByLabelText("Puerto SMTP"), "465");
+    expect(screen.getByLabelText("Seguridad SMTP")).not.toHaveTextContent("STARTTLS");
+  });
+
   it("muestra los textos de carga", async () => {
     let resolveDetect!: (v: unknown) => void;
     vi.mocked(svc.DetectSettings).mockReturnValue(new Promise((r) => (resolveDetect = r)) as never);

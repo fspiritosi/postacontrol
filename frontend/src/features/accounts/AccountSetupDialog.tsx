@@ -45,6 +45,10 @@ const validPort = (p: string) => {
 };
 const validServer = (s: Server) => s.host.trim() !== "" && validPort(s.port);
 
+// Los puertos estándar fijan la seguridad: 993/465 son TLS directo y
+// 143/587 usan STARTTLS. Con otro puerto se deja lo elegido.
+const PORT_SECURITY: Record<string, string> = { "993": "tls", "465": "tls", "143": "starttls", "587": "starttls" };
+
 function ServerFields({
   label,
   prefix,
@@ -73,7 +77,10 @@ function ServerFields({
           id={`${prefix}-port`}
           type="number"
           value={value.port}
-          onChange={(e) => onChange({ ...value, port: e.target.value })}
+          onChange={(e) => {
+            const port = e.target.value;
+            onChange({ ...value, port, security: PORT_SECURITY[port.trim()] ?? value.security });
+          }}
         />
       </div>
       <div className="space-y-1.5">
