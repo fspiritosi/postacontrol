@@ -24,7 +24,10 @@ func (c *Core) clearAuthFailure(accountID int64) {
 	delete(c.authFailedAt, accountID)
 }
 
-// authPaused dice si la sincronización periódica debe saltear la cuenta.
+// authPaused dice si la cuenta está en pausa por contraseña rechazada. La
+// consultan la sincronización periódica (saltea la cuenta), el vigía antes de
+// conectar y la sincronización que el vigía dispara por sus avisos, para no
+// repetir el LOGIN con la contraseña mala.
 func (c *Core) authPaused(accountID int64) bool {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
