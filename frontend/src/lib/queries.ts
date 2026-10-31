@@ -84,3 +84,20 @@ export function useDrafts() {
     queryFn: async () => (await svc.ListLocalDrafts()) ?? [],
   });
 }
+
+// Búsqueda en el índice local; folderId 0 = todas las carpetas de todas las
+// cuentas. `pending` (mensajes sin el cuerpo indexado) se toma de la primera
+// página, que es la que corresponde a todo el alcance.
+export function useSearch(text: string, folderId: number) {
+  return useInfiniteQuery({
+    queryKey: ["search", text, folderId],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const r = await svc.Search({ text, folderId, limit: PAGE_SIZE, offset: pageParam });
+      return { messages: r.messages ?? [], pending: r.pending };
+    },
+    getNextPageParam: (last, all) =>
+      last.messages.length < PAGE_SIZE ? undefined : all.length * PAGE_SIZE,
+    enabled: text.trim() !== "",
+  });
+}

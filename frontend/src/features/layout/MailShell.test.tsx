@@ -133,3 +133,16 @@ describe("MailShell", () => {
     expect(openNew).toHaveBeenLastCalledWith(2);
   });
 });
+
+describe("MailShell búsqueda", () => {
+  afterEach(() => localStorage.clear());
+
+  it("cambiar de carpeta limpia la búsqueda", async () => {
+    const { state } = setup({ kind: "folder", folderId: 21 }, false);
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 21 }));
+    act(() => state().setSearch({ text: "factura", scope: "all" }));
+    expect(state().search).toEqual({ text: "factura", scope: "all" });
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().search).toBeNull();
+  });
+});

@@ -32,6 +32,8 @@ const baseState: ShellState = {
   messageId: null,
   selectView: vi.fn(),
   selectMessage: vi.fn(),
+  search: null,
+  setSearch: vi.fn(),
 };
 
 const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X", color: "#0f0" };

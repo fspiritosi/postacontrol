@@ -37,12 +37,18 @@ function saveLayout(layout: Record<string, number>) {
   }
 }
 
+export type SearchScope = "all" | "folder";
+export type SearchState = { text: string; scope: SearchScope };
+
 export type ShellState = {
   view: View | null;
   messageId: number | null;
   // Cambia la vista (que se guarda y se sincroniza) y limpia el mensaje abierto.
   selectView: (v: View) => void;
   selectMessage: (id: number | null) => void;
+  // Búsqueda en curso (null = lista normal). Cambiar de vista la limpia.
+  search: SearchState | null;
+  setSearch: (s: SearchState | null) => void;
 };
 
 type Props = {
@@ -77,6 +83,7 @@ function syncView(v: View, folders: Folder[]) {
 export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [chosen, setChosen] = useState<View | null>(loadView);
   const [messageId, setMessageId] = useState<number | null>(null);
+  const [search, setSearch] = useState<SearchState | null>(null);
   const { folders, pending } = useAllFolders(accounts);
   const settings = useSettings();
   const [layout] = useState(loadLayout);
@@ -98,6 +105,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     if (d) {
       setChosen(d);
       setMessageId(null);
+      setSearch(null);
     }
   }
 
@@ -114,6 +122,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const selectView = useCallback((v: View) => {
     setChosen(v);
     setMessageId(null);
+    setSearch(null);
   }, []);
 
   // Abrir desde una notificación: primero la carpeta (que limpia el mensaje) y
@@ -135,6 +144,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     messageId,
     selectView,
     selectMessage: setMessageId,
+    search,
+    setSearch,
   };
 
   return (

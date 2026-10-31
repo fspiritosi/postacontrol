@@ -42,7 +42,7 @@ function renderList(view: View, selectMessage = vi.fn()) {
     <QueryClientProvider client={new QueryClient()}>
       <MessageList
         accounts={accounts}
-        state={{ view, messageId: null, selectView: vi.fn(), selectMessage }}
+        state={{ view, messageId: null, selectView: vi.fn(), selectMessage, search: null, setSearch: vi.fn() }}
       />
     </QueryClientProvider>,
   );
