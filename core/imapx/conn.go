@@ -41,7 +41,8 @@ type Conn struct {
 
 // Dial conecta (TLS implícito o STARTTLS según s.Security) y hace LOGIN.
 // tlsCfg nil usa las raíces del sistema; los certificados siempre se verifican.
-// Los errores envuelven ErrAuth, ErrNetwork o ErrTLS.
+// Los errores envuelven ErrAuth, ErrNetwork o ErrTLS. Un NO del LOGIN es
+// ErrAuth solo si es un rechazo de credenciales (ver loginRejected).
 func Dial(ctx context.Context, s model.ServerSettings, username, password string, tlsCfg *tls.Config) (*Conn, error) {
 	return dial(ctx, s, username, password, tlsCfg, nil)
 }
@@ -108,12 +109,28 @@ func dial(ctx context.Context, s model.ServerSettings, username, password string
 			return nil, fmt.Errorf("%w: %w", ErrNetwork, ctx.Err())
 		}
 		var ierr *imap.Error
-		if errors.As(err, &ierr) {
+		if errors.As(err, &ierr) && !loginRejected(ierr) {
+			// Falla temporal del servidor ([UNAVAILABLE]) u otro motivo: se
+			// reintenta con espera, sin pausar la cuenta por contraseña.
+			return nil, fmt.Errorf("%w: %w", ErrNetwork, err)
+		}
+		if ierr != nil {
 			return nil, fmt.Errorf("%w: %w", ErrAuth, err)
 		}
 		return nil, classifyDial(err)
 	}
 	return &Conn{c: res.c}, nil
+}
+
+// loginRejected dice si el NO/BAD del LOGIN es un rechazo de credenciales:
+// sin código (servidores viejos) o con [AUTHENTICATIONFAILED] o
+// [AUTHORIZATIONFAILED] (RFC 5530).
+func loginRejected(e *imap.Error) bool {
+	switch e.Code {
+	case "", imap.ResponseCodeAuthenticationFailed, imap.ResponseCodeAuthorizationFailed:
+		return true
+	}
+	return false
 }
 
 func cloneTLS(c *tls.Config) *tls.Config {

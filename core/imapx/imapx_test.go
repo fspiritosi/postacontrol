@@ -409,6 +409,22 @@ func TestAbort_ClosesWithoutLogout(t *testing.T) {
 // que es lo que mandan Dovecot y compañía).
 func scriptedIMAP(t *testing.T, tlsc testenv.TLS, fetchResp string) model.ServerSettings {
 	t.Helper()
+	return scriptedIMAPWith(t, tlsc, script{fetch: fetchResp})
+}
+
+// script dice cómo contesta scriptedIMAPWith.
+type script struct {
+	fetch string // respuesta a UID FETCH (sin la línea final etiquetada)
+	// login, si no es vacío, reemplaza el "OK" de LOGIN (por ejemplo
+	// "NO [UNAVAILABLE] probá más tarde").
+	login string
+	// dropOnCapability corta la conexión al recibir CAPABILITY (el saludo ya
+	// la anuncia, así que el cliente solo la pide después del LOGIN).
+	dropOnCapability bool
+}
+
+func scriptedIMAPWith(t *testing.T, tlsc testenv.TLS, sc script) model.ServerSettings {
+	t.Helper()
 	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsc.Server)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
@@ -421,15 +437,21 @@ func scriptedIMAP(t *testing.T, tlsc testenv.TLS, fetchResp string) model.Server
 			go func() {
 				defer conn.Close()
 				_, _ = io.WriteString(conn, "* OK [CAPABILITY IMAP4rev1] listo\r\n")
-				sc := bufio.NewScanner(conn)
-				for sc.Scan() {
-					tag, cmd, _ := strings.Cut(sc.Text(), " ")
+				lines := bufio.NewScanner(conn)
+				for lines.Scan() {
+					tag, cmd, _ := strings.Cut(lines.Text(), " ")
 					cmd = strings.ToUpper(cmd)
 					switch {
 					case strings.HasPrefix(cmd, "CAPABILITY"):
+						if sc.dropOnCapability {
+							return
+						}
 						_, _ = io.WriteString(conn, "* CAPABILITY IMAP4rev1\r\n")
+					case strings.HasPrefix(cmd, "LOGIN") && sc.login != "":
+						_, _ = io.WriteString(conn, tag+" "+sc.login+"\r\n")
+						continue
 					case strings.HasPrefix(cmd, "UID FETCH"):
-						_, _ = io.WriteString(conn, fetchResp)
+						_, _ = io.WriteString(conn, sc.fetch)
 					case strings.HasPrefix(cmd, "LOGOUT"):
 						_, _ = io.WriteString(conn, "* BYE chau\r\n"+tag+" OK listo\r\n")
 						return
@@ -442,6 +464,36 @@ func scriptedIMAP(t *testing.T, tlsc testenv.TLS, fetchResp string) model.Server
 	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
 	port, _ := strconv.Atoi(portStr)
 	return model.ServerSettings{Host: host, Port: port, Security: model.SecurityTLS}
+}
+
+// Solo un rechazo de credenciales pausa la cuenta: un NO por falla temporal
+// del servidor (o con otro código) se reintenta con espera, como la red.
+func TestDial_LoginNOClassification(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	cases := []struct {
+		name  string
+		login string
+		want  error
+	}{
+		{"sin código", "NO usuario o contraseña inválidos", imapx.ErrAuth},
+		{"AUTHENTICATIONFAILED", "NO [AUTHENTICATIONFAILED] Authentication failed.", imapx.ErrAuth},
+		{"AUTHORIZATIONFAILED", "NO [AUTHORIZATIONFAILED] no autorizado", imapx.ErrAuth},
+		{"UNAVAILABLE", "NO [UNAVAILABLE] Temporary authentication failure.", imapx.ErrNetwork},
+		{"otro código", "NO [SERVERBUG] algo se rompió", imapx.ErrNetwork},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := scriptedIMAPWith(t, tlsc, script{login: tc.login})
+			_, err := imapx.Dial(context.Background(), srv, user, pass, tlsc.Client)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tc.want)
+			other := imapx.ErrNetwork
+			if tc.want == imapx.ErrNetwork {
+				other = imapx.ErrAuth
+			}
+			assert.NotErrorIs(t, err, other)
+		})
+	}
 }
 
 func TestFetchHeaders_DecodesLegacyCharsetsInEnvelope(t *testing.T) {
@@ -730,6 +782,25 @@ func TestIdleWatch_NoIdleCapIsUnsupported(t *testing.T) {
 	case err := <-done:
 		assert.ErrorIs(t, err, imapx.ErrUnsupported)
 	case <-time.After(2 * time.Second):
+		t.Fatal("debía volver enseguida")
+	}
+}
+
+// Si la conexión se corta al pedir las capacidades después del LOGIN, no se
+// sabe si hay IDLE: es un corte de red (el vigía reconecta), no "no soportado".
+func TestIdleWatch_CapsLostIsNetworkError(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	settings := scriptedIMAPWith(t, tlsc, script{dropOnCapability: true})
+	c, err := imapx.DialWatch(context.Background(), settings, user, pass, tlsc.Client, func() {})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Abort() })
+	done := make(chan error, 1)
+	go func() { done <- c.IdleWatch(context.Background(), "INBOX") }()
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, imapx.ErrNetwork)
+		assert.NotErrorIs(t, err, imapx.ErrUnsupported)
+	case <-time.After(5 * time.Second):
 		t.Fatal("debía volver enseguida")
 	}
 }

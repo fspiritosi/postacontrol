@@ -46,15 +46,22 @@ func DialWatch(ctx context.Context, s model.ServerSettings, username, password s
 // IdleWatch abre mailbox en solo lectura y queda en IDLE. Bloquea hasta que
 // ctx se cancela (cierra el IDLE y devuelve ctx.Err()) o la conexión o el IDLE
 // se cortan (devuelve un error que envuelve ErrNetwork, incluso si go-imap no
-// logra reiniciar el IDLE o el servidor lo termina). Si el servidor no
-// anuncia IDLE devuelve ErrUnsupported sin mandar nada.
+// logra reiniciar el IDLE, el servidor lo termina o no se pudieron leer las
+// capacidades). Si el servidor no anuncia IDLE devuelve ErrUnsupported sin
+// mandar nada.
 //
 // Hay una ventana entre el SELECT y el arranque del IDLE en la que un cambio
 // no genera aviso: quien llama debe sincronizar la carpeta justo después de
 // arrancar IdleWatch y después de cada reconexión. Solo se admite un
 // IdleWatch a la vez por Conn.
 func (c *Conn) IdleWatch(ctx context.Context, mailbox string) error {
-	if !c.c.Caps().Has(imap.CapIdle) {
+	caps := c.c.Caps()
+	if caps == nil {
+		// Sin respuesta a CAPABILITY (conexión cortada o timeout): no se sabe
+		// si hay IDLE, y el vigía tiene que reconectar, no darse por vencido.
+		return fmt.Errorf("imapx: idle: %w: no se pudieron leer las capacidades", ErrNetwork)
+	}
+	if !caps.Has(imap.CapIdle) {
 		return fmt.Errorf("%w: IDLE", ErrUnsupported)
 	}
 	if c.live != nil {
