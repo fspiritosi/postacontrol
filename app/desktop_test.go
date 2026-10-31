@@ -30,3 +30,16 @@ func TestTrayTooltip(t *testing.T) {
 		}
 	}
 }
+
+func TestQuitKeyBindings(t *testing.T) {
+	quit := 0
+	kb := QuitKeyBindings(func() { quit++ })
+	f, ok := kb["ctrl+q"]
+	if !ok || len(kb) != 1 {
+		t.Fatalf("falta el atajo ctrl+q: %v", kb)
+	}
+	f(nil)
+	if quit != 1 {
+		t.Fatal("ctrl+q no sale")
+	}
+}

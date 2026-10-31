@@ -61,9 +61,18 @@ func (d *Desktop) WindowVisibleAndFocused() bool {
 	return d.win.IsVisible() && d.win.IsFocused() && !d.win.IsMinimised()
 }
 
+// QuitKeyBindings devuelve los atajos de la ventana principal (Ctrl+Q sale de
+// verdad). Hay que pasarlos en WebviewWindowOptions.KeyBindings: solo esa vía
+// normaliza el atajo como lo busca el manejador de teclas de Linux
+// (app.KeyBinding.Add guarda el texto crudo y no coincide).
+func QuitKeyBindings(quit func()) map[string]func(application.Window) {
+	return map[string]func(application.Window){
+		"ctrl+q": func(application.Window) { quit() },
+	}
+}
+
 // SetupDesktop arma la bandeja (ícono, tooltip, menú, clic), hace que cerrar
-// la ventana la esconda en vez de salir, mapea Ctrl+Q a salir de verdad y
-// mantiene el tooltip con los no leídos de la Entrada. Devuelve el *Desktop.
+// la ventana la esconda en vez de salir, y mantiene el tooltip con los no leídos de la Entrada. Devuelve el *Desktop.
 func SetupDesktop(app *application.App, win *application.WebviewWindow, svc *MailService) *Desktop {
 	d := &Desktop{app: app, win: win, svc: svc}
 
@@ -71,8 +80,6 @@ func SetupDesktop(app *application.App, win *application.WebviewWindow, svc *Mai
 		win.Hide()
 		e.Cancel()
 	})
-
-	app.KeyBinding.Add("ctrl+q", func(application.Window) { app.Quit() })
 
 	d.tray = app.SystemTray.New()
 	d.tray.SetIcon(trayIcon)

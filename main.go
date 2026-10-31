@@ -80,6 +80,7 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
+		KeyBindings:      app.QuitKeyBindings(wailsApp.Quit),
 		Hidden:           app.StartHidden(os.Args),
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
