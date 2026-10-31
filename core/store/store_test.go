@@ -447,3 +447,32 @@ func TestSettings_DefaultsAndRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.UnifiedInbox)
 }
+
+func TestMessageRefs_AndRecountFolder(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, fid := seedFolder(t, s)
+	base := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertHeaders(ctx, fid, []HeaderRow{hdr(1, base, false), hdr(2, base, true), hdr(3, base, false)}))
+	ms, err := s.ListMessages(ctx, fid, model.ListQuery{})
+	require.NoError(t, err)
+	ids := []int64{}
+	for _, m := range ms {
+		ids = append(ids, m.ID)
+	}
+	refs, err := s.MessageRefs(ctx, ids)
+	require.NoError(t, err)
+	require.Len(t, refs, 3)
+	assert.Equal(t, accID, refs[0].AccountID)
+	assert.Equal(t, fid, refs[0].FolderID)
+
+	_, err = s.MessageRefs(ctx, append(ids, 9999))
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	require.NoError(t, s.RecountFolder(ctx, fid))
+	f, _, err := s.GetFolder(ctx, fid)
+	require.NoError(t, err)
+	assert.Equal(t, 2, f.Unread)
+	assert.Equal(t, 3, f.Total)
+	assert.ErrorIs(t, s.RecountFolder(ctx, 9999), ErrNotFound)
+}

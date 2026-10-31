@@ -243,3 +243,41 @@ func (s *Store) SetBody(ctx context.Context, id int64, b BodyRow) error {
 	}
 	return nil
 }
+
+// MessageRef identifica un mensaje cacheado con lo mínimo para operar sobre él
+// en el servidor.
+type MessageRef struct {
+	ID, AccountID, FolderID int64
+	UID                     uint32
+	Seen, Flagged, Answered bool
+}
+
+// MessageRefs devuelve las referencias de los ids, en el mismo orden. Si falta
+// alguno devuelve ErrNotFound.
+func (s *Store) MessageRefs(ctx context.Context, ids []int64) ([]MessageRef, error) {
+	out := make([]MessageRef, 0, len(ids))
+	for _, id := range ids {
+		var r MessageRef
+		var seen, flagged, answered int
+		err := s.db.QueryRowContext(ctx, `SELECT m.id, f.account_id, m.folder_id, m.uid, m.seen, m.flagged, m.answered
+ FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.id = ?`, id).
+			Scan(&r.ID, &r.AccountID, &r.FolderID, &r.UID, &seen, &flagged, &answered)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		r.Seen, r.Flagged, r.Answered = seen != 0, flagged != 0, answered != 0
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// RecountFolder recalcula unread y total de la carpeta desde la caché.
+func (s *Store) RecountFolder(ctx context.Context, folderID int64) error {
+	return s.execFolder(ctx, folderID, `UPDATE folders SET
+ unread = (SELECT COUNT(*) FROM messages WHERE folder_id = folders.id AND seen = 0),
+ total = (SELECT COUNT(*) FROM messages WHERE folder_id = folders.id)
+ WHERE id = ?`)
+}
