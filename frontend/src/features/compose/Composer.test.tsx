@@ -79,6 +79,11 @@ function DraftHarness() {
         reenvío guardado
       </button>
       <button
+        onClick={() => void c.openDraft({ ...draft, request: { ...draft.request, reply: { mode: "reply", originalMessageId: 7 } } } as never)}
+      >
+        respuesta guardada
+      </button>
+      <button
         onClick={() =>
           void c.openDraft({ ...draft, request: { ...draft.request, attachments: [4], skipOriginalAttachments: [2] } } as never)
         }
@@ -110,6 +115,15 @@ beforeAll(() => {
   const noRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList;
   Range.prototype.getClientRects = noRects;
   Range.prototype.getBoundingClientRect = () => new DOMRect();
+  // La cita se muestra en SafeHtmlFrame, que mide su contenido con ResizeObserver.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
 });
 
 describe("Composer", () => {
@@ -366,5 +380,24 @@ describe("Composer", () => {
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
     expect(vi.mocked(svc.QueueSend).mock.calls[0][0].skipOriginalAttachments).toEqual([0, 1]);
+  });
+
+  it("reabrir una respuesta de la Bandeja de salida vuelve a mostrar la cita", async () => {
+    vi.mocked(svc.PrepareCompose).mockResolvedValue({
+      accountId: 1, to: [], cc: [], subject: "Re: Hola", quotedHtml: "<p>El original</p>",
+      reply: { mode: "reply", originalMessageId: 7 }, originalAttachments: null,
+    } as never);
+    const user = setup();
+    await user.click(screen.getByText("respuesta guardada"));
+    expect(await screen.findByLabelText("Mensaje original")).toBeInTheDocument();
+    expect(svc.PrepareCompose).toHaveBeenCalledWith(7, "reply");
+  });
+
+  it("si el original ya no está, la respuesta reabierta abre igual, sin cita", async () => {
+    vi.mocked(svc.PrepareCompose).mockRejectedValue(new Error("no existe"));
+    const user = setup();
+    await user.click(screen.getByText("respuesta guardada"));
+    await screen.findByLabelText("Para");
+    expect(screen.queryByLabelText("Mensaje original")).toBeNull();
   });
 });

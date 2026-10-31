@@ -27,7 +27,7 @@ const toolbar = () => within(screen.getByRole("toolbar", { name: "Herramientas d
 
 const lastHTML = (onChange: ReturnType<typeof vi.fn>) => {
   const calls = onChange.mock.calls;
-  return calls.length ? (calls[calls.length - 1][0] as string) : undefined;
+  return calls.length ? (calls[calls.length - 1][0] as () => string)() : undefined;
 };
 
 describe("RichEditor: enlaces", () => {
@@ -286,6 +286,32 @@ describe("RichEditor: imágenes", () => {
     });
     await waitFor(() => expect(lastHTML(onChange)).toContain("hola"));
     expect(lastHTML(onChange)).not.toContain("<img");
+  });
+
+  // jsdom no tiene DataTransfer ni FileReader sobre blobs raros: alcanza con lo que lee FileHandler.
+  const pasteFiles = (body: HTMLElement, html: string) => {
+    const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "captura.png", { type: "image/png" });
+    const clip: Record<string, string> = { "text/html": html, "text/plain": "x" };
+    const data = { getData: (t: string) => clip[t] ?? "", types: Object.keys(clip), files: [file], items: [] };
+    act(() => {
+      const ev = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, "clipboardData", { value: data });
+      body.dispatchEvent(ev);
+    });
+  };
+
+  it("pegar HTML de una planilla con su captura PNG no inserta una imagen aparte", async () => {
+    const { onChange, body } = await setupEmpty();
+    pasteFiles(body, "<table><tbody><tr><td>uno</td></tr></tbody></table>");
+    await waitFor(() => expect(lastHTML(onChange)).toContain("<table"));
+    await new Promise((r) => setTimeout(r, 50)); // FileReader es asíncrono
+    expect(lastHTML(onChange)).not.toContain("<img");
+  });
+
+  it("pegar una captura sin HTML la inserta como imagen", async () => {
+    const { onChange, body } = await setupEmpty();
+    pasteFiles(body, "");
+    await waitFor(() => expect(lastHTML(onChange)).toContain('<img src="data:image/png'));
   });
 
   it("el contenido con <img src=data:image/png…> se conserva", async () => {

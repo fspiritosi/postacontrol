@@ -9,6 +9,9 @@ export function imageError(file: { type: string; size: number }): string | null 
     return "Solo se pueden insertar imágenes PNG, JPG, GIF o WebP.";
   }
   if (file.size > MAX_INLINE_IMAGE_BYTES) {
+    if (formatSize(file.size) === formatSize(MAX_INLINE_IMAGE_BYTES)) {
+      return `La imagen supera el máximo de ${formatSize(MAX_INLINE_IMAGE_BYTES)}.`;
+    }
     return `La imagen pesa ${formatSize(file.size)}; el máximo es ${formatSize(MAX_INLINE_IMAGE_BYTES)}.`;
   }
   return null;

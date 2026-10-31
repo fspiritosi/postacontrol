@@ -17,4 +17,8 @@ describe("imageError", () => {
       "La imagen pesa 6.0 MB; el máximo es 5.0 MB.",
     );
   });
+
+  it("con tamaños que se muestran iguales no repite el número", () => {
+    expect(imageError({ type: "image/png", size: 5 * 1024 * 1024 + 1 })).toBe("La imagen supera el máximo de 5.0 MB.");
+  });
 });

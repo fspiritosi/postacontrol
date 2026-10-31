@@ -52,13 +52,19 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       const ids = d.request.attachments ?? [];
       // Los nombres y tamaños no viajan en el pedido: se piden por id.
       const attachments = ids.length > 0 ? ((await svc.StagedInfo(ids)) ?? []) : [];
-      // Un reenvío reabierto sigue mandando los originales no salteados: se
-      // piden de nuevo para mostrarlos. Si el original ya no está, no se muestra ninguno.
+      // Una respuesta o un reenvío reabierto sigue citando el original (y un
+      // reenvío mandando los originales no salteados): se piden de nuevo para
+      // mostrarlos. Si el original ya no está, no se muestra nada.
+      let quotedHtml = "";
       let originalAttachments: Attachment[] = [];
-      if (d.request.reply?.mode === "forward") {
+      const reply = d.request.reply;
+      if (reply && reply.mode !== "new") {
         try {
-          originalAttachments = (await svc.PrepareCompose(d.request.reply.originalMessageId, "forward")).originalAttachments ?? [];
+          const prepared = await svc.PrepareCompose(reply.originalMessageId, reply.mode);
+          quotedHtml = prepared.quotedHtml;
+          if (reply.mode === "forward") originalAttachments = prepared.originalAttachments ?? [];
         } catch {
+          quotedHtml = "";
           originalAttachments = [];
         }
       }
@@ -69,7 +75,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         bcc: d.request.bcc ?? [],
         subject: d.request.subject,
         bodyHtml: d.request.bodyHtml,
-        quotedHtml: "",
+        quotedHtml,
         reply: d.request.reply,
         draftId: d.id,
         attachments,

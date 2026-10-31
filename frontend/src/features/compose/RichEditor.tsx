@@ -140,7 +140,9 @@ const EDITOR_CLASS = [
 
 type Props = {
   content: string;
-  onChange: (html: string) => void;
+  // Avisa que el contenido cambió y entrega cómo leerlo: con capturas en el
+  // cuerpo serializar el HTML pesa decenas de MB, así que lo hace quien lo necesita.
+  onChange: (getHTML: () => string) => void;
   // Abre el selector de imágenes; sin esta prop el menú "/" no ofrece "Imagen".
   onPickImage?: (editor: Editor) => void;
   // Errores al pegar una imagen (tipo o tamaño no soportado).
@@ -180,7 +182,9 @@ export function RichEditor({ content, onChange, onPickImage, onError, onSlashMen
     ...baseExtensions,
     FileHandler.configure({
       allowedMimeTypes: IMAGE_TYPES,
-      onPaste: (editor, files) => {
+      onPaste: (editor, files, html) => {
+        // Word, LibreOffice y las planillas ponen un PNG de la selección junto al HTML: ese HTML ya se pega solo.
+        if (html && !/<img/i.test(html)) return;
         for (const file of files) {
           const msg = imageError(file);
           if (msg) {
@@ -203,7 +207,7 @@ export function RichEditor({ content, onChange, onPickImage, onError, onSlashMen
   const editor = useEditor({
     extensions,
     content,
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    onUpdate: ({ editor }) => onChange(() => editor.getHTML()),
     editorProps: {
       attributes: {
         "aria-label": "Cuerpo del mensaje",

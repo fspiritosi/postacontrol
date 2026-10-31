@@ -60,7 +60,7 @@ export function Composer({ init, onClose }: Props) {
   const [dirty, setDirty] = useState(false);
   const [staged, setStaged] = useState<StagedAttachment[]>(init.attachments);
   const [skipped, setSkipped] = useState<number[]>(init.skipOriginalAttachments);
-  const bodyRef = useRef(init.bodyHtml);
+  const bodyRef = useRef<() => string>(() => init.bodyHtml);
 
   const addStaged = (added: StagedAttachment[]) => {
     if (added.length === 0) return;
@@ -126,7 +126,7 @@ export function Composer({ init, onClose }: Props) {
         cc: parsedCc.valid,
         bcc: parsedBcc.valid,
         subject,
-        bodyHtml: bodyRef.current,
+        bodyHtml: bodyRef.current(),
         reply: init.reply && init.reply.mode !== "new" ? init.reply : null,
         draftId: init.draftId,
         attachments: staged.map((a) => a.id),
@@ -248,8 +248,8 @@ export function Composer({ init, onClose }: Props) {
               onSlashMenuChange={(close) => {
                 closeSlashRef.current = close;
               }}
-              onChange={(html) => {
-                bodyRef.current = html;
+              onChange={(getHTML) => {
+                bodyRef.current = getHTML;
                 setDirty(true);
               }}
             />
