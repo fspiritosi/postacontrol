@@ -55,6 +55,17 @@ describe("loadView / saveView", () => {
     expect(loadView()).toEqual({ kind: "unified", role: "flagged" });
   });
 
+  it("no guarda la Bandeja de salida: al reabrir se vuelve a la vista anterior", () => {
+    saveView({ kind: "folder", folderId: 3 });
+    saveView({ kind: "outbox" });
+    expect(loadView()).toEqual({ kind: "folder", folderId: 3 });
+  });
+
+  it("no restaura una Bandeja de salida guardada por una versión anterior", () => {
+    localStorage.setItem("pc:view", JSON.stringify({ kind: "outbox" }));
+    expect(loadView()).toBeNull();
+  });
+
   it("devuelve null con JSON inválido", () => {
     localStorage.setItem("pc:view", "{no es json");
     expect(loadView()).toBeNull();
@@ -76,6 +87,6 @@ describe("loadView / saveView", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("lleno");
     });
-    expect(() => saveView({ kind: "outbox" })).not.toThrow();
+    expect(() => saveView({ kind: "unified", role: "inbox" })).not.toThrow();
   });
 });

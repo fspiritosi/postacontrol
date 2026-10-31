@@ -34,12 +34,15 @@ function isView(v: unknown): v is View {
   }
 }
 
+// La Bandeja de salida no se recuerda: solo existe mientras hay correos en
+// camino y al reabrir la app se mostraría vacía. Se vuelve a la vista
+// anterior (o a la de por defecto).
 export function loadView(): View | null {
   try {
     const raw = localStorage.getItem(VIEW_KEY);
     if (raw) {
       const v: unknown = JSON.parse(raw);
-      if (isView(v)) return v;
+      if (isView(v) && v.kind !== "outbox") return v;
     }
   } catch {
     // sin almacenamiento o JSON inválido: se arranca con la vista por defecto
@@ -48,6 +51,7 @@ export function loadView(): View | null {
 }
 
 export function saveView(v: View): void {
+  if (v.kind === "outbox") return;
   try {
     localStorage.setItem(VIEW_KEY, JSON.stringify(v));
   } catch {
