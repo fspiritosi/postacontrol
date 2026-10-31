@@ -434,3 +434,16 @@ func TestSetSaveSentCopy(t *testing.T) {
 
 	assert.ErrorIs(t, s.SetSaveSentCopy(ctx, id+99, false), ErrNotFound)
 }
+
+func TestSettings_DefaultsAndRoundTrip(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	got, err := s.GetSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, model.Settings{}, got) // bandeja unificada apagada por defecto
+	require.NoError(t, s.SaveSettings(ctx, model.Settings{UnifiedInbox: true}))
+	require.NoError(t, s.SaveSettings(ctx, model.Settings{UnifiedInbox: true})) // upsert, no duplica
+	got, err = s.GetSettings(ctx)
+	require.NoError(t, err)
+	assert.True(t, got.UnifiedInbox)
+}

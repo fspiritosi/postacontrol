@@ -7,6 +7,7 @@ const (
 	EventFolderUpdated   = "mail:folder-updated"   // data: {"folderId": int64}
 	EventSyncProgress    = "mail:sync-progress"    // data: {"folderId": int64, "done": int, "total": int}
 	EventSyncError       = "mail:sync-error"       // data: {"accountId": int64, "message": string}
+	EventSettingsChanged = "mail:settings-changed" // data: nil
 	EventOutboxUpdated   = "mail:outbox-updated"   // data: nil
 	// EventSendFinished: terminó un envío. message es el motivo si falló y
 	// warning un aviso si salió (p. ej. sin copia en Enviados).

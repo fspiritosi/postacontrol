@@ -144,3 +144,9 @@ type ListQuery struct {
 	Offset     int  `json:"offset"`
 	Limit      int  `json:"limit"`
 }
+
+// Settings es la configuración de la app. Se guarda como JSON, así sumar
+// opciones no exige migrar.
+type Settings struct {
+	UnifiedInbox bool `json:"unifiedInbox"`
+}
