@@ -159,14 +159,16 @@ func scanSummary(sc interface{ Scan(...any) error }, extra ...any) (model.Messag
 	return m, nil
 }
 
-// ListMessages devuelve los mensajes de la carpeta por fecha descendente. Limit <= 0 = sin tope.
-func (s *Store) ListMessages(ctx context.Context, folderID int64, q model.ListQuery) ([]model.MessageSummary, error) {
+// listWhere es el único armador de consultas de listas: filtra por where (con
+// sus args), aplica UnreadOnly, ordena por fecha descendente y pagina.
+// Limit <= 0 = sin tope.
+func (s *Store) listWhere(ctx context.Context, where string, args []any, q model.ListQuery) ([]model.MessageSummary, error) {
 	var sb strings.Builder
-	sb.WriteString(`SELECT ` + summaryCols + ` FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.folder_id = ?`)
+	sb.WriteString(`SELECT ` + summaryCols + ` FROM messages m JOIN folders f ON f.id = m.folder_id WHERE ` + where)
 	if q.UnreadOnly {
 		sb.WriteString(` AND m.seen = 0`)
 	}
-	sb.WriteString(` ORDER BY m.date DESC, m.id DESC`)
+	sb.WriteString(` ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?`)
 	limit, offset := -1, 0
 	if q.Limit > 0 {
 		limit = q.Limit
@@ -174,8 +176,7 @@ func (s *Store) ListMessages(ctx context.Context, folderID int64, q model.ListQu
 	if q.Offset > 0 {
 		offset = q.Offset
 	}
-	sb.WriteString(` LIMIT ? OFFSET ?`)
-	rows, err := s.db.QueryContext(ctx, sb.String(), folderID, limit, offset)
+	rows, err := s.db.QueryContext(ctx, sb.String(), append(args, limit, offset)...)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +190,21 @@ func (s *Store) ListMessages(ctx context.Context, folderID int64, q model.ListQu
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// ListMessages devuelve los mensajes de la carpeta por fecha descendente. Limit <= 0 = sin tope.
+func (s *Store) ListMessages(ctx context.Context, folderID int64, q model.ListQuery) ([]model.MessageSummary, error) {
+	return s.listWhere(ctx, `m.folder_id = ?`, []any{folderID}, q)
+}
+
+// ListByRole junta, por fecha descendente, las carpetas con ese rol de todas las cuentas.
+func (s *Store) ListByRole(ctx context.Context, role model.FolderRole, q model.ListQuery) ([]model.MessageSummary, error) {
+	return s.listWhere(ctx, `f.role = ?`, []any{string(role)}, q)
+}
+
+// ListFlagged devuelve los destacados de cualquier carpeta y cuenta.
+func (s *Store) ListFlagged(ctx context.Context, q model.ListQuery) ([]model.MessageSummary, error) {
+	return s.listWhere(ctx, `m.flagged = 1`, nil, q)
 }
 
 // GetMessage devuelve el detalle y si el cuerpo ya está cacheado.

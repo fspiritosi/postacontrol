@@ -41,6 +41,17 @@ type AccountInput struct {
 
 type FolderRole string // "inbox","sent","drafts","trash","junk","archive",""
 
+// UnifiedView es una vista que junta carpetas de todas las cuentas.
+type UnifiedView string
+
+const (
+	UnifiedInbox   UnifiedView = "inbox"
+	UnifiedFlagged UnifiedView = "flagged"
+	UnifiedSent    UnifiedView = "sent"
+	UnifiedDrafts  UnifiedView = "drafts"
+	UnifiedTrash   UnifiedView = "trash"
+)
+
 type Folder struct {
 	ID         int64      `json:"id"`
 	AccountID  int64      `json:"accountId"`

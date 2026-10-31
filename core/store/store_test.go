@@ -496,3 +496,76 @@ func TestDeleteMessages(t *testing.T) {
 	require.NoError(t, s.DeleteMessages(ctx, []int64{byUID[1], 9999}))
 	assert.Equal(t, []uint32{2}, uids(t, s, fid))
 }
+
+func seedAccountFolders(t *testing.T, s *Store, email string, names ...string) (int64, map[string]int64) {
+	t.Helper()
+	ctx := context.Background()
+	acc := hostinger()
+	acc.Email, acc.Username = email, email
+	accID, err := s.InsertAccount(ctx, acc)
+	require.NoError(t, err)
+	var fs []model.Folder
+	for _, n := range names {
+		role := model.FolderRole("")
+		if n == "INBOX" {
+			role = "inbox"
+		}
+		fs = append(fs, model.Folder{Name: n, Delimiter: ".", Role: role, Selectable: true})
+	}
+	require.NoError(t, s.ReplaceFolders(ctx, accID, fs))
+	got, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	ids := map[string]int64{}
+	for _, f := range got {
+		ids[f.Name] = f.ID
+	}
+	return accID, ids
+}
+
+func TestListByRole_MergesAccountsByDate(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+	accA, fa := seedAccountFolders(t, s, "a@x.com", "INBOX")
+	accB, fb := seedAccountFolders(t, s, "b@x.com", "INBOX")
+	require.NoError(t, s.UpsertHeaders(ctx, fa["INBOX"], []HeaderRow{hdr(1, day(1), true), hdr(2, day(3), false)}))
+	require.NoError(t, s.UpsertHeaders(ctx, fb["INBOX"], []HeaderRow{hdr(1, day(2), false), hdr(2, day(4), true)}))
+
+	got, err := s.ListByRole(ctx, "inbox", model.ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+	assert.Equal(t, []int64{accB, accA, accB, accA}, []int64{got[0].AccountID, got[1].AccountID, got[2].AccountID, got[3].AccountID})
+	assert.Equal(t, day(4), got[0].Date)
+
+	unread, err := s.ListByRole(ctx, "inbox", model.ListQuery{UnreadOnly: true})
+	require.NoError(t, err)
+	require.Len(t, unread, 2)
+	assert.Equal(t, accA, unread[0].AccountID)
+	assert.Equal(t, accB, unread[1].AccountID)
+
+	page, err := s.ListByRole(ctx, "inbox", model.ListQuery{Limit: 2, Offset: 1})
+	require.NoError(t, err)
+	require.Len(t, page, 2)
+	assert.Equal(t, day(3), page[0].Date)
+}
+
+func TestListFlagged_AcrossFolders(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+	_, fa := seedAccountFolders(t, s, "a@x.com", "INBOX")
+	_, fb := seedAccountFolders(t, s, "b@x.com", "INBOX", "Varios")
+	flagged := func(uid uint32, d int) HeaderRow {
+		h := hdr(uid, day(d), true)
+		h.Flagged = true
+		return h
+	}
+	require.NoError(t, s.UpsertHeaders(ctx, fa["INBOX"], []HeaderRow{flagged(1, 1), hdr(2, day(5), false)}))
+	require.NoError(t, s.UpsertHeaders(ctx, fb["Varios"], []HeaderRow{flagged(1, 2), hdr(2, day(6), false)}))
+
+	got, err := s.ListFlagged(ctx, model.ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, fb["Varios"], got[0].FolderID)
+	assert.Equal(t, fa["INBOX"], got[1].FolderID)
+}
