@@ -1,102 +1,40 @@
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  ArchiveIcon,
-  ClockArrowUpIcon,
-  FileIcon,
-  FolderIcon,
-  InboxIcon,
-  MoreHorizontalIcon,
-  SendIcon,
-  ShieldAlertIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { toast } from "sonner";
-import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { errorMessage } from "@/lib/errors";
-import { toastSyncError } from "@/lib/events";
-import { buildFolderTree, type FolderNode } from "@/lib/folders";
-import { useDrafts, useFolders } from "@/lib/queries";
+import { useAllFolders, useDrafts, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { UNIFIED_LABEL, type UnifiedRole } from "@/lib/view";
+import { AccountSetupDialog } from "../accounts/AccountSetupDialog";
 import type { ShellState } from "../layout/MailShell";
+import { SettingsDialog } from "../settings/SettingsDialog";
+import { AccountSection, ROLE_ICON } from "./AccountSection";
 
-const ROLE_ICON: Record<string, ReactNode> = {
-  inbox: <InboxIcon />,
-  drafts: <FileIcon />,
-  sent: <SendIcon />,
-  archive: <ArchiveIcon />,
-  junk: <ShieldAlertIcon />,
-  trash: <Trash2Icon />,
-};
+const COLLAPSED_KEY = "pc:collapsed";
+const EXPANDED_KEY = "pc:expanded";
 
-function FolderRow({
-  node,
-  depth,
-  state,
-}: {
-  node: FolderNode;
-  depth: number;
-  state: ShellState;
-}) {
-  const active = node.id !== 0 && state.view?.kind === "folder" && state.view.folderId === node.id;
-  // selectView también pide sincronizar la carpeta.
-  const select = () => state.selectView({ kind: "folder", folderId: node.id });
-  return (
-    <>
-      {node.selectable && node.id !== 0 ? (
-        <button
-          type="button"
-          onClick={select}
-          aria-current={active ? "true" : undefined}
-          style={{ paddingLeft: 8 + depth * 14 }}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
-            active && "bg-sidebar-accent font-medium",
-          )}
-        >
-          <span className="text-muted-foreground [&>svg]:size-4">
-            {ROLE_ICON[node.role] ?? <FolderIcon />}
-          </span>
-          <span className="min-w-0 flex-1 truncate">{node.label}</span>
-          {node.unread > 0 && (
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {node.unread}
-            </span>
-          )}
-        </button>
-      ) : (
-        <div
-          style={{ paddingLeft: 8 + depth * 14 }}
-          className="flex items-center gap-2 py-1.5 pr-2 text-sm text-muted-foreground"
-        >
-          <FolderIcon className="size-4" />
-          <span className="truncate">{node.label}</span>
-        </div>
-      )}
-      {node.children.map((c) => (
-        <FolderRow key={c.name} node={c} depth={depth + 1} state={state} />
-      ))}
-    </>
-  );
+function loadIds(key: string): number[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const v: unknown = JSON.parse(raw);
+      if (Array.isArray(v)) return v.filter((x): x is number => typeof x === "number");
+    }
+  } catch {
+    // sin almacenamiento o JSON inválido: sin estado guardado
+  }
+  return [];
 }
+
+function saveIds(key: string, ids: number[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(ids));
+  } catch {
+    // ignorar: recordar las secciones es opcional
+  }
+}
+
+const UNIFIED_ROLES: UnifiedRole[] = ["inbox", "flagged", "sent", "drafts", "trash"];
 
 // Solo aparece si hay correos pendientes; en rojo si alguno falló.
 function OutboxRow({ state }: { state: ShellState }) {
@@ -131,107 +69,104 @@ function OutboxRow({ state }: { state: ShellState }) {
   );
 }
 
-export function FolderSidebar({ account, state }: { account: Account; state: ShellState }) {
-  const queryClient = useQueryClient();
-  const folders = useFolders(account.id);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [removing, setRemoving] = useState(false);
 
-  // La vista inicial (y la de reemplazo si esta cuenta se quita) la elige MailShell.
-  const tree = buildFolderTree(folders.data ?? []);
+export function FolderSidebar({
+  accounts,
+  state,
+  onChangePassword,
+}: {
+  accounts: Account[];
+  state: ShellState;
+  // Lo conecta el diálogo de contraseña; sin esto el menú no ofrece la opción.
+  onChangePassword?: (account: Account) => void;
+}) {
+  const { folders } = useAllFolders(accounts);
+  const settings = useSettings();
+  const unified = settings.data?.unifiedInbox ?? false;
+  const [collapsedIds, setCollapsedIds] = useState(() => loadIds(COLLAPSED_KEY));
+  const [expandedIds, setExpandedIds] = useState(() => loadIds(EXPANDED_KEY));
+  const [addOpen, setAddOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const refresh = () => {
-    svc.SyncAccount(account.id).catch((e) => toastSyncError(account.id, e));
+  // El estado guardado manda; sin él, con la unificada activa arrancan plegadas.
+  const isOpen = (id: number) => {
+    if (collapsedIds.includes(id)) return false;
+    if (expandedIds.includes(id)) return true;
+    return !unified;
+  };
+  const setOpen = (id: number, open: boolean) => {
+    const collapsed = collapsedIds.filter((x) => x !== id).concat(open ? [] : [id]);
+    const expanded = expandedIds.filter((x) => x !== id).concat(open ? [id] : []);
+    setCollapsedIds(collapsed);
+    setExpandedIds(expanded);
+    saveIds(COLLAPSED_KEY, collapsed);
+    saveIds(EXPANDED_KEY, expanded);
   };
 
-  const setSaveSentCopy = async (save: boolean) => {
-    try {
-      await svc.SetSaveSentCopy(account.id, save);
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
-
-  const remove = async () => {
-    setRemoving(true);
-    try {
-      await svc.RemoveAccount(account.id);
-      setConfirmOpen(false);
-      // El mensaje abierto puede ser de la cuenta borrada; la vista vuelve
-      // sola a la de por defecto cuando deja de existir su carpeta.
-      state.selectMessage(null);
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setRemoving(false);
-    }
-  };
+  const unifiedRows = UNIFIED_ROLES.filter(
+    (r) => r === "flagged" || folders.some((f) => f.role === r),
+  );
+  const inboxUnread = folders.filter((f) => f.role === "inbox").reduce((n, f) => n + f.unread, 0);
+  const unifiedIcon = (r: UnifiedRole): ReactNode =>
+    r === "flagged" ? <StarIcon /> : (ROLE_ICON[r] ?? <InboxIcon />);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 border-b p-3">
-        <span
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: account.color }}
-          aria-hidden
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{account.displayName || account.email}</p>
-          <p className="truncate text-xs text-muted-foreground">{account.email}</p>
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Opciones de la cuenta">
-              <MoreHorizontalIcon />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={refresh}>Actualizar</DropdownMenuItem>
-            <DropdownMenuCheckboxItem
-              checked={account.saveSentCopy}
-              onCheckedChange={(v) => void setSaveSentCopy(v === true)}
-            >
-              Guardar copia en Enviados
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => setConfirmOpen(true)}>
-              Quitar cuenta
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Carpetas">
-        {folders.isError && (
-          <p className="p-2 text-xs text-destructive">{errorMessage(folders.error)}</p>
-        )}
         <OutboxRow state={state} />
-        {tree.map((n) => (
-          <FolderRow key={n.name} node={n} depth={0} state={state} />
+        {unified && (
+          <div className="mb-1 space-y-0.5">
+            <p className="px-2 pt-1 text-xs font-medium text-muted-foreground">Todas las cuentas</p>
+            {unifiedRows.map((r) => {
+              const active = state.view?.kind === "unified" && state.view.role === r;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => state.selectView({ kind: "unified", role: r })}
+                  aria-current={active ? "true" : undefined}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
+                    active && "bg-sidebar-accent font-medium",
+                  )}
+                >
+                  <span className="text-muted-foreground [&>svg]:size-4">{unifiedIcon(r)}</span>
+                  <span className="min-w-0 flex-1 truncate">{UNIFIED_LABEL[r]}</span>
+                  {r === "inbox" && inboxUnread > 0 && (
+                    <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                      {inboxUnread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {accounts.map((a) => (
+          <AccountSection
+            key={a.id}
+            account={a}
+            state={state}
+            open={isOpen(a.id)}
+            onOpenChange={(o) => setOpen(a.id, o)}
+            onChangePassword={onChangePassword}
+          />
         ))}
       </nav>
-
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Quitar cuenta</DialogTitle>
-            <DialogDescription>
-              Se borra la copia local y la contraseña guardada. Tus correos en el servidor no se
-              tocan.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={removing}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={remove} disabled={removing}>
-              Quitar cuenta
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <div className="space-y-0.5 border-t p-2">
+        <Button variant="ghost" className="w-full justify-start" onClick={() => setAddOpen(true)}>
+          <PlusIcon /> Agregar cuenta
+        </Button>
+        <Button
+          variant="ghost"
+          className="w-full justify-start"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <SettingsIcon /> Configuración
+        </Button>
+      </div>
+      <AccountSetupDialog open={addOpen} onOpenChange={setAddOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

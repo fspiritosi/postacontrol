@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
+  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false })),
   ListFolders: vi.fn(() => Promise.resolve([])),
   ListLocalDrafts: vi.fn(() => Promise.resolve([])),
   RemoveAccount: vi.fn(() => Promise.resolve()),
@@ -33,7 +34,69 @@ const baseState: ShellState = {
   selectMessage: vi.fn(),
 };
 
+const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X", color: "#0f0" };
+const inbox = (id: number, accountId: number, unread: number) =>
+  ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true }) as const;
+
+function renderSidebar(accounts: Account[], state: ShellState = baseState) {
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <FolderSidebar accounts={accounts} state={state} />
+    </QueryClientProvider>,
+  );
+}
+
 describe("FolderSidebar", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("muestra una sección por cuenta con su árbol", async () => {
+    vi.mocked(svc.ListFolders).mockImplementation(((id: number) =>
+      Promise.resolve(id === 7 ? [inbox(3, 7, 2)] : [inbox(4, 8, 0)])) as never);
+    renderSidebar([account, account2]);
+    expect(await screen.findByText("A")).toBeTruthy();
+    expect(screen.getByText("X")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Entrada/ })).toHaveLength(2));
+  });
+
+  it("con la bandeja unificada muestra Todas las cuentas y suma los no leídos de las Entradas", async () => {
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true });
+    vi.mocked(svc.ListFolders).mockImplementation(((id: number) =>
+      Promise.resolve(id === 7 ? [inbox(3, 7, 2)] : [inbox(4, 8, 5)])) as never);
+    const selectView = vi.fn();
+    const user = userEvent.setup();
+    renderSidebar([account, account2], { ...baseState, selectView });
+    expect(await screen.findByText("Todas las cuentas")).toBeTruthy();
+    const row = await screen.findByRole("button", { name: /^Entrada\s*7$/ });
+    await user.click(row);
+    expect(selectView).toHaveBeenCalledWith({ kind: "unified", role: "inbox" });
+    expect(screen.getByRole("button", { name: "Destacados" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Papelera" })).toBeNull();
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: false });
+  });
+
+  it("plegar una cuenta oculta sus carpetas y se recuerda", async () => {
+    vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0)]);
+    const user = userEvent.setup();
+    const { unmount } = renderSidebar([account]);
+    expect(await screen.findByRole("button", { name: "Entrada" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /^A\s*$/ }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Entrada" })).toBeNull());
+    expect(JSON.parse(localStorage.getItem("pc:collapsed")!)).toEqual([7]);
+    unmount();
+    renderSidebar([account]);
+    await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Entrada" })).toBeNull();
+  });
+
+  it("Agregar cuenta abre el alta", async () => {
+    const user = userEvent.setup();
+    renderSidebar([account]);
+    await user.click(screen.getByRole("button", { name: "Agregar cuenta" }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+
   it("muestra la Bandeja de salida solo si hay pendientes, y la abre", async () => {
     vi.mocked(svc.ListLocalDrafts).mockResolvedValueOnce([
       { id: 1, status: "failed" },
@@ -43,7 +106,7 @@ describe("FolderSidebar", () => {
     const selectView = vi.fn();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <FolderSidebar account={account} state={{ ...baseState, selectView }} />
+        <FolderSidebar accounts={[account]} state={{ ...baseState, selectView }} />
       </QueryClientProvider>,
     );
     const row = await screen.findByRole("button", { name: /Bandeja de salida/ });
@@ -61,7 +124,7 @@ describe("FolderSidebar", () => {
     const selectView = vi.fn();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <FolderSidebar account={account} state={{ ...baseState, selectView }} />
+        <FolderSidebar accounts={[account]} state={{ ...baseState, selectView }} />
       </QueryClientProvider>,
     );
     const inbox = await screen.findByRole("button", { name: "Entrada" });
@@ -73,7 +136,7 @@ describe("FolderSidebar", () => {
   it("sin pendientes no muestra la Bandeja de salida", async () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <FolderSidebar account={account} state={baseState} />
+        <FolderSidebar accounts={[account]} state={baseState} />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(svc.ListLocalDrafts).toHaveBeenCalled());
@@ -86,12 +149,12 @@ describe("FolderSidebar", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <FolderSidebar
-          account={account}
+          accounts={[account]}
           state={{ ...baseState, messageId: 9, selectMessage }}
         />
       </QueryClientProvider>,
     );
-    await user.click(screen.getByLabelText("Opciones de la cuenta"));
+    await user.click(screen.getByLabelText("Opciones de A"));
     await user.click(await screen.findByText("Quitar cuenta"));
     expect(screen.getByText(/Se borra la copia local/)).toBeTruthy();
     await user.click(screen.getAllByRole("button", { name: "Quitar cuenta" }).pop()!);
@@ -104,12 +167,12 @@ describe("FolderSidebar", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <FolderSidebar
-          account={account}
+          accounts={[account]}
           state={baseState}
         />
       </QueryClientProvider>,
     );
-    await user.click(screen.getByLabelText("Opciones de la cuenta"));
+    await user.click(screen.getByLabelText("Opciones de A"));
     const item = await screen.findByRole("menuitemcheckbox", { name: "Guardar copia en Enviados" });
     expect(item.getAttribute("aria-checked")).toBe("true");
     await user.click(item);
