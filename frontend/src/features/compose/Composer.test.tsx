@@ -73,6 +73,13 @@ function DraftHarness() {
       <button onClick={() => void c.openDraft(draft as never)}>borrador</button>
       <button
         onClick={() =>
+          void c.openDraft({ ...draft, request: { ...draft.request, reply: { mode: "forward", originalMessageId: 7 }, skipOriginalAttachments: [0] } } as never)
+        }
+      >
+        reenvío guardado
+      </button>
+      <button
+        onClick={() =>
           void c.openDraft({ ...draft, request: { ...draft.request, attachments: [4], skipOriginalAttachments: [2] } } as never)
         }
       >
@@ -339,5 +346,25 @@ describe("Composer", () => {
     await screen.findByText("a.pdf");
     await user.keyboard("{Escape}");
     expect(await screen.findByText("¿Descartar este correo?")).toBeInTheDocument();
+  });
+
+  it("reabrir un reenvío de la Bandeja de salida muestra los originales no salteados", async () => {
+    vi.mocked(svc.PrepareCompose).mockResolvedValue({
+      accountId: 1, to: [], cc: [], subject: "Fwd: Hola", quotedHtml: "",
+      reply: { mode: "forward", originalMessageId: 7 },
+      originalAttachments: [
+        { index: 0, filename: "uno.pdf", mimeType: "application/pdf", size: 10, part: "2" },
+        { index: 1, filename: "dos.pdf", mimeType: "application/pdf", size: 10, part: "3" },
+      ],
+    } as never);
+    vi.mocked(svc.QueueSend).mockResolvedValue(5);
+    const user = setup();
+    await user.click(screen.getByText("reenvío guardado"));
+    await screen.findByText("dos.pdf");
+    expect(screen.queryByText("uno.pdf")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Quitar dos.pdf" }));
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].skipOriginalAttachments).toEqual([0, 1]);
   });
 });

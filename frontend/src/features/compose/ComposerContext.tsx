@@ -52,6 +52,16 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       const ids = d.request.attachments ?? [];
       // Los nombres y tamaños no viajan en el pedido: se piden por id.
       const attachments = ids.length > 0 ? ((await svc.StagedInfo(ids)) ?? []) : [];
+      // Un reenvío reabierto sigue mandando los originales no salteados: se
+      // piden de nuevo para mostrarlos. Si el original ya no está, no se muestra ninguno.
+      let originalAttachments: Attachment[] = [];
+      if (d.request.reply?.mode === "forward") {
+        try {
+          originalAttachments = (await svc.PrepareCompose(d.request.reply.originalMessageId, "forward")).originalAttachments ?? [];
+        } catch {
+          originalAttachments = [];
+        }
+      }
       open({
         accountId: d.request.accountId,
         to: d.request.to ?? [],
@@ -63,7 +73,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         reply: d.request.reply,
         draftId: d.id,
         attachments,
-        originalAttachments: [],
+        originalAttachments,
         skipOriginalAttachments: d.request.skipOriginalAttachments ?? [],
       });
     };
