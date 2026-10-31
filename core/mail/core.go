@@ -83,6 +83,16 @@ type Core struct {
 	watchCtx      context.Context
 	watchers      map[int64]*watcher
 	watchLive     int
+
+	// Indexador (index.go). indexPause e indexIdle se inyectan en los tests;
+	// indexHook es un gancho solo para tests: corre después de cada intento
+	// de bajar un cuerpo, con su resultado (nil = indexado). indexStarted e
+	// indexRunning (goroutines del indexador vivas) los protege lifeMu.
+	indexPause   time.Duration
+	indexIdle    time.Duration
+	indexHook    func(messageID int64, err error)
+	indexStarted bool
+	indexRunning int
 }
 
 func New(cfg Config) (*Core, error) {
@@ -100,7 +110,8 @@ func New(cfg Config) (*Core, error) {
 		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{},
 		now: time.Now, authFailedAt: map[int64]time.Time{},
 		dialWatch: imapx.DialWatch, watchDebounce: watchDebounce,
-		watchBackoff: slices.Clone(watchBackoff), watchers: map[int64]*watcher{}}, nil
+		watchBackoff: slices.Clone(watchBackoff), watchers: map[int64]*watcher{},
+		indexPause: indexPause, indexIdle: indexIdle}, nil
 }
 
 // Close cancela las sincronizaciones en curso, espera a que terminen, cierra

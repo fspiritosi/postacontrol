@@ -375,3 +375,36 @@ func (s *Store) DeleteMessages(ctx context.Context, ids []int64) error {
 	}
 	return tx.Commit()
 }
+
+// NextToIndex devuelve los n mensajes más nuevos de la cuenta que todavía no
+// tienen el cuerpo cacheado y no agotaron los reintentos (index_failures < 3),
+// por fecha descendente. Trae lo que hace falta para bajar el cuerpo
+// (AccountID, FolderID, UID), sin el cuerpo. n <= 0 = ninguno.
+func (s *Store) NextToIndex(ctx context.Context, accountID int64, n int) ([]model.MessageDetail, error) {
+	if n <= 0 {
+		return []model.MessageDetail{}, nil
+	}
+	ms, err := s.listWhere(ctx, `f.account_id = ? AND m.body_cached = 0 AND m.index_failures < 3`,
+		[]any{accountID}, model.ListQuery{Limit: n})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.MessageDetail, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, model.MessageDetail{MessageSummary: m})
+	}
+	return out, nil
+}
+
+// NoteIndexFailure anota una falla al bajar el cuerpo del mensaje: con 3, el
+// indexador deja de intentarlo. Si el mensaje ya no está devuelve ErrNotFound.
+func (s *Store) NoteIndexFailure(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE messages SET index_failures = index_failures + 1 WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

@@ -216,3 +216,52 @@ func seedSecondFolder(t *testing.T, s *Store) int64 {
 	require.NoError(t, err)
 	return fs[0].ID
 }
+
+func TestNextToIndex_NewestFirstPendingOfAccount(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	acc, f := seedFolder(t, s)
+	idOld := put(t, s, f, 1, "viejo", "a", t0)
+	idNew := put(t, s, f, 2, "nuevo", "a", t0.Add(2*time.Hour))
+	idMid := put(t, s, f, 3, "medio", "a", t0.Add(time.Hour))
+	idDone := put(t, s, f, 4, "hecho", "a", t0.Add(3*time.Hour))
+	idBroken := put(t, s, f, 5, "roto", "a", t0.Add(4*time.Hour))
+	require.NoError(t, s.SetBody(ctx, idDone, BodyRow{Text: "x"}))
+	for range 3 {
+		require.NoError(t, s.NoteIndexFailure(ctx, idBroken))
+	}
+	f2 := seedSecondFolder(t, s)
+	put(t, s, f2, 1, "otra cuenta", "a", t0.Add(5*time.Hour))
+
+	ms, err := s.NextToIndex(ctx, acc, 10)
+	require.NoError(t, err)
+	ids := []int64{}
+	for _, m := range ms {
+		assert.Equal(t, acc, m.AccountID)
+		assert.Equal(t, f, m.FolderID)
+		assert.NotZero(t, m.UID)
+		ids = append(ids, m.ID)
+	}
+	assert.Equal(t, []int64{idNew, idMid, idOld}, ids)
+
+	ms, err = s.NextToIndex(ctx, acc, 2)
+	require.NoError(t, err)
+	assert.Len(t, ms, 2)
+}
+
+func TestNoteIndexFailure_CountsUpToSkip(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	acc, f := seedFolder(t, s)
+	id := put(t, s, f, 1, "a", "a", t0)
+	for i := range 3 {
+		ms, err := s.NextToIndex(ctx, acc, 10)
+		require.NoError(t, err)
+		require.Len(t, ms, 1, "falla %d: todavía se reintenta", i)
+		require.NoError(t, s.NoteIndexFailure(ctx, id))
+	}
+	ms, err := s.NextToIndex(ctx, acc, 10)
+	require.NoError(t, err)
+	assert.Empty(t, ms)
+	assert.ErrorIs(t, s.NoteIndexFailure(ctx, 9999), ErrNotFound)
+}
