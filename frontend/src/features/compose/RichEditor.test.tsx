@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { RichEditor } from "./RichEditor";
@@ -21,6 +21,9 @@ async function setup(content: string) {
   return { user, onChange };
 }
 
+// La barra fija; la de formato flotante repite algunos botones.
+const toolbar = () => within(screen.getByRole("toolbar", { name: "Herramientas del redactor" }));
+
 const lastHTML = (onChange: ReturnType<typeof vi.fn>) => {
   const calls = onChange.mock.calls;
   return calls.length ? (calls[calls.length - 1][0] as string) : undefined;
@@ -29,7 +32,7 @@ const lastHTML = (onChange: ReturnType<typeof vi.fn>) => {
 describe("RichEditor: enlaces", () => {
   it("aplica un enlace desde el popover y agrega https:// si falta", async () => {
     const { user, onChange } = await setup("<p>hola</p>");
-    await user.click(screen.getByRole("button", { name: "Enlace" }));
+    await user.click(toolbar().getByRole("button", { name: "Enlace" }));
     const input = await screen.findByLabelText("URL del enlace");
     await user.type(input, "ejemplo.com");
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
@@ -39,7 +42,7 @@ describe("RichEditor: enlaces", () => {
 
   it("rechaza esquemas no permitidos sin tocar el texto", async () => {
     const { user, onChange } = await setup("<p>hola</p>");
-    await user.click(screen.getByRole("button", { name: "Enlace" }));
+    await user.click(toolbar().getByRole("button", { name: "Enlace" }));
     await user.type(await screen.findByLabelText("URL del enlace"), "javascript:alert(1)");
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -50,9 +53,146 @@ describe("RichEditor: enlaces", () => {
 
   it("muestra el enlace actual y lo quita", async () => {
     const { user, onChange } = await setup('<p><a href="https://x.y">hola</a></p>');
-    await user.click(screen.getByRole("button", { name: "Enlace" }));
+    await user.click(toolbar().getByRole("button", { name: "Enlace" }));
     expect(await screen.findByLabelText("URL del enlace")).toHaveValue("https://x.y");
     await user.click(screen.getByRole("button", { name: "Quitar enlace" }));
+    await waitFor(() => expect(lastHTML(onChange)).toBe("<p>hola</p>"));
+  });
+});
+
+// Escribe en el redactor vacío, sin seleccionar nada (setup() selecciona todo).
+async function setupEmpty(props: { onPickImage?: () => void } = {}) {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(<RichEditor content="" onChange={onChange} {...props} />);
+  const body = await screen.findByLabelText("Cuerpo del mensaje");
+  act(() => body.focus());
+  return { user, onChange, body };
+}
+
+describe("RichEditor: menú /", () => {
+  it("escribir / abre el menú con los ítems", async () => {
+    const { user } = await setupEmpty();
+    await user.keyboard("/");
+    expect(await screen.findByRole("listbox", { name: "Insertar" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Título 1" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Tabla" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Enlace" })).toBeInTheDocument();
+    // Sin onPickImage no se ofrece "Imagen".
+    expect(screen.queryByRole("option", { name: "Imagen" })).toBeNull();
+  });
+
+  it("ofrece Imagen cuando hay onPickImage y la ejecuta", async () => {
+    const onPickImage = vi.fn();
+    const { user } = await setupEmpty({ onPickImage });
+    await user.keyboard("/imag");
+    await screen.findByRole("option", { name: "Imagen" });
+    await user.keyboard("{Enter}");
+    expect(onPickImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("/tab filtra a Tabla y Enter inserta una tabla", async () => {
+    const { user, onChange } = await setupEmpty();
+    await user.keyboard("/tab");
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    expect(screen.getByRole("option", { name: "Tabla" })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(lastHTML(onChange)).toContain("<table"));
+    expect(lastHTML(onChange)).toContain("<th");
+    expect(lastHTML(onChange)).not.toMatch(/\/tab(?!le)/);
+  });
+
+  it("Esc cierra el menú y deja el texto", async () => {
+    const { user, onChange } = await setupEmpty();
+    await user.keyboard("/ta");
+    await screen.findByRole("listbox");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(lastHTML(onChange)).toContain("/ta");
+  });
+
+  it("y/o no abre el menú", async () => {
+    const { user } = await setupEmpty();
+    await user.keyboard("y/o");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("sin coincidencias muestra Sin resultados", async () => {
+    const { user } = await setupEmpty();
+    await user.keyboard("/zzz");
+    expect(await screen.findByText("Sin resultados")).toBeInTheDocument();
+  });
+
+  it("las flechas mueven la selección de forma circular", async () => {
+    const { user } = await setupEmpty();
+    await user.keyboard("/");
+    await screen.findByRole("listbox");
+    expect(screen.getByRole("option", { name: "Título 1" })).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowUp}");
+    expect(screen.getByRole("option", { name: "Enlace" })).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("option", { name: "Título 1" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("/titulo 1 + Enter convierte el renglón en h1", async () => {
+    const { user, onChange } = await setupEmpty();
+    await user.keyboard("/titulo 1");
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(lastHTML(onChange)).toContain("<h1"));
+    expect(lastHTML(onChange)).not.toContain("/titulo");
+  });
+});
+
+describe("RichEditor: tablas", () => {
+  // insertTable deja el cursor en la primera celda.
+  async function conTabla() {
+    const ctx = await setupEmpty();
+    await ctx.user.keyboard("/tab");
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    await ctx.user.keyboard("{Enter}");
+    return ctx;
+  }
+
+  it("con el cursor en una tabla aparecen Agregar fila y Eliminar tabla", async () => {
+    await conTabla();
+    expect(await screen.findByRole("button", { name: "Agregar fila" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agregar columna" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Eliminar fila" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Eliminar columna" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Eliminar tabla" })).toBeInTheDocument();
+  });
+
+  it("fuera de una tabla no aparecen las herramientas de tabla", async () => {
+    await setup("<p>hola</p>");
+    expect(screen.queryByRole("button", { name: "Agregar fila" })).toBeNull();
+  });
+
+  it("Agregar fila suma un tr y Eliminar tabla la quita", async () => {
+    const { user, onChange } = await conTabla();
+    await waitFor(() => expect((lastHTML(onChange) ?? "").match(/<tr/g)).toHaveLength(3));
+    await user.click(await screen.findByRole("button", { name: "Agregar fila" }));
+    await waitFor(() => expect((lastHTML(onChange) ?? "").match(/<tr/g)).toHaveLength(4));
+    await user.click(screen.getByRole("button", { name: "Eliminar tabla" }));
+    await waitFor(() => expect(lastHTML(onChange)).not.toContain("<table"));
+  });
+});
+
+describe("RichEditor: barra de formato", () => {
+  it("aparece con texto seleccionado y aplica negrita", async () => {
+    const { user, onChange } = await setup("<p>hola</p>");
+    const bubble = await screen.findByRole("toolbar", { name: "Formato del texto" });
+    for (const name of ["Negrita", "Cursiva", "Subrayado", "Tachado", "Enlace", "Quitar formato"]) {
+      expect(within(bubble).getByRole("button", { name })).toBeInTheDocument();
+    }
+    await user.click(within(bubble).getByRole("button", { name: "Subrayado" }));
+    await waitFor(() => expect(lastHTML(onChange)).toContain("<u>"));
+  });
+
+  it("Quitar formato limpia las marcas", async () => {
+    const { user, onChange } = await setup("<p><strong>hola</strong></p>");
+    const bubble = await screen.findByRole("toolbar", { name: "Formato del texto" });
+    await user.click(within(bubble).getByRole("button", { name: "Quitar formato" }));
     await waitFor(() => expect(lastHTML(onChange)).toBe("<p>hola</p>"));
   });
 });
