@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
@@ -7,6 +7,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListMessages: vi.fn(() => Promise.resolve([])),
   ListUnified: vi.fn(() => Promise.resolve([])),
   SyncFolder: vi.fn(() => new Promise(() => {})), // nunca termina
+  SetFlagged: vi.fn(() => Promise.resolve()),
 }));
 
 import type { Account, MessageSummary } from "../../../bindings/postacontrol/core/model/models";
@@ -36,12 +37,12 @@ function summary(id: number, accountId: number): MessageSummary {
   };
 }
 
-function renderList(view: View) {
+function renderList(view: View, selectMessage = vi.fn()) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MessageList
         accounts={accounts}
-        state={{ view, messageId: null, selectView: vi.fn(), selectMessage: vi.fn() }}
+        state={{ view, messageId: null, selectView: vi.fn(), selectMessage }}
       />
     </QueryClientProvider>,
   );
@@ -73,5 +74,15 @@ describe("MessageList", () => {
     expect(dot(first)).toBe("rgb(255, 0, 0)");
     expect(dot(second)).toBe("rgb(0, 255, 0)");
     expect(svc.ListUnified).toHaveBeenCalledWith("inbox", { unreadOnly: false, offset: 0, limit: 100 });
+  });
+
+  it("la estrella destaca sin abrir el mensaje", async () => {
+    vi.mocked(svc.ListUnified).mockResolvedValueOnce([summary(1, 7)]);
+    const selectMessage = vi.fn();
+    renderList({ kind: "unified", role: "inbox" }, selectMessage);
+    const star = await screen.findByRole("button", { name: "Destacar" });
+    fireEvent.click(star);
+    expect(svc.SetFlagged).toHaveBeenCalledWith([1], true);
+    expect(selectMessage).not.toHaveBeenCalled();
   });
 });

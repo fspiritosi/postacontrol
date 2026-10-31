@@ -11,6 +11,7 @@ import { useAllFolders, useMessage } from "@/lib/queries";
 import { useComposer } from "../compose/ComposerContext";
 import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
+import { MessageActions } from "./MessageActions";
 import { SafeHtmlFrame } from "./SafeHtmlFrame";
 
 export type ComposeMode = "reply" | "replyAll" | "forward";
@@ -28,11 +29,13 @@ function Body({
   message,
   account,
   onCompose,
+  selectMessage,
 }: {
   message: MessageDetail;
   // Puede faltar si la cuenta se quitó mientras el correo estaba abierto.
   account: Account | undefined;
   onCompose?: Props["onCompose"];
+  selectMessage: (id: number | null) => void;
 }) {
   // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
   const [allowRemote, setAllowRemote] = useState(false);
@@ -46,7 +49,7 @@ function Body({
   ];
   return (
     <div className="flex h-full flex-col">
-      <div className="flex gap-2 border-b px-4 py-2">
+      <div className="flex flex-wrap gap-2 border-b px-4 py-2">
         {actions.map((a) => (
           <Button
             key={a.mode}
@@ -58,6 +61,7 @@ function Body({
             {a.label}
           </Button>
         ))}
+        <MessageActions message={message} selectMessage={selectMessage} />
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-3 px-6 pt-5">
@@ -161,6 +165,7 @@ export function MessageView({ accounts, state, onCompose }: Props) {
       message={message.data}
       account={accounts.find((a) => a.id === message.data.accountId)}
       onCompose={onCompose}
+      selectMessage={state.selectMessage}
     />
   );
 }
