@@ -25,7 +25,10 @@ function renderList(folderId: number) {
     <QueryClientProvider client={new QueryClient()}>
       <MessageList
         account={account}
-        state={{ accountId: 7, folderId, messageId: null, selectFolder: vi.fn(), selectMessage: vi.fn() }}
+        state={{
+          accountId: 7, folderId, messageId: null, outbox: false,
+          selectFolder: vi.fn(), selectMessage: vi.fn(), openOutbox: vi.fn(),
+        }}
       />
     </QueryClientProvider>,
   );

@@ -7,12 +7,15 @@ import { ComposerProvider, useComposer } from "./ComposerContext";
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListAccounts: vi.fn(),
   PrepareCompose: vi.fn(),
-  Send: vi.fn(),
+  QueueSend: vi.fn(),
   ListLocalDrafts: vi.fn(),
   DeleteLocalDraft: vi.fn(),
   OpenExternal: vi.fn(),
 }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}));
+vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => {} } }));
 
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { toast } from "sonner";
@@ -46,6 +49,7 @@ const draft = {
     bodyHtml: "<p>hola</p>",
     reply: null,
   },
+  status: "failed",
   error: "x",
 };
 
@@ -83,33 +87,34 @@ describe("Composer", () => {
     } as never);
   });
 
-  it("envía con reply context", async () => {
-    vi.mocked(svc.Send).mockResolvedValue({ sentCopySaved: true, warning: "" });
+  it("pone el correo en cola, muestra Enviando… y se cierra solo", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(12);
     const user = setup();
     await user.click(screen.getByText("responder"));
     expect(await screen.findByLabelText("Para")).toHaveValue("Ana <ana@x.com>");
     await user.click(screen.getByRole("button", { name: "Enviar" }));
-    await waitFor(() => expect(svc.Send).toHaveBeenCalledTimes(1));
-    const req = vi.mocked(svc.Send).mock.calls[0][0];
+    expect(await screen.findByRole("button", { name: "Enviando…" })).toBeDisabled();
+    const req = vi.mocked(svc.QueueSend).mock.calls[0][0];
     expect(req.reply).toEqual({ mode: "reply", originalMessageId: 7 });
     expect(req.to).toEqual([{ name: "Ana", email: "ana@x.com" }]);
     expect(req.subject).toBe("Re: Hola");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(toast.success).toHaveBeenCalledWith("Correo enviado");
+    expect(req.draftId).toBeUndefined();
+    expect(toast.loading).toHaveBeenCalledWith("Enviando correo…", { id: "send-12" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), {
+      timeout: 2000,
+    });
   });
 
-  it("mantiene abierto y avisa si Send falla", async () => {
-    vi.mocked(svc.Send).mockRejectedValue(new Error("El servidor rechazó el envío: 550"));
-    vi.mocked(svc.ListLocalDrafts)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ ...draft, id: 9 }] as never);
+  it("si no se puede poner en cola queda abierto con el error", async () => {
+    vi.mocked(svc.QueueSend).mockRejectedValue(new Error("Agregá al menos un destinatario."));
     const user = setup();
     await user.click(screen.getByText("responder"));
     await screen.findByLabelText("Para");
     await user.click(screen.getByRole("button", { name: "Enviar" }));
-    expect(await screen.findByText(/borrador local/)).toBeInTheDocument();
-    expect(screen.getByText(/El servidor rechazó el envío/)).toBeInTheDocument();
+    expect(await screen.findByText("Agregá al menos un destinatario.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(toast.loading).not.toHaveBeenCalled();
   });
 
   it("deshabilita Enviar sin destinatarios", async () => {
@@ -121,64 +126,15 @@ describe("Composer", () => {
     expect(send).toBeEnabled();
   });
 
-  it("avisa con toast de advertencia si no se guardó la copia en Enviados", async () => {
-    vi.mocked(svc.Send).mockResolvedValue({ sentCopySaved: false, warning: "No pudimos guardar la copia." });
+  it("un correo de la bandeja de salida se reintenta con su id", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(5);
     const user = setup();
-    await user.click(screen.getByText("responder"));
-    await screen.findByLabelText("Para");
+    await user.click(screen.getByText("borrador"));
+    expect(await screen.findByLabelText("Asunto")).toHaveValue("Pendiente");
     await user.click(screen.getByRole("button", { name: "Enviar" }));
-    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("No pudimos guardar la copia."));
-  });
-
-  it("al reenviar un borrador con éxito lo borra", async () => {
-    vi.mocked(svc.Send).mockResolvedValue({ sentCopySaved: true, warning: "" });
-    const user = setup();
-    await user.click(screen.getByText("borrador"));
-    await user.click(await screen.findByRole("button", { name: "Enviar" }));
-    await waitFor(() => expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5));
-  });
-
-  it("si el reenvío de un borrador falla y aparece uno nuevo, borra el viejo y avisa", async () => {
-    vi.mocked(svc.Send).mockRejectedValue(new Error("Sin conexión"));
-    vi.mocked(svc.ListLocalDrafts)
-      .mockResolvedValueOnce([{ ...draft, id: 5 }] as never)
-      .mockResolvedValueOnce([{ ...draft, id: 5 }, { ...draft, id: 9 }] as never);
-    const user = setup();
-    await user.click(screen.getByText("borrador"));
-    await user.click(await screen.findByRole("button", { name: "Enviar" }));
-    await screen.findByText(/borrador local/);
-    expect(svc.DeleteLocalDraft).toHaveBeenCalledTimes(1);
-    expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5);
-  });
-
-  it("si no aparece borrador nuevo no borra nada ni afirma que lo guardó", async () => {
-    vi.mocked(svc.Send).mockRejectedValue(new Error("Sin conexión"));
-    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([{ ...draft, id: 5 }] as never);
-    const user = setup();
-    await user.click(screen.getByText("borrador"));
-    await user.click(await screen.findByRole("button", { name: "Enviar" }));
-    await screen.findByText(/Sin conexión/);
-    expect(screen.queryByText(/borrador local/)).not.toBeInTheDocument();
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].draftId).toBe(5);
     expect(svc.DeleteLocalDraft).not.toHaveBeenCalled();
-    // el id 5 sigue rastreado: un reintento exitoso lo borra
-    vi.mocked(svc.Send).mockResolvedValue({ sentCopySaved: true, warning: "" });
-    await user.click(screen.getByRole("button", { name: "Enviar" }));
-    await waitFor(() => expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5));
-  });
-
-  it("nunca borra un borrador ajeno más nuevo", async () => {
-    const other = { ...draft, id: 20 };
-    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([{ ...draft, id: 5 }, other] as never);
-    vi.mocked(svc.Send).mockRejectedValueOnce(new Error("Sin conexión"));
-    const user = setup();
-    await user.click(screen.getByText("borrador"));
-    await user.click(await screen.findByRole("button", { name: "Enviar" }));
-    await screen.findByText(/Sin conexión/);
-    expect(svc.DeleteLocalDraft).not.toHaveBeenCalled();
-    vi.mocked(svc.Send).mockResolvedValue({ sentCopySaved: true, warning: "" });
-    await user.click(screen.getByRole("button", { name: "Enviar" }));
-    await waitFor(() => expect(svc.DeleteLocalDraft).toHaveBeenCalledTimes(1));
-    expect(svc.DeleteLocalDraft).toHaveBeenCalledWith(5);
   });
 
   it("una dirección inválida deshabilita Enviar y la señala", async () => {

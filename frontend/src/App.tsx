@@ -1,33 +1,36 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { ComposerProvider, useComposer } from "./features/compose/ComposerContext";
+import { ComposerProvider } from "./features/compose/ComposerContext";
 import { Welcome } from "./features/accounts/Welcome";
 import { FolderSidebar } from "./features/folders/FolderSidebar";
 import { MailShell } from "./features/layout/MailShell";
 import { MessageList } from "./features/messages/MessageList";
+import { OutboxList } from "./features/outbox/OutboxList";
 import { MessageView } from "./features/reader/MessageView";
 import { useMailEvents } from "./lib/events";
 import { useAccounts, useDrafts } from "./lib/queries";
 import { errorMessage } from "./lib/errors";
 
-// Avisa una vez al arrancar si quedaron correos sin enviar.
-function DraftsNotice() {
+// Avisa una vez al arrancar si quedaron correos sin enviar en la Bandeja de salida.
+function DraftsNotice({ onOpen }: { onOpen: () => void }) {
   const drafts = useDrafts();
-  const { openDraft } = useComposer();
   const shown = useRef(false);
+  const openRef = useRef(onOpen);
   useEffect(() => {
-    if (shown.current || !drafts.data || drafts.data.length === 0) return;
-    shown.current = true;
-    const list = drafts.data;
-    const newest = list.reduce((a, b) => (Date.parse(b.createdAt) > Date.parse(a.createdAt) ? b : a));
-    const n = list.length;
+    openRef.current = onOpen;
+  }, [onOpen]);
+  useEffect(() => {
+    if (shown.current || !drafts.data) return;
+    shown.current = true; // solo la primera carga: lo que falle después ya se avisó
+    const n = drafts.data.filter((d) => d.status === "failed").length;
+    if (n === 0) return;
     toast(`Tenés ${n} ${n === 1 ? "correo" : "correos"} sin enviar`, {
       id: "local-drafts",
       duration: Infinity,
-      action: { label: "Abrir", onClick: () => openDraft(newest) },
+      action: { label: "Ver", onClick: () => openRef.current() },
     });
-  }, [drafts.data, openDraft]);
+  }, [drafts.data]);
   return null;
 }
 
@@ -49,12 +52,22 @@ export default function App() {
   const acc = (id: number) => all.find((a) => a.id === id) ?? all[0];
   return (
     <ComposerProvider>
-      <DraftsNotice />
       <MailShell
-      accounts={all}
-      sidebar={(s) => <FolderSidebar account={acc(s.accountId)} state={s} />}
-      list={(s) => <MessageList account={acc(s.accountId)} state={s} />}
-      reader={(s) => <MessageView account={acc(s.accountId)} state={s} />}
+        accounts={all}
+        extras={(s) => <DraftsNotice onOpen={s.openOutbox} />}
+        sidebar={(s) => <FolderSidebar account={acc(s.accountId)} state={s} />}
+        list={(s) =>
+          s.outbox ? <OutboxList /> : <MessageList account={acc(s.accountId)} state={s} />
+        }
+        reader={(s) =>
+          s.outbox ? (
+            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+              Abrí un correo de la Bandeja de salida para revisarlo, o reintentá el envío.
+            </div>
+          ) : (
+            <MessageView account={acc(s.accountId)} state={s} />
+          )
+        }
       />
     </ComposerProvider>
   );

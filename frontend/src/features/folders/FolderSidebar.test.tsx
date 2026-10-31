@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListFolders: vi.fn(() => Promise.resolve([])),
+  ListLocalDrafts: vi.fn(() => Promise.resolve([])),
   RemoveAccount: vi.fn(() => Promise.resolve()),
   SetSaveSentCopy: vi.fn(() => Promise.resolve()),
   SyncAccount: vi.fn(() => Promise.resolve()),
@@ -24,7 +25,40 @@ const account: Account = {
   saveSentCopy: true,
 };
 
+const baseState = {
+  accountId: 7, folderId: 3, messageId: null, outbox: false,
+  selectFolder: vi.fn(), selectMessage: vi.fn(), openOutbox: vi.fn(),
+};
+
 describe("FolderSidebar", () => {
+  it("muestra la Bandeja de salida solo si hay pendientes, y la abre", async () => {
+    vi.mocked(svc.ListLocalDrafts).mockResolvedValueOnce([
+      { id: 1, status: "failed" },
+      { id: 2, status: "sending" },
+    ] as never);
+    const user = userEvent.setup();
+    const openOutbox = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <FolderSidebar account={account} state={{ ...baseState, openOutbox }} />
+      </QueryClientProvider>,
+    );
+    const row = await screen.findByRole("button", { name: /Bandeja de salida/ });
+    expect(row.textContent).toContain("2");
+    await user.click(row);
+    expect(openOutbox).toHaveBeenCalled();
+  });
+
+  it("sin pendientes no muestra la Bandeja de salida", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <FolderSidebar account={account} state={baseState} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(svc.ListLocalDrafts).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /Bandeja de salida/ })).toBeNull();
+  });
+
   it("al quitar la cuenta limpia la carpeta y el mensaje seleccionados", async () => {
     const user = userEvent.setup();
     const selectFolder = vi.fn();
@@ -32,7 +66,7 @@ describe("FolderSidebar", () => {
       <QueryClientProvider client={new QueryClient()}>
         <FolderSidebar
           account={account}
-          state={{ accountId: 7, folderId: 3, messageId: 9, selectFolder, selectMessage: vi.fn() }}
+          state={{ ...baseState, messageId: 9, selectFolder }}
         />
       </QueryClientProvider>,
     );
@@ -50,7 +84,7 @@ describe("FolderSidebar", () => {
       <QueryClientProvider client={new QueryClient()}>
         <FolderSidebar
           account={account}
-          state={{ accountId: 7, folderId: 3, messageId: null, selectFolder: vi.fn(), selectMessage: vi.fn() }}
+          state={baseState}
         />
       </QueryClientProvider>,
     );

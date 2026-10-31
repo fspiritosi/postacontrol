@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArchiveIcon,
+  ClockArrowUpIcon,
   FileIcon,
   FolderIcon,
   InboxIcon,
@@ -33,7 +34,7 @@ import {
 import { errorMessage } from "@/lib/errors";
 import { syncFolder, toastSyncError } from "@/lib/events";
 import { buildFolderTree, type FolderNode } from "@/lib/folders";
-import { useFolders } from "@/lib/queries";
+import { useDrafts, useFolders } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
 
@@ -55,7 +56,7 @@ function FolderRow({
   depth: number;
   state: ShellState;
 }) {
-  const active = node.id !== 0 && state.folderId === node.id;
+  const active = node.id !== 0 && !state.outbox && state.folderId === node.id;
   const select = () => {
     state.selectFolder(node.id);
     // Sin await: la lista se refresca por eventos cuando termina.
@@ -97,6 +98,38 @@ function FolderRow({
         <FolderRow key={c.name} node={c} depth={depth + 1} state={state} />
       ))}
     </>
+  );
+}
+
+// Solo aparece si hay correos pendientes; en rojo si alguno falló.
+function OutboxRow({ state }: { state: ShellState }) {
+  const drafts = useDrafts();
+  const list = drafts.data ?? [];
+  if (list.length === 0) return null;
+  const failed = list.some((d) => d.status === "failed");
+  return (
+    <button
+      type="button"
+      onClick={state.openOutbox}
+      aria-current={state.outbox ? "true" : undefined}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
+        state.outbox && "bg-sidebar-accent font-medium",
+      )}
+    >
+      <span className="text-muted-foreground [&>svg]:size-4">
+        <ClockArrowUpIcon />
+      </span>
+      <span className="min-w-0 flex-1 truncate">Bandeja de salida</span>
+      <span
+        className={cn(
+          "text-xs font-medium tabular-nums",
+          failed ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        {list.length}
+      </span>
+    </button>
   );
 }
 
@@ -184,6 +217,7 @@ export function FolderSidebar({ account, state }: { account: Account; state: She
         {folders.isError && (
           <p className="p-2 text-xs text-destructive">{errorMessage(folders.error)}</p>
         )}
+        <OutboxRow state={state} />
         {tree.map((n) => (
           <FolderRow key={n.name} node={n} depth={0} state={state} />
         ))}

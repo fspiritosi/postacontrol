@@ -38,8 +38,11 @@ export type ShellState = {
   accountId: number;
   folderId: number | null;
   messageId: number | null;
+  // La Bandeja de salida está abierta en lugar de la carpeta folderId.
+  outbox: boolean;
   selectFolder: (id: number | null) => void;
   selectMessage: (id: number | null) => void;
+  openOutbox: () => void;
 };
 
 type Props = {
@@ -48,6 +51,8 @@ type Props = {
   sidebar?: (s: ShellState) => ReactNode;
   list?: (s: ShellState) => ReactNode;
   reader?: (s: ShellState) => ReactNode;
+  // Componentes sin lugar en pantalla que necesitan el estado (p. ej. avisos).
+  extras?: (s: ShellState) => ReactNode;
 };
 
 function Placeholder({ children }: { children: ReactNode }) {
@@ -58,10 +63,11 @@ function Placeholder({ children }: { children: ReactNode }) {
   );
 }
 
-export function MailShell({ accounts, sidebar, list, reader }: Props) {
+export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [accountId] = useState<number>(accounts[0].id);
   const [folderId, setFolderId] = useState<number | null>(null);
   const [messageId, setMessageId] = useState<number | null>(null);
+  const [outbox, setOutbox] = useState(false);
   const account = accounts.find((a) => a.id === accountId) ?? accounts[0];
   const [layout] = useState(loadLayout);
   const composer = useComposer();
@@ -70,15 +76,22 @@ export function MailShell({ accounts, sidebar, list, reader }: Props) {
     accountId: account.id,
     folderId,
     messageId,
+    outbox,
     selectFolder: (id) => {
+      setOutbox(false);
       setFolderId(id);
       setMessageId(null);
     },
     selectMessage: setMessageId,
+    openOutbox: () => {
+      setOutbox(true);
+      setMessageId(null);
+    },
   };
 
   return (
     <div className="h-screen bg-background text-foreground">
+      {extras?.(state)}
       <ResizablePanelGroup
         orientation="horizontal"
         defaultLayout={layout}

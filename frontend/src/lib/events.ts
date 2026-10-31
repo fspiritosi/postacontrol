@@ -128,6 +128,9 @@ export function useMailEvents(queryClient: QueryClient): void {
         setProgress(p.done >= p.total ? null : p);
         refreshThrottled(p.folderId);
       }),
+      Events.On("mail:outbox-updated", () => {
+        void queryClient.invalidateQueries({ queryKey: ["drafts"] });
+      }),
       Events.On("mail:sync-error", (ev) => {
         const { accountId, message } = ev.data as { accountId: number; message: string };
         setProgress(null);

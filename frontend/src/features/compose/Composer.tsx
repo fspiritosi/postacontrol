@@ -1,6 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -28,6 +26,10 @@ import { SafeHtmlFrame } from "../reader/SafeHtmlFrame";
 import type { ComposerInit } from "./ComposerContext";
 import { RecipientInput } from "./RecipientInput";
 import { RichEditor } from "./RichEditor";
+import { sendStarted } from "./sendNotices";
+
+// Cuánto se ve "Enviando…" antes de cerrar: el envío sigue en segundo plano.
+export const SENDING_FEEDBACK_MS = 800;
 
 const TITLES: Record<string, string> = {
   reply: "Responder",
@@ -38,7 +40,6 @@ const TITLES: Record<string, string> = {
 type Props = { init: ComposerInit; onClose: () => void };
 
 export function Composer({ init, onClose }: Props) {
-  const queryClient = useQueryClient();
   const accounts = useAccounts();
   const [accountId, setAccountId] = useState(init.accountId);
   const [to, setTo] = useState(formatRecipients(init.to));
@@ -47,13 +48,10 @@ export function Composer({ init, onClose }: Props) {
   const [showCc, setShowCc] = useState(init.cc.length > 0 || init.bcc.length > 0);
   const [subject, setSubject] = useState(init.subject);
   const [error, setError] = useState<string | null>(null);
-  const [draftSaved, setDraftSaved] = useState(false);
   const [sending, setSending] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [dirty, setDirty] = useState(false);
   const bodyRef = useRef(init.bodyHtml);
-  // Borrador local que corresponde a este correo (si hay): se borra al enviarlo.
-  const draftIdRef = useRef<number | undefined>(init.draftId);
 
   const parsedTo = parseRecipients(to);
   const parsedCc = parseRecipients(cc);
@@ -67,46 +65,15 @@ export function Composer({ init, onClose }: Props) {
     set(v);
   };
 
-  const deleteDraft = async (id: number) => {
-    try {
-      await svc.DeleteLocalDraft(id);
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-    void queryClient.invalidateQueries({ queryKey: ["drafts"] });
-  };
-
-  const listDraftIds = async (): Promise<number[] | null> => {
-    try {
-      return ((await svc.ListLocalDrafts()) ?? []).map((d) => d.id);
-    } catch {
-      return null;
-    }
-  };
-
-  // Tras un fallo el backend ya guardó un borrador (no guardamos otro). Es
-  // "nuevo" solo lo que no estaba en la lista previa al envío. Devuelve true
-  // si se detectó exactamente uno.
-  const trackNewDraft = async (before: number[] | null): Promise<boolean> => {
-    if (before === null) return false;
-    const after = await listDraftIds();
-    if (after === null) return false;
-    const fresh = after.filter((id) => !before.includes(id));
-    if (fresh.length !== 1) return false;
-    const previous = draftIdRef.current;
-    if (previous !== undefined && after.includes(previous)) await deleteDraft(previous);
-    draftIdRef.current = fresh[0];
-    void queryClient.invalidateQueries({ queryKey: ["drafts"] });
-    return true;
-  };
-
+  // El correo entra a la bandeja de salida y se envía en segundo plano; el
+  // resultado lo avisa useSendNotices. Solo los errores de validación dejan
+  // el redactor abierto.
   const send = async () => {
     setSending(true);
     setError(null);
-    setDraftSaved(false);
-    const before = await listDraftIds();
+    const shownAt = Date.now();
     try {
-      const res = await svc.Send({
+      const id = await svc.QueueSend({
         accountId,
         to: parsedTo.valid,
         cc: parsedCc.valid,
@@ -114,16 +81,17 @@ export function Composer({ init, onClose }: Props) {
         subject,
         bodyHtml: bodyRef.current,
         reply: init.reply && init.reply.mode !== "new" ? init.reply : null,
+        draftId: init.draftId,
       });
-      if (draftIdRef.current !== undefined) await deleteDraft(draftIdRef.current);
-      toast.success("Correo enviado");
-      if (res.warning) toast.warning(res.warning);
-      onClose();
+      sendStarted(id);
     } catch (e) {
       setError(errorMessage(e));
-      setDraftSaved(await trackNewDraft(before));
       setSending(false);
+      return;
     }
+    const left = SENDING_FEEDBACK_MS - (Date.now() - shownAt);
+    if (left > 0) await new Promise((r) => setTimeout(r, left));
+    onClose();
   };
 
   const requestClose = () => {
@@ -215,9 +183,7 @@ export function Composer({ init, onClose }: Props) {
 
           {error && (
             <Alert variant="destructive">
-              <AlertDescription>
-                {error}{draftSaved && " Guardamos una copia como borrador local."}
-              </AlertDescription>
+              <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 

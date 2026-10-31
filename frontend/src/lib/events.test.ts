@@ -50,6 +50,11 @@ describe("useMailEvents", () => {
       ([f]: [{ queryKey: unknown[] }]) => f.queryKey[0] === "messages" && f.queryKey[1] === 3,
     ).length;
 
+  it("recarga la bandeja de salida cuando cambia", () => {
+    emit("mail:outbox-updated", null);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["drafts"] });
+  });
+
   it("recarga la lista mientras llegan lotes, como mucho cada 500 ms", () => {
     emit("mail:sync-progress", { folderId: 3, done: 200, total: 1000 });
     expect(messageRefreshes()).toBe(1);

@@ -8,6 +8,7 @@ import type {
 } from "../../../bindings/postacontrol/core/model/models";
 import { errorMessage } from "@/lib/errors";
 import { Composer } from "./Composer";
+import { useSendNotices } from "./sendNotices";
 
 export type ComposerInit = {
   accountId: number;
@@ -18,13 +19,15 @@ export type ComposerInit = {
   bodyHtml: string;
   quotedHtml: string;
   reply: ReplyContext | null; // null: correo nuevo
-  draftId?: number; // borrador local de origen
+  draftId?: number; // correo de la bandeja de salida que se está reintentando
 };
 
 type ComposerApi = {
   openNew(accountId: number): void;
   openFrom(messageId: number, mode: "reply" | "replyAll" | "forward"): Promise<void>;
   openDraft(d: LocalDraft): void;
+  // Abre un correo de la bandeja de salida por id (p. ej. desde un aviso).
+  openDraftById(id: number): Promise<void>;
 };
 
 const Ctx = createContext<ComposerApi | null>(null);
@@ -39,8 +42,20 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<{ key: number; init: ComposerInit } | null>(null);
   const open = useCallback((init: ComposerInit) => setState((s) => ({ key: (s?.key ?? 0) + 1, init })), []);
 
-  const api = useMemo<ComposerApi>(
-    () => ({
+  const api = useMemo<ComposerApi>(() => {
+    const openDraft = (d: LocalDraft) =>
+      open({
+        accountId: d.request.accountId,
+        to: d.request.to ?? [],
+        cc: d.request.cc ?? [],
+        bcc: d.request.bcc ?? [],
+        subject: d.request.subject,
+        bodyHtml: d.request.bodyHtml,
+        quotedHtml: "",
+        reply: d.request.reply,
+        draftId: d.id,
+      });
+    return {
       openNew: (accountId) =>
         open({ accountId, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null }),
       openFrom: async (messageId, mode) => {
@@ -60,21 +75,19 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           toast.error(errorMessage(e));
         }
       },
-      openDraft: (d) =>
-        open({
-          accountId: d.request.accountId,
-          to: d.request.to ?? [],
-          cc: d.request.cc ?? [],
-          bcc: d.request.bcc ?? [],
-          subject: d.request.subject,
-          bodyHtml: d.request.bodyHtml,
-          quotedHtml: "",
-          reply: d.request.reply,
-          draftId: d.id,
-        }),
-    }),
-    [open],
-  );
+      openDraft,
+      openDraftById: async (id) => {
+        try {
+          const d = ((await svc.ListLocalDrafts()) ?? []).find((x) => x.id === id);
+          if (d) openDraft(d);
+          else toast.error("Ese correo ya no está en la Bandeja de salida.");
+        } catch (e) {
+          toast.error(errorMessage(e));
+        }
+      },
+    };
+  }, [open]);
+  useSendNotices(api.openDraftById);
 
   return (
     <Ctx.Provider value={api}>
