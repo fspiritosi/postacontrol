@@ -55,6 +55,17 @@ describe("useMailEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["drafts"] });
   });
 
+  it("al actualizarse una carpeta recarga también las vistas unificadas", () => {
+    emit("mail:folder-updated", { folderId: 3 });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages", 3] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages", "unified"] });
+  });
+
+  it("recarga la configuración cuando cambia", () => {
+    emit("mail:settings-changed", null);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });
+  });
+
   it("recarga la lista mientras llegan lotes, como mucho cada 500 ms", () => {
     emit("mail:sync-progress", { folderId: 3, done: 200, total: 1000 });
     expect(messageRefreshes()).toBe(1);

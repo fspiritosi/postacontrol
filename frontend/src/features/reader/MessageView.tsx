@@ -5,9 +5,9 @@ import type { Account, Address, MessageDetail } from "../../../bindings/postacon
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { errorMessage, isStaleError } from "@/lib/errors";
-import { syncFolder } from "@/lib/events";
+import { syncFolder, syncUnified } from "@/lib/events";
 import { fullDate, initials } from "@/lib/format";
-import { useMessage } from "@/lib/queries";
+import { useAllFolders, useMessage } from "@/lib/queries";
 import { useComposer } from "../compose/ComposerContext";
 import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
@@ -16,7 +16,7 @@ import { SafeHtmlFrame } from "./SafeHtmlFrame";
 export type ComposeMode = "reply" | "replyAll" | "forward";
 
 type Props = {
-  account: Account;
+  accounts: Account[];
   state: ShellState;
   // Por defecto abre el redactor del contexto; se puede reemplazar (tests).
   onCompose?: (messageId: number, mode: ComposeMode) => void;
@@ -24,7 +24,16 @@ type Props = {
 
 const addr = (a: Address) => a.name || a.email;
 
-function Body({ message, account, onCompose }: { message: MessageDetail; account: Account; onCompose?: Props["onCompose"] }) {
+function Body({
+  message,
+  account,
+  onCompose,
+}: {
+  message: MessageDetail;
+  // Puede faltar si la cuenta se quitó mientras el correo estaba abierto.
+  account: Account | undefined;
+  onCompose?: Props["onCompose"];
+}) {
   // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
   const [allowRemote, setAllowRemote] = useState(false);
   const composer = useComposer();
@@ -68,12 +77,17 @@ function Body({ message, account, onCompose }: { message: MessageDetail; account
                 para {to.length ? to.map(addr).join(", ") : "—"}
               </p>
               <p className="truncate text-xs text-muted-foreground">
-                <span
-                  className="mr-1.5 inline-block size-2 rounded-full align-middle"
-                  style={{ backgroundColor: account.color }}
-                  aria-hidden
-                />
-                {account.email} · {fullDate(message.date)}
+                {account && (
+                  <>
+                    <span
+                      className="mr-1.5 inline-block size-2 rounded-full align-middle"
+                      style={{ backgroundColor: account.color }}
+                      aria-hidden
+                    />
+                    {account.email} ·{" "}
+                  </>
+                )}
+                {fullDate(message.date)}
               </p>
             </div>
           </div>
@@ -95,9 +109,10 @@ function Body({ message, account, onCompose }: { message: MessageDetail; account
   );
 }
 
-export function MessageView({ account, state, onCompose }: Props) {
+export function MessageView({ accounts, state, onCompose }: Props) {
   const queryClient = useQueryClient();
   const message = useMessage(state.messageId);
+  const { folders } = useAllFolders(accounts);
 
   if (state.messageId == null) {
     return (
@@ -110,18 +125,26 @@ export function MessageView({ account, state, onCompose }: Props) {
   if (message.isError) {
     const msg = errorMessage(message.error);
     const stale = isStaleError(message.error);
-    const refreshFolder = async () => {
-      if (state.folderId == null) return;
-      if (await syncFolder(account.id, state.folderId)) {
-        state.selectMessage(null);
-        void queryClient.invalidateQueries({ queryKey: ["messages", state.folderId] });
+    // El correo ya no está en el servidor: se vuelve a sincronizar lo que
+    // muestra la lista y se cierra el correo.
+    const refreshView = async () => {
+      const v = state.view;
+      let key: unknown[] | null = null;
+      if (v?.kind === "folder") {
+        const f = folders.find((x) => x.id === v.folderId);
+        if (f && (await syncFolder(f.accountId, f.id))) key = ["messages", f.id];
+      } else if (v?.kind === "unified") {
+        if (await syncUnified(v.role)) key = ["messages", "unified", v.role];
       }
+      if (!key) return;
+      state.selectMessage(null);
+      void queryClient.invalidateQueries({ queryKey: key });
     };
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm">
         <p className="text-destructive">{msg}</p>
         {stale ? (
-          <Button size="sm" variant="outline" onClick={() => void refreshFolder()}>
+          <Button size="sm" variant="outline" onClick={() => void refreshView()}>
             Actualizar carpeta
           </Button>
         ) : (
@@ -133,6 +156,11 @@ export function MessageView({ account, state, onCompose }: Props) {
     );
   }
   return (
-    <Body key={message.data.id} message={message.data} account={account} onCompose={onCompose} />
+    <Body
+      key={message.data.id}
+      message={message.data}
+      account={accounts.find((a) => a.id === message.data.accountId)}
+      onCompose={onCompose}
+    />
   );
 }

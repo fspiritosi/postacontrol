@@ -6,22 +6,28 @@ import { errorMessage } from "@/lib/errors";
 import { useFolderSyncing, useSyncProgress } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
 import { relativeDate } from "@/lib/format";
-import { useFolders, useMessages } from "@/lib/queries";
+import { useAllFolders, useMessages } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { UNIFIED_LABEL } from "@/lib/view";
 import type { ShellState } from "../layout/MailShell";
 
-export function MessageList({ account, state }: { account: Account; state: ShellState }) {
+export function MessageList({ accounts, state }: { accounts: Account[]; state: ShellState }) {
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const folders = useFolders(account.id);
-  const messages = useMessages(state.folderId, unreadOnly);
+  const { view } = state;
+  const folderId = view?.kind === "folder" ? view.folderId : null;
+  const { folders } = useAllFolders(accounts);
+  const messages = useMessages(view, unreadOnly);
   const progress = useSyncProgress();
-  const folderSyncing = useFolderSyncing(state.folderId);
+  const folderSyncing = useFolderSyncing(folderId);
 
-  const folder = folders.data?.find((f) => f.id === state.folderId);
+  const folder = folders.find((f) => f.id === folderId);
+  const title =
+    view?.kind === "unified" ? UNIFIED_LABEL[view.role] : folder ? folderLabel(folder) : "";
   const items = messages.data?.pages.flat() ?? [];
-  const syncing = progress != null && progress.folderId === state.folderId;
+  const syncing = progress != null && folderId != null && progress.folderId === folderId;
+  const colorOf = (accountId: number) => accounts.find((a) => a.id === accountId)?.color;
 
-  if (state.folderId == null) {
+  if (view == null || view.kind === "outbox") {
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
         Elegí una carpeta
@@ -32,9 +38,7 @@ export function MessageList({ account, state }: { account: Account; state: Shell
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
-        <h2 className="truncate text-sm font-semibold">
-          {folder ? folderLabel(folder) : ""}
-        </h2>
+        <h2 className="truncate text-sm font-semibold">{title}</h2>
         <div className="flex rounded-md bg-muted p-0.5 text-xs" role="group" aria-label="Filtro">
           {[
             { label: "Todos", value: false },
@@ -73,7 +77,11 @@ export function MessageList({ account, state }: { account: Account; state: Shell
         )}
         {!messages.isPending && !messages.isError && items.length === 0 && (
           <p className="p-6 text-center text-sm text-muted-foreground" aria-live="polite">
-            {folderSyncing ? "Sincronizando…" : "No hay correos en esta carpeta."}
+            {folderSyncing
+              ? "Sincronizando…"
+              : view.kind === "unified"
+                ? "No hay correos en esta vista."
+                : "No hay correos en esta carpeta."}
           </p>
         )}
         <ul>
@@ -93,7 +101,7 @@ export function MessageList({ account, state }: { account: Account; state: Shell
                   <span className="flex items-center gap-2">
                     <span
                       className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: account.color }}
+                      style={{ backgroundColor: colorOf(m.accountId) }}
                       aria-hidden
                     />
                     <span

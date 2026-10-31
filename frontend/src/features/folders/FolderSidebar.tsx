@@ -10,7 +10,7 @@ import {
   ShieldAlertIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
@@ -32,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/lib/errors";
-import { syncFolder, toastSyncError } from "@/lib/events";
+import { toastSyncError } from "@/lib/events";
 import { buildFolderTree, type FolderNode } from "@/lib/folders";
 import { useDrafts, useFolders } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -56,12 +56,9 @@ function FolderRow({
   depth: number;
   state: ShellState;
 }) {
-  const active = node.id !== 0 && !state.outbox && state.folderId === node.id;
-  const select = () => {
-    state.selectFolder(node.id);
-    // Sin await: la lista se refresca por eventos cuando termina.
-    void syncFolder(state.accountId, node.id);
-  };
+  const active = node.id !== 0 && state.view?.kind === "folder" && state.view.folderId === node.id;
+  // selectView también pide sincronizar la carpeta.
+  const select = () => state.selectView({ kind: "folder", folderId: node.id });
   return (
     <>
       {node.selectable && node.id !== 0 ? (
@@ -107,14 +104,15 @@ function OutboxRow({ state }: { state: ShellState }) {
   const list = drafts.data ?? [];
   if (list.length === 0) return null;
   const failed = list.some((d) => d.status === "failed");
+  const active = state.view?.kind === "outbox";
   return (
     <button
       type="button"
-      onClick={state.openOutbox}
-      aria-current={state.outbox ? "true" : undefined}
+      onClick={() => state.selectView({ kind: "outbox" })}
+      aria-current={active ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
-        state.outbox && "bg-sidebar-accent font-medium",
+        active && "bg-sidebar-accent font-medium",
       )}
     >
       <span className="text-muted-foreground [&>svg]:size-4">
@@ -139,18 +137,8 @@ export function FolderSidebar({ account, state }: { account: Account; state: She
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
 
+  // La vista inicial (y la de reemplazo si esta cuenta se quita) la elige MailShell.
   const tree = buildFolderTree(folders.data ?? []);
-  const { folderId, selectFolder } = state;
-
-  // Al cargar las carpetas por primera vez se abre la Entrada.
-  useEffect(() => {
-    if (folderId != null) return;
-    const inbox = (folders.data ?? []).find((f) => f.role === "inbox" && f.selectable);
-    if (inbox) {
-      selectFolder(inbox.id);
-      void syncFolder(account.id, inbox.id);
-    }
-  }, [folders.data, folderId, selectFolder, account.id]);
 
   const refresh = () => {
     svc.SyncAccount(account.id).catch((e) => toastSyncError(account.id, e));
@@ -170,7 +158,9 @@ export function FolderSidebar({ account, state }: { account: Account; state: She
     try {
       await svc.RemoveAccount(account.id);
       setConfirmOpen(false);
-      selectFolder(null); // limpia carpeta y mensaje de la cuenta borrada
+      // El mensaje abierto puede ser de la cuenta borrada; la vista vuelve
+      // sola a la de por defecto cuando deja de existir su carpeta.
+      state.selectMessage(null);
       void queryClient.invalidateQueries({ queryKey: ["accounts"] });
     } catch (e) {
       toast.error(errorMessage(e));

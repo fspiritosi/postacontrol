@@ -1,6 +1,9 @@
 import { MailIcon, PencilIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import type { Account } from "../../../bindings/postacontrol/core/model/models";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
+import { syncFolder, syncUnified } from "@/lib/events";
+import { useAllFolders, useSettings } from "@/lib/queries";
+import { defaultView, loadView, saveView, viewAccount, viewIsValid, type View } from "@/lib/view";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useComposer } from "../compose/ComposerContext";
@@ -35,14 +38,11 @@ function saveLayout(layout: Record<string, number>) {
 }
 
 export type ShellState = {
-  accountId: number;
-  folderId: number | null;
+  view: View | null;
   messageId: number | null;
-  // La Bandeja de salida está abierta en lugar de la carpeta folderId.
-  outbox: boolean;
-  selectFolder: (id: number | null) => void;
+  // Cambia la vista (que se guarda y se sincroniza) y limpia el mensaje abierto.
+  selectView: (v: View) => void;
   selectMessage: (id: number | null) => void;
-  openOutbox: () => void;
 };
 
 type Props = {
@@ -63,30 +63,67 @@ function Placeholder({ children }: { children: ReactNode }) {
   );
 }
 
+// Pide sincronizar lo que muestra la vista, sin esperar: la lista se
+// refresca por eventos cuando termina.
+function syncView(v: View, folders: Folder[]) {
+  if (v.kind === "folder") {
+    const f = folders.find((x) => x.id === v.folderId);
+    if (f) void syncFolder(f.accountId, f.id);
+  } else if (v.kind === "unified") {
+    void syncUnified(v.role);
+  }
+}
+
 export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
-  const [accountId] = useState<number>(accounts[0].id);
-  const [folderId, setFolderId] = useState<number | null>(null);
+  const [chosen, setChosen] = useState<View | null>(loadView);
   const [messageId, setMessageId] = useState<number | null>(null);
-  const [outbox, setOutbox] = useState(false);
-  const account = accounts.find((a) => a.id === accountId) ?? accounts[0];
+  const { folders, pending } = useAllFolders(accounts);
+  const settings = useSettings();
   const [layout] = useState(loadLayout);
   const composer = useComposer();
+  // La última vista elegida que ya se guardó y se mandó a sincronizar.
+  const syncedRef = useRef<View | null>(null);
+
+  const unifiedEnabled = settings.data?.unifiedInbox ?? false;
+  // Mientras cargan las carpetas o la configuración no se puede saber si la
+  // vista sigue existiendo: se la deja como está.
+  const ready = !pending && !settings.isPending;
+  const valid = chosen != null && viewIsValid(chosen, folders, unifiedEnabled);
+
+  // Si la vista dejó de valer (se quitó la cuenta, se apagó la unificada) se
+  // pasa a la de por defecto ya en este render, para no mostrar una vista que
+  // no existe. Deja de cumplirse apenas se aplica: la de por defecto es válida.
+  if (ready && !valid) {
+    const d = defaultView(folders);
+    if (d) {
+      setChosen(d);
+      setMessageId(null);
+    }
+  }
+
+  // Cada vista elegida (un objeto nuevo por elección, así volver a hacer clic
+  // en la misma carpeta la sincroniza otra vez) se guarda y se sincroniza sin
+  // esperar: la lista se refresca por eventos cuando termina.
+  useEffect(() => {
+    if (!ready || !valid || chosen == null || syncedRef.current === chosen) return;
+    syncedRef.current = chosen;
+    saveView(chosen);
+    syncView(chosen, folders);
+  }, [ready, valid, chosen, folders]);
+
+  const selectView = useCallback((v: View) => {
+    setChosen(v);
+    setMessageId(null);
+  }, []);
+
+  const view = !ready || valid ? chosen : null;
+  const composeAccount = viewAccount(view, folders, accounts) ?? accounts[0];
 
   const state: ShellState = {
-    accountId: account.id,
-    folderId,
+    view,
     messageId,
-    outbox,
-    selectFolder: (id) => {
-      setOutbox(false);
-      setFolderId(id);
-      setMessageId(null);
-    },
+    selectView,
     selectMessage: setMessageId,
-    openOutbox: () => {
-      setOutbox(true);
-      setMessageId(null);
-    },
   };
 
   return (
@@ -100,7 +137,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
         <ResizablePanel id="sidebar" defaultSize={`${layout.sidebar}%`} minSize="14%" className="bg-sidebar">
           <div className="flex h-full flex-col">
             <div className="p-2">
-              <Button className="w-full" onClick={() => composer.openNew(account.id)}>
+              <Button className="w-full" onClick={() => composer.openNew(composeAccount.id)}>
                 <PencilIcon />
                 Redactar
               </Button>
@@ -111,11 +148,11 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
               ) : (
                 <div className="flex items-center gap-2.5 border-b p-3">
                   <Avatar className="size-8">
-                    <AvatarFallback>{account.email.slice(0, 1).toUpperCase()}</AvatarFallback>
+                    <AvatarFallback>{composeAccount.email.slice(0, 1).toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{account.displayName || account.email}</p>
-                    <p className="truncate text-xs text-muted-foreground">{account.email}</p>
+                    <p className="truncate text-sm font-medium">{composeAccount.displayName || composeAccount.email}</p>
+                    <p className="truncate text-xs text-muted-foreground">{composeAccount.email}</p>
                   </div>
                 </div>
               )}

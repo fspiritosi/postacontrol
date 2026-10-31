@@ -16,6 +16,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import type { ShellState } from "../layout/MailShell";
 import { FolderSidebar } from "./FolderSidebar";
 
 const account: Account = {
@@ -25,9 +26,11 @@ const account: Account = {
   saveSentCopy: true,
 };
 
-const baseState = {
-  accountId: 7, folderId: 3, messageId: null, outbox: false,
-  selectFolder: vi.fn(), selectMessage: vi.fn(), openOutbox: vi.fn(),
+const baseState: ShellState = {
+  view: { kind: "folder", folderId: 3 },
+  messageId: null,
+  selectView: vi.fn(),
+  selectMessage: vi.fn(),
 };
 
 describe("FolderSidebar", () => {
@@ -37,16 +40,34 @@ describe("FolderSidebar", () => {
       { id: 2, status: "sending" },
     ] as never);
     const user = userEvent.setup();
-    const openOutbox = vi.fn();
+    const selectView = vi.fn();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <FolderSidebar account={account} state={{ ...baseState, openOutbox }} />
+        <FolderSidebar account={account} state={{ ...baseState, selectView }} />
       </QueryClientProvider>,
     );
     const row = await screen.findByRole("button", { name: /Bandeja de salida/ });
     expect(row.textContent).toContain("2");
     await user.click(row);
-    expect(openOutbox).toHaveBeenCalled();
+    expect(selectView).toHaveBeenCalledWith({ kind: "outbox" });
+  });
+
+  it("al elegir una carpeta abre su vista y marca la activa", async () => {
+    vi.mocked(svc.ListFolders).mockResolvedValueOnce([
+      { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true },
+      { id: 4, accountId: 7, name: "Sent", delimiter: "/", role: "sent", unread: 0, total: 0, selectable: true },
+    ]);
+    const user = userEvent.setup();
+    const selectView = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <FolderSidebar account={account} state={{ ...baseState, selectView }} />
+      </QueryClientProvider>,
+    );
+    const inbox = await screen.findByRole("button", { name: "Entrada" });
+    expect(inbox.getAttribute("aria-current")).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Enviados" }));
+    expect(selectView).toHaveBeenCalledWith({ kind: "folder", folderId: 4 });
   });
 
   it("sin pendientes no muestra la Bandeja de salida", async () => {
@@ -59,14 +80,14 @@ describe("FolderSidebar", () => {
     expect(screen.queryByRole("button", { name: /Bandeja de salida/ })).toBeNull();
   });
 
-  it("al quitar la cuenta limpia la carpeta y el mensaje seleccionados", async () => {
+  it("al quitar la cuenta limpia el mensaje seleccionado", async () => {
     const user = userEvent.setup();
-    const selectFolder = vi.fn();
+    const selectMessage = vi.fn();
     render(
       <QueryClientProvider client={new QueryClient()}>
         <FolderSidebar
           account={account}
-          state={{ ...baseState, messageId: 9, selectFolder }}
+          state={{ ...baseState, messageId: 9, selectMessage }}
         />
       </QueryClientProvider>,
     );
@@ -75,7 +96,7 @@ describe("FolderSidebar", () => {
     expect(screen.getByText(/Se borra la copia local/)).toBeTruthy();
     await user.click(screen.getAllByRole("button", { name: "Quitar cuenta" }).pop()!);
     await waitFor(() => expect(svc.RemoveAccount).toHaveBeenCalledWith(7));
-    await waitFor(() => expect(selectFolder).toHaveBeenCalledWith(null));
+    await waitFor(() => expect(selectMessage).toHaveBeenCalledWith(null));
   });
 
   it("el menú de la cuenta muestra y cambia Guardar copia en Enviados", async () => {

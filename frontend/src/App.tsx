@@ -1,15 +1,17 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import type { Account } from "../bindings/postacontrol/core/model/models";
 import { ComposerProvider } from "./features/compose/ComposerContext";
 import { Welcome } from "./features/accounts/Welcome";
 import { FolderSidebar } from "./features/folders/FolderSidebar";
-import { MailShell } from "./features/layout/MailShell";
+import { MailShell, type ShellState } from "./features/layout/MailShell";
 import { MessageList } from "./features/messages/MessageList";
 import { OutboxList } from "./features/outbox/OutboxList";
 import { MessageView } from "./features/reader/MessageView";
 import { useMailEvents } from "./lib/events";
-import { useAccounts, useDrafts } from "./lib/queries";
+import { useAccounts, useAllFolders, useDrafts } from "./lib/queries";
+import { viewAccount } from "./lib/view";
 import { errorMessage } from "./lib/errors";
 
 // Avisa una vez al arrancar si quedaron correos sin enviar en la Bandeja de salida.
@@ -34,6 +36,14 @@ function DraftsNotice({ onOpen }: { onOpen: () => void }) {
   return null;
 }
 
+// Hasta que la barra lateral muestre todas las cuentas, muestra la de la
+// carpeta abierta (o la primera, en una vista unificada o la Bandeja de salida).
+function Sidebar({ accounts, state }: { accounts: Account[]; state: ShellState }) {
+  const { folders } = useAllFolders(accounts);
+  const account = viewAccount(state.view, folders, accounts) ?? accounts[0];
+  return <FolderSidebar account={account} state={state} />;
+}
+
 export default function App() {
   const queryClient = useQueryClient();
   useMailEvents(queryClient);
@@ -49,23 +59,22 @@ export default function App() {
   }
   if (accounts.data.length === 0) return <Welcome />;
   const all = accounts.data;
-  const acc = (id: number) => all.find((a) => a.id === id) ?? all[0];
   return (
     <ComposerProvider>
       <MailShell
         accounts={all}
-        extras={(s) => <DraftsNotice onOpen={s.openOutbox} />}
-        sidebar={(s) => <FolderSidebar account={acc(s.accountId)} state={s} />}
+        extras={(s) => <DraftsNotice onOpen={() => s.selectView({ kind: "outbox" })} />}
+        sidebar={(s) => <Sidebar accounts={all} state={s} />}
         list={(s) =>
-          s.outbox ? <OutboxList /> : <MessageList account={acc(s.accountId)} state={s} />
+          s.view?.kind === "outbox" ? <OutboxList /> : <MessageList accounts={all} state={s} />
         }
         reader={(s) =>
-          s.outbox ? (
+          s.view?.kind === "outbox" ? (
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
               Abrí un correo de la Bandeja de salida para revisarlo, o reintentá el envío.
             </div>
           ) : (
-            <MessageView account={acc(s.accountId)} state={s} />
+            <MessageView accounts={all} state={s} />
           )
         }
       />

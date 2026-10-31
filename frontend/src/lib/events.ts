@@ -3,7 +3,9 @@ import { Events } from "@wailsio/runtime";
 import { useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
+import type { UnifiedView } from "../../bindings/postacontrol/core/model/models";
 import { errorMessage } from "./errors";
+import type { UnifiedRole } from "./view";
 
 export type SyncProgress = { folderId: number; done: number; total: number };
 
@@ -76,6 +78,19 @@ export async function syncFolder(accountId: number, folderId: number): Promise<b
   }
 }
 
+// syncUnified pide sincronizar las carpetas de un rol de todas las cuentas.
+// Los errores de cada cuenta llegan por mail:sync-error; acá solo se avisa si
+// falla la llamada entera.
+export async function syncUnified(role: UnifiedRole): Promise<boolean> {
+  try {
+    await svc.SyncUnified(role as UnifiedView);
+    return true;
+  } catch (e) {
+    toast.error(errorMessage(e), { id: "sync-error-unified" });
+    return false;
+  }
+}
+
 // Solo para tests: vuelve el estado del módulo a cero.
 export function resetSyncStateForTests(): void {
   progress = null;
@@ -121,7 +136,12 @@ export function useMailEvents(queryClient: QueryClient): void {
         const { folderId } = ev.data as { folderId: number };
         if (progress?.folderId === folderId) setProgress(null);
         void queryClient.invalidateQueries({ queryKey: ["messages", folderId] });
+        // La carpeta puede formar parte de una vista unificada.
+        void queryClient.invalidateQueries({ queryKey: ["messages", "unified"] });
         void queryClient.invalidateQueries({ queryKey: ["folders"] });
+      }),
+      Events.On("mail:settings-changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["settings"] });
       }),
       Events.On("mail:sync-progress", (ev) => {
         const p = ev.data as SyncProgress;
