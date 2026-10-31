@@ -11,6 +11,8 @@ export type SyncProgress = { folderId: number; done: number; total: number };
 
 // Cada cuánto, como mucho, se recarga la lista mientras llegan lotes.
 export const PROGRESS_REFRESH_MS = 500;
+// Cada cuánto, como mucho, se rehace la búsqueda abierta mientras se actualizan carpetas.
+export const SEARCH_REFRESH_MS = 2000;
 
 let progress: SyncProgress | null = null;
 // Sincronizaciones pedidas desde la UI que todavía no terminaron, por carpeta.
@@ -146,8 +148,8 @@ export function useMailEvents(queryClient: QueryClient): void {
     const trailing = new Map<number, ReturnType<typeof setTimeout>>();
     const refreshMessages = (folderId: number) => {
       lastRefresh.set(folderId, Date.now());
+      // Los hilos no: agruparlos es más caro y se recargan con mail:folder-updated.
       void queryClient.invalidateQueries({ queryKey: ["messages", folderId] });
-      void queryClient.invalidateQueries({ queryKey: ["threads", folderId] });
     };
     const refreshThrottled = (folderId: number) => {
       const wait = PROGRESS_REFRESH_MS - (Date.now() - (lastRefresh.get(folderId) ?? 0));
@@ -161,6 +163,26 @@ export function useMailEvents(queryClient: QueryClient): void {
             refreshMessages(folderId);
           }, wait),
         );
+      }
+    };
+
+    // La búsqueda abierta (y su "falta indexar") se rehace como mucho cada
+    // SEARCH_REFRESH_MS, con una última al final del intervalo.
+    let lastSearch = 0;
+    let searchTrailing: ReturnType<typeof setTimeout> | null = null;
+    const refreshSearch = () => {
+      lastSearch = Date.now();
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+    };
+    const refreshSearchThrottled = () => {
+      const wait = SEARCH_REFRESH_MS - (Date.now() - lastSearch);
+      if (wait <= 0) {
+        refreshSearch();
+      } else if (searchTrailing == null) {
+        searchTrailing = setTimeout(() => {
+          searchTrailing = null;
+          refreshSearch();
+        }, wait);
       }
     };
 
@@ -182,6 +204,7 @@ export function useMailEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ["threads"] });
         void queryClient.invalidateQueries({ queryKey: ["thread"] });
         void queryClient.invalidateQueries({ queryKey: ["folders"] });
+        refreshSearchThrottled();
       }),
       Events.On("mail:settings-changed", () => {
         void queryClient.invalidateQueries({ queryKey: ["settings"] });
@@ -208,6 +231,7 @@ export function useMailEvents(queryClient: QueryClient): void {
     return () => {
       offs.forEach((off) => off());
       trailing.forEach((t) => clearTimeout(t));
+      if (searchTrailing != null) clearTimeout(searchTrailing);
     };
   }, [queryClient]);
 }

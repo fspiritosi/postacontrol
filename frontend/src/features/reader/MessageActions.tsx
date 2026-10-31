@@ -44,6 +44,8 @@ export function MessageActions({ message, selectMessage }: Props) {
     void queryClient.invalidateQueries({ queryKey: ["threads"] });
     void queryClient.invalidateQueries({ queryKey: ["thread"] });
     void queryClient.invalidateQueries({ queryKey: ["folders"] });
+    // Lo movido, borrado o marcado puede estar en los resultados de la búsqueda.
+    void queryClient.invalidateQueries({ queryKey: ["search"] });
   };
   const run = async (fn: () => Promise<void>, after?: () => void) => {
     try {

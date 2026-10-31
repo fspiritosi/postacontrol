@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
 import {
   PROGRESS_REFRESH_MS,
+  SEARCH_REFRESH_MS,
   onOpenMessage,
   onPasswordRequest,
   resetSyncStateForTests,
@@ -78,6 +79,34 @@ describe("useMailEvents", () => {
     emit("mail:folder-updated", { folderId: 3 });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["threads"] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["thread"] });
+  });
+
+  it("los lotes de sincronización no recargan los hilos (solo al terminar la carpeta)", () => {
+    emit("mail:sync-progress", { folderId: 3, done: 200, total: 1000 });
+    act(() => vi.advanceTimersByTime(PROGRESS_REFRESH_MS));
+    emit("mail:sync-progress", { folderId: 3, done: 400, total: 1000 });
+    act(() => vi.advanceTimersByTime(PROGRESS_REFRESH_MS));
+    expect(messageRefreshes()).toBe(2);
+    const threads = invalidate.mock.calls.filter(
+      ([f]: [{ queryKey: unknown[] }]) => f.queryKey[0] === "threads",
+    );
+    expect(threads).toHaveLength(0);
+  });
+
+  it("al actualizarse carpetas recarga la búsqueda, como mucho cada 2 s y con una última al final", () => {
+    const searchRefreshes = () =>
+      invalidate.mock.calls.filter(([f]: [{ queryKey: unknown[] }]) => f.queryKey[0] === "search")
+        .length;
+    emit("mail:folder-updated", { folderId: 3 });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["search"] });
+    expect(searchRefreshes()).toBe(1);
+    emit("mail:folder-updated", { folderId: 4 });
+    emit("mail:folder-updated", { folderId: 3 });
+    expect(searchRefreshes()).toBe(1);
+    act(() => vi.advanceTimersByTime(SEARCH_REFRESH_MS));
+    expect(searchRefreshes()).toBe(2);
+    act(() => vi.advanceTimersByTime(SEARCH_REFRESH_MS * 3));
+    expect(searchRefreshes()).toBe(2);
   });
 
   it("recarga la configuración cuando cambia", () => {

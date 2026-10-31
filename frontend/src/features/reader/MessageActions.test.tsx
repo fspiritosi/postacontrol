@@ -37,12 +37,12 @@ function msg(folderId: number, flagged = false): MessageDetail {
   };
 }
 
-function setup(m: MessageDetail) {
+function setup(m: MessageDetail, qc = new QueryClient()) {
   vi.mocked(svc.ListFolders).mockResolvedValue(folders);
   const selectMessage = vi.fn();
   const user = userEvent.setup();
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={qc}>
       <MessageActions message={m} selectMessage={selectMessage} />
     </QueryClientProvider>,
   );
@@ -131,5 +131,13 @@ describe("MessageActions", () => {
     expect(star.getAttribute("aria-pressed")).toBe("true");
     await user.click(star);
     await waitFor(() => expect(svc.SetFlagged).toHaveBeenCalledWith([55], false));
+  });
+
+  it("después de una acción rehace la búsqueda abierta", async () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { user } = setup(msg(1), qc);
+    await user.click(screen.getByRole("button", { name: "Marcar como no leído" }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["search"] }));
   });
 });
