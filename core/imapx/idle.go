@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -43,9 +44,15 @@ func DialWatch(ctx context.Context, s model.ServerSettings, username, password s
 }
 
 // IdleWatch abre mailbox en solo lectura y queda en IDLE. Bloquea hasta que
-// ctx se cancela (cierra el IDLE y devuelve ctx.Err()) o la conexión se corta
-// (devuelve un error que envuelve ErrNetwork). Si el servidor no anuncia
-// IDLE devuelve ErrUnsupported sin mandar nada.
+// ctx se cancela (cierra el IDLE y devuelve ctx.Err()) o la conexión o el IDLE
+// se cortan (devuelve un error que envuelve ErrNetwork, incluso si go-imap no
+// logra reiniciar el IDLE o el servidor lo termina). Si el servidor no
+// anuncia IDLE devuelve ErrUnsupported sin mandar nada.
+//
+// Hay una ventana entre el SELECT y el arranque del IDLE en la que un cambio
+// no genera aviso: quien llama debe sincronizar la carpeta justo después de
+// arrancar IdleWatch y después de cada reconexión. Solo se admite un
+// IdleWatch a la vez por Conn.
 func (c *Conn) IdleWatch(ctx context.Context, mailbox string) error {
 	if !c.c.Caps().Has(imap.CapIdle) {
 		return fmt.Errorf("%w: IDLE", ErrUnsupported)
@@ -59,21 +66,45 @@ func (c *Conn) IdleWatch(ctx context.Context, mailbox string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cmd, err := c.c.Idle()
-	if err != nil {
-		return opErr("idle", err)
-	}
+	// El EXISTS del SELECT ya se consumió; activar los avisos antes de Idle()
+	// para no perder los que lleguen justo tras la continuación.
 	if c.live != nil {
 		c.live.Store(true)
 		defer c.live.Store(false)
 	}
+	cmd, err := c.c.Idle()
+	if err != nil {
+		return opErr("idle", err)
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+
 	select {
 	case <-ctx.Done():
 		_ = cmd.Close()
-		_ = cmd.Wait()
+		select {
+		case <-waited:
+		case <-time.After(idleCloseTimeout):
+			_ = c.c.Close()
+		}
 		return ctx.Err()
 	case <-c.c.Closed():
 		_ = cmd.Close()
-		return fmt.Errorf("imapx: idle: %w: conexión cerrada", ErrNetwork)
+		return fmt.Errorf("imapx: idle: %w: conexión cerrada%s", ErrNetwork, causeSuffix(<-waited))
+	case err := <-waited:
+		// IDLE terminó sin que lo pidiéramos: reiniciar falló o el servidor lo cerró.
+		if err == nil {
+			return fmt.Errorf("imapx: idle: %w: el servidor terminó el IDLE", ErrNetwork)
+		}
+		return opErr("idle", err)
 	}
+}
+
+const idleCloseTimeout = 5 * time.Second
+
+func causeSuffix(err error) string {
+	if err == nil {
+		return ""
+	}
+	return ": " + err.Error()
 }

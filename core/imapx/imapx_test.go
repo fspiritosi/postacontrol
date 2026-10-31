@@ -685,17 +685,7 @@ func TestIdleWatch_NotifiesOnNewMessage(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- c.IdleWatch(ctx, "INBOX") }()
 
-	// Dar tiempo a que arranque el IDLE y descartar avisos del SELECT.
-	time.Sleep(300 * time.Millisecond)
-	for len(changed) > 0 {
-		<-changed
-	}
-	s.Deliver(t, "INBOX", plainMsg("nuevo", ""))
-	select {
-	case <-changed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("no llegó el aviso de correo nuevo")
-	}
+	waitChange(t, s, changed)
 
 	cancel()
 	select {
@@ -708,10 +698,16 @@ func TestIdleWatch_NotifiesOnNewMessage(t *testing.T) {
 
 func TestIdleWatch_ServerGoneIsNetworkError(t *testing.T) {
 	s, tlsc := setup(t)
-	c := dialWatch(t, s, tlsc, func() {})
+	changed := make(chan struct{}, 8)
+	c := dialWatch(t, s, tlsc, func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	})
 	done := make(chan error, 1)
 	go func() { done <- c.IdleWatch(context.Background(), "INBOX") }()
-	time.Sleep(300 * time.Millisecond)
+	waitChange(t, s, changed) // el IDLE ya está activo
 	s.Close()
 	select {
 	case err := <-done:
@@ -735,5 +731,21 @@ func TestIdleWatch_NoIdleCapIsUnsupported(t *testing.T) {
 		assert.ErrorIs(t, err, imapx.ErrUnsupported)
 	case <-time.After(2 * time.Second):
 		t.Fatal("debía volver enseguida")
+	}
+}
+
+// waitChange entrega correos hasta que onChange avisa (el IDLE está activo).
+func waitChange(t *testing.T, s *testenv.IMAP, changed <-chan struct{}) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		s.Deliver(t, "INBOX", plainMsg("sonda", ""))
+		select {
+		case <-changed:
+			return
+		case <-deadline:
+			t.Fatal("no llegó el aviso de correo nuevo")
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 }
