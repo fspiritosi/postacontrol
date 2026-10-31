@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"sync"
+	"time"
 
 	"postacontrol/core/autoconfig"
 	"postacontrol/core/imapx"
@@ -60,6 +61,12 @@ type Core struct {
 	// conexión se toma lote por lote, así que dos pasadas se intercalarían).
 	syncLocksMu sync.Mutex
 	syncLocks   map[int64]*sync.Mutex
+
+	// now es el reloj (se inyecta en los tests). authFailedAt anota cuándo el
+	// servidor rechazó por última vez la contraseña de cada cuenta.
+	now          func() time.Time
+	authMu       sync.Mutex
+	authFailedAt map[int64]time.Time
 }
 
 func New(cfg Config) (*Core, error) {
@@ -74,7 +81,8 @@ func New(cfg Config) (*Core, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
-		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{}}, nil
+		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{},
+		now: time.Now, authFailedAt: map[int64]time.Time{}}, nil
 }
 
 // Close cancela las sincronizaciones en curso, espera a que terminen, cierra
@@ -224,6 +232,9 @@ func (c *Core) useConn(ctx context.Context, accountID int64, attempts int, fn fu
 	err = c.ctxOrUserError(ctx, err)
 	var ue *UserError
 	if errors.As(err, &ue) && (ue.Code == "network" || ue.Code == "auth" || ue.Code == "tls") {
+		if ue.Code == "auth" {
+			c.noteAuthFailure(accountID)
+		}
 		c.emit(EventSyncError, map[string]any{"accountId": accountID, "message": ue.Msg})
 	}
 	return err

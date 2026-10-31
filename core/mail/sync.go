@@ -277,19 +277,28 @@ func (c *Core) StartBackgroundSync(ctx context.Context, every time.Duration) {
 				return
 			case <-t.C:
 			}
-			accs, err := c.store.ListAccounts(ctx)
-			if err != nil {
-				continue
-			}
-			for _, a := range accs {
-				if ctx.Err() != nil {
-					return
-				}
-				// Los errores de conexión ya los avisa withConn con EventSyncError.
-				_ = c.SyncAccount(ctx, a.ID)
-			}
+			c.backgroundPass(ctx)
 		}
 	})
+}
+
+// backgroundPass sincroniza todas las cuentas una vez, salteando las que están
+// en pausa por una contraseña rechazada. Lo que pide el usuario no pasa por acá.
+func (c *Core) backgroundPass(ctx context.Context) {
+	accs, err := c.store.ListAccounts(ctx)
+	if err != nil {
+		return
+	}
+	for _, a := range accs {
+		if ctx.Err() != nil {
+			return
+		}
+		if c.authPaused(a.ID) {
+			continue
+		}
+		// Los errores de conexión ya los avisa withConn con EventSyncError.
+		_ = c.SyncAccount(ctx, a.ID)
+	}
 }
 
 func headerRows(hs []imapx.RemoteHeader) []store.HeaderRow {
