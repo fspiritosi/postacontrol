@@ -106,6 +106,7 @@ describe("FolderSidebar", () => {
     renderSidebar([account]);
     expect(await screen.findByText("Todas las cuentas")).toBeTruthy();
     await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50)); // deja que la carpeta llegue y se renderice, si pudiera
     expect(screen.queryByRole("button", { name: "Proyectos" })).toBeNull();
   });
 
@@ -123,6 +124,7 @@ describe("FolderSidebar", () => {
     vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
     renderSidebar([account]);
     await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50)); // deja que la carpeta llegue y se renderice, si pudiera
     expect(screen.queryByRole("button", { name: "Proyectos" })).toBeNull();
   });
 
