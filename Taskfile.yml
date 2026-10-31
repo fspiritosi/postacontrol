@@ -60,7 +60,7 @@ tasks:
         Type=Application
         Name=PostaControl
         Comment=Cliente de correo
-        Exec=$HOME/.local/bin/{{.APP_NAME}}
+        Exec="$HOME/.local/bin/{{.APP_NAME}}"
         Icon=postacontrol
         Categories=Network;Email;
         Keywords=correo;mail;email;

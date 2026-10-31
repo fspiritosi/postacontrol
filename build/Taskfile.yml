@@ -200,6 +200,10 @@ tasks:
     generates:
       - "darwin/icons.icns"
       - "windows/icon.ico"
+    # PostaControl: .ico/.icns vienen aprobados de build/brand; solo se generan si faltan.
+    status:
+      - test -f darwin/icons.icns
+      - test -f windows/icon.ico
     cmds:
       - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
 
