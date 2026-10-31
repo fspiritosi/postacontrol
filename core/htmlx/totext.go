@@ -1,6 +1,7 @@
 package htmlx
 
 import (
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -161,15 +162,38 @@ func normalizeSpaces(s string) string {
 	return out
 }
 
+func (w *textWriter) listItem(n *html.Node, marker string) {
+	w.need(1)
+	w.prefix(marker)
+	w.children(n)
+	w.need(1)
+}
+
 func (w *textWriter) element(n *html.Node) {
 	switch n.DataAtom {
 	case atom.Script, atom.Style, atom.Head, atom.Title:
 		return
 	case atom.Br:
 		w.need(1)
-	case atom.P, atom.Div, atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6, atom.Ul, atom.Ol, atom.Table:
+	case atom.P, atom.Div, atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6, atom.Ul, atom.Table:
 		w.need(2)
 		w.children(n)
+		w.need(2)
+	case atom.Ol:
+		w.need(2)
+		i := 0
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && c.DataAtom == atom.Li {
+				i++
+				w.listItem(c, strconv.Itoa(i)+". ")
+			} else {
+				w.node(c)
+			}
+		}
+		w.need(2)
+	case atom.Hr:
+		w.need(2)
+		w.text("----------")
 		w.need(2)
 	case atom.Tr:
 		w.need(1)
@@ -190,10 +214,7 @@ func (w *textWriter) element(n *html.Node) {
 		w.raw(textContent(n))
 		w.need(2)
 	case atom.Li:
-		w.need(1)
-		w.prefix("- ")
-		w.children(n)
-		w.need(1)
+		w.listItem(n, "- ")
 	case atom.Blockquote:
 		inner := &textWriter{}
 		inner.children(n)

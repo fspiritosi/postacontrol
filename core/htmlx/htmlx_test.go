@@ -163,3 +163,9 @@ func TestToText_ListMarkers(t *testing.T) {
 	assert.Equal(t, "- a b", ToText(`<ul><li><b>a</b> <i>b</i></li></ul>`))
 	assert.Equal(t, "> - x\n>\n> y", ToText(`<blockquote><ul><li>x</li></ul><p>y</p></blockquote>`))
 }
+
+func TestToText_RulesAndNumberedLists(t *testing.T) {
+	assert.Equal(t, "a\n\n----------\n\nb", ToText(`<p>a</p><hr><p>b</p>`))
+	assert.Equal(t, "1. a\n2. b", ToText(`<ol><li>a<li>b</ol>`))
+	assert.Equal(t, "- a\n- b", ToText(`<ul><li>a</li><li>b</li></ul>`))
+}

@@ -196,15 +196,7 @@ func TightParagraphs(fragment string) string {
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.DataAtom == atom.P {
-			setMarginZero(n)
-			if isBlankParagraph(n) {
-				for c := n.FirstChild; c != nil; {
-					next := c.NextSibling
-					n.RemoveChild(c)
-					c = next
-				}
-				n.AppendChild(&html.Node{Type: html.ElementNode, Data: "br", DataAtom: atom.Br})
-			}
+			tightParagraph(n)
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)
@@ -214,6 +206,19 @@ func TightParagraphs(fragment string) string {
 		walk(n)
 	}
 	return render(nodes)
+}
+
+// tightParagraph deja un <p> listo para enviar: margin:0 y, si está vacío, un <br>.
+func tightParagraph(n *html.Node) {
+	setMarginZero(n)
+	if isBlankParagraph(n) {
+		for c := n.FirstChild; c != nil; {
+			next := c.NextSibling
+			n.RemoveChild(c)
+			c = next
+		}
+		n.AppendChild(&html.Node{Type: html.ElementNode, Data: "br", DataAtom: atom.Br})
+	}
 }
 
 func setMarginZero(n *html.Node) {
