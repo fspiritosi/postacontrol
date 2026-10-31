@@ -92,7 +92,58 @@ func TestWatcher_RespectsAuthPause(t *testing.T) {
 	assert.Equal(t, int32(1), dials.Load(), "una contraseña rechazada no se reintenta en seguida")
 	assert.True(t, c.authPaused(acc.ID), "el rechazo quedó anotado")
 	assert.Equal(t, 1, c.watcherCount(), "el vigía sigue esperando la contraseña")
-	assert.Empty(t, n.matching(EventSyncError))
+	// El rechazo sí se avisa (una vez): si no, con la sincronización periódica
+	// salteando la cuenta en pausa, el usuario nunca se enteraría.
+	errs := n.matching(EventSyncError)
+	require.Len(t, errs, 1)
+	assert.Equal(t, acc.ID, errs[0]["accountId"])
+	assert.Equal(t, "El servidor rechazó el usuario o la contraseña.", errs[0]["message"])
+}
+
+// Al vencer la pausa, el vigía prueba una sola vez más (y si falla, avisa y
+// vuelve a esperar).
+func TestWatcher_RetriesOnceAfterPauseExpires(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	var offset atomic.Int64
+	base := time.Now()
+	c.now = func() time.Time { return base.Add(time.Duration(offset.Load())) }
+	dials := fastWatch(c)
+	require.NoError(t, c.cfg.Secrets.Set(testUser, "mala"))
+
+	c.StartWatching(context.Background())
+	require.Eventually(t, func() bool { return dials.Load() >= 1 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return c.authPaused(acc.ID) }, 5*time.Second, 5*time.Millisecond)
+
+	offset.Store(int64(authPause + time.Second))
+	require.Eventually(t, func() bool { return dials.Load() >= 2 }, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(500 * time.Millisecond) // ventana de observación
+	assert.Equal(t, int32(2), dials.Load(), "un solo intento por ventana de pausa")
+	assert.Equal(t, 2, syncErrorsOf(n, acc.ID), "un aviso por rechazo")
+}
+
+// Si la contraseña cambió en otro lado mientras la sesión del vigía sigue
+// viva, cada ráfaga de correo dispara una sincronización por el pool: la
+// primera falla con el LOGIN y pone la cuenta en pausa; las siguientes no
+// vuelven a probar la contraseña mala.
+func TestWatcher_SyncRespectsAuthPause(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	dials := fastWatch(c)
+	before := len(n.matching(EventFolderUpdated))
+	c.StartWatching(context.Background())
+	waitWatching(t, n, dials, 1, before)
+
+	require.NoError(t, c.cfg.Secrets.Set(testUser, "mala"))
+	c.dropConn(acc.ID) // la próxima sincronización tiene que hacer LOGIN
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "uno"))
+	require.Eventually(t, func() bool { return c.authPaused(acc.ID) }, 5*time.Second, 5*time.Millisecond)
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "dos"))
+	time.Sleep(500 * time.Millisecond) // ventana de observación: varias esperas de debounce
+
+	assert.Equal(t, 1, syncErrorsOf(n, acc.ID), "un solo LOGIN fallido")
+	assert.Equal(t, int32(1), dials.Load(), "la sesión del vigía sigue viva")
+	assert.Empty(t, newMailEvents(n))
 }
 
 func TestWatcher_StopsOnRemoveAccount(t *testing.T) {

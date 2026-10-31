@@ -38,8 +38,9 @@ type watcher struct {
 // Cancelar ctx o Close los frenan a todos. Llamarla de nuevo no hace nada. No
 // bloquea.
 //
-// Los vigías no emiten EventSyncError por sus problemas de conexión: la
-// sincronización periódica ya los informa.
+// Los vigías no emiten EventSyncError por sus problemas de red: la
+// sincronización periódica ya los informa. Sí avisan, una vez por rechazo,
+// cuando el servidor rechaza la contraseña.
 func (c *Core) StartWatching(ctx context.Context) {
 	c.watchMu.Lock()
 	defer c.watchMu.Unlock()
@@ -155,7 +156,11 @@ func (c *Core) watchAccount(ctx context.Context, accountID int64) {
 			}
 			var ue *UserError
 			if errors.As(asUserError(err), &ue) && ue.Code == "auth" {
+				// Se avisa una vez por rechazo (o sea, por ventana de pausa):
+				// la sincronización periódica saltea la cuenta en pausa, así
+				// que si el vigía no avisa nadie lo hace.
 				c.noteAuthFailure(accountID)
+				c.emit(EventSyncError, map[string]any{"accountId": accountID, "message": ue.Msg})
 				continue
 			}
 			if !backoff() {
@@ -237,9 +242,13 @@ func (c *Core) watchSession(ctx context.Context, conn *imapx.Conn, inbox model.F
 		case <-kick:
 			t.Reset(c.watchDebounce)
 		case <-t.C:
-			// Los errores de la sincronización los avisa withConn; la
-			// próxima pasada (por aviso o periódica) reintenta.
-			_ = c.SyncFolder(ctx, inbox.ID)
+			// Con la contraseña rechazada, sincronizar haría otro LOGIN con
+			// la contraseña mala (la sesión del vigía puede seguir viva desde
+			// antes del cambio). Los errores de la sincronización los avisa
+			// withConn; la próxima pasada (por aviso o periódica) reintenta.
+			if !c.authPaused(inbox.AccountID) {
+				_ = c.SyncFolder(ctx, inbox.ID)
+			}
 		}
 	}
 }

@@ -117,3 +117,15 @@ func TestUserConnection_SuccessLiftsAuthPause(t *testing.T) {
 	require.NoError(t, c.SyncAccount(ctx, a))
 	assert.False(t, c.authPaused(a), "una conexión que anduvo levanta la pausa")
 }
+
+// Una operación que anduvo sobre una sesión abierta antes de que cambie la
+// contraseña no prueba nada: la pausa sigue. Solo un LOGIN nuevo la levanta.
+func TestUserConnection_ReusedSessionKeepsAuthPause(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	acc, inboxID := setupSynced(t, imap, smtp, c) // deja la conexión del pool abierta
+	require.NoError(t, c.cfg.Secrets.Set(testUser, "mala"))
+	c.noteAuthFailure(acc.ID) // por ejemplo, el vigía probó la contraseña nueva
+
+	require.NoError(t, c.SyncFolder(context.Background(), inboxID))
+	assert.True(t, c.authPaused(acc.ID))
+}

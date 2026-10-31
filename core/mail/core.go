@@ -217,8 +217,9 @@ func (c *Core) ctxOrUserError(ctx context.Context, err error) error {
 // Si la conexión no se puede usar (red, credenciales o TLS) emite
 // EventSyncError. Close o la cancelación de ctx cortan la conexión en curso;
 // en ese caso no se reintenta ni se emite nada y el error es el del contexto
-// (context.Canceled). Los demás errores salen como UserError. Si sale bien,
-// levanta la pausa por contraseña rechazada de la cuenta.
+// (context.Canceled). Los demás errores salen como UserError. Si sale bien
+// y para eso hizo un LOGIN nuevo, levanta la pausa por contraseña rechazada
+// de la cuenta.
 func (c *Core) withConn(ctx context.Context, accountID int64, fn func(context.Context, *imapx.Conn) error) error {
 	return c.useConn(ctx, accountID, 2, fn)
 }
@@ -238,17 +239,26 @@ func (c *Core) useConn(ctx context.Context, accountID int64, attempts int, fn fu
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
-	var err error
+	var (
+		err        error
+		freshLogin bool
+	)
 	for range attempts {
-		err = c.runOnConn(ctx, pc, accountID, fn)
+		var dialed bool
+		dialed, err = c.runOnConn(ctx, pc, accountID, fn)
+		freshLogin = freshLogin || dialed
 		if err == nil || c.ctxErr(ctx) != nil || !errors.Is(err, imapx.ErrNetwork) {
 			break
 		}
 	}
 	if err == nil {
-		// La cuenta anduvo: si estaba en pausa por un rechazo de contraseña,
-		// la sincronización periódica vuelve a incluirla.
-		c.clearAuthFailure(accountID)
+		// Si la contraseña guardada volvió a pasar un LOGIN, se levanta la
+		// pausa y la sincronización periódica vuelve a incluir la cuenta. Que
+		// ande una sesión abierta antes de que cambie la contraseña no prueba
+		// nada: levantar la pausa ahí haría reintentar la contraseña mala.
+		if freshLogin {
+			c.clearAuthFailure(accountID)
+		}
 		return nil
 	}
 	err = c.ctxOrUserError(ctx, err)
@@ -263,23 +273,25 @@ func (c *Core) useConn(ctx context.Context, accountID int64, attempts int, fn fu
 }
 
 // runOnConn hace un intento: conecta si hace falta y corre fn. Si la conexión
-// queda inservible (error de red o cancelación), la descarta.
-func (c *Core) runOnConn(ctx context.Context, pc *pooledConn, accountID int64, fn func(context.Context, *imapx.Conn) error) error {
+// queda inservible (error de red o cancelación), la descarta. dialed dice si
+// este intento hizo un LOGIN que el servidor aceptó.
+func (c *Core) runOnConn(ctx context.Context, pc *pooledConn, accountID int64, fn func(context.Context, *imapx.Conn) error) (dialed bool, err error) {
 	if pc.conn == nil {
 		conn, err := c.dial(ctx, accountID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		pc.conn = conn
+		dialed = true
 	}
 	conn := pc.conn
 	stop := context.AfterFunc(ctx, func() { _ = conn.Abort() })
-	err := fn(ctx, conn)
+	err = fn(ctx, conn)
 	if aborted := !stop(); aborted || errors.Is(err, imapx.ErrNetwork) {
 		_ = conn.Abort()
 		pc.conn = nil
 	}
-	return err
+	return dialed, err
 }
 
 func (c *Core) dial(ctx context.Context, accountID int64) (*imapx.Conn, error) {
