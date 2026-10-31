@@ -38,8 +38,8 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO messages
  (folder_id, uid, message_id, in_reply_to, references_json, from_name, from_email, to_json, cc_json,
-  reply_to_json, subject, snippet, date, size, seen, flagged, answered, has_attachments)
- VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  reply_to_json, subject, snippet, date, size, seen, flagged, answered, has_attachments, thread_root)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
  ON CONFLICT(folder_id, uid) DO UPDATE SET
    message_id = excluded.message_id, in_reply_to = excluded.in_reply_to,
    references_json = excluded.references_json, from_name = excluded.from_name,
@@ -48,13 +48,30 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
    snippet = CASE WHEN excluded.snippet = '' THEN messages.snippet ELSE excluded.snippet END,
    date = excluded.date, size = excluded.size, seen = excluded.seen, flagged = excluded.flagged,
    answered = excluded.answered,
+   thread_root = CASE WHEN messages.thread_root = '' THEN excluded.thread_root ELSE messages.thread_root END,
    has_attachments = CASE WHEN messages.body_cached = 1 THEN messages.has_attachments
                           ELSE excluded.has_attachments END`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
+	var accountID int64
+	if err := tx.QueryRowContext(ctx, `SELECT account_id FROM folders WHERE id = ?`, folderID).Scan(&accountID); err != nil {
+		return err
+	}
 	for _, r := range rows {
+		root := threadRoot(r.MessageID, r.InReplyTo, r.References, 0)
+		if r.InReplyTo != "" {
+			// El padre ya guardado manda: así la cadena queda en un solo hilo.
+			var parent string
+			err := tx.QueryRowContext(ctx, `SELECT m.thread_root FROM messages m JOIN folders f ON f.id = m.folder_id
+ WHERE f.account_id = ? AND m.message_id = ? AND m.thread_root <> '' LIMIT 1`, accountID, r.InReplyTo).Scan(&parent)
+			if err == nil {
+				root = parent
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
 		refs, err := toJSON(nonNil(r.References))
 		if err != nil {
 			return err
@@ -74,8 +91,14 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
 		if _, err := stmt.ExecContext(ctx, folderID, r.UID, r.MessageID, r.InReplyTo, refs,
 			r.From.Name, r.From.Email, to, cc, replyTo,
 			r.Subject, r.Snippet, r.Date.Unix(), r.Size, b2i(r.Seen), b2i(r.Flagged), b2i(r.Answered),
-			b2i(r.HasAttachments)); err != nil {
+			b2i(r.HasAttachments), root); err != nil {
 			return err
+		}
+		if root == "" { // sin ningún identificador: el hilo es el propio mensaje
+			if _, err := tx.ExecContext(ctx, `UPDATE messages SET thread_root = 'id:' || id
+ WHERE folder_id = ? AND uid = ? AND thread_root = ''`, folderID, r.UID); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()

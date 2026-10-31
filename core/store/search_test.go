@@ -199,6 +199,9 @@ func TestMigrateV4_BackfillsExistingRows(t *testing.T) {
 	assert.Len(t, search(t, s, "presupuesto", 0), 1)
 	assert.Len(t, search(t, s, "mariana", 0), 1)
 	assert.Len(t, search(t, s, "cotizacion", 0), 1)
+	var root string
+	require.NoError(t, s.db.QueryRow(`SELECT thread_root FROM messages WHERE id = 1`).Scan(&root))
+	assert.Equal(t, "id:1", root)
 }
 
 func seedSecondFolder(t *testing.T, s *Store) int64 {

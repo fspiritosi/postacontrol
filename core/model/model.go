@@ -173,6 +173,16 @@ type ListQuery struct {
 	Limit      int  `json:"limit"`
 }
 
+// ThreadSummary es un hilo de conversación dentro de una carpeta. Latest es el
+// mensaje más nuevo de la carpeta; Count y Unread suman también los de Enviados.
+type ThreadSummary struct {
+	ThreadRoot   string         `json:"threadRoot"`
+	Latest       MessageSummary `json:"latest"`
+	Count        int            `json:"count"`
+	Unread       int            `json:"unread"`
+	Participants []string       `json:"participants"`
+}
+
 // SearchQuery es una búsqueda en el índice local. FolderID 0 = todas las
 // carpetas de todas las cuentas.
 type SearchQuery struct {
