@@ -476,3 +476,23 @@ func TestMessageRefs_AndRecountFolder(t *testing.T) {
 	assert.Equal(t, 3, f.Total)
 	assert.ErrorIs(t, s.RecountFolder(ctx, 9999), ErrNotFound)
 }
+
+func TestDeleteMessages(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, fid := seedFolder(t, s)
+	base := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertHeaders(ctx, fid, []HeaderRow{hdr(1, base, false), hdr(2, base, false), hdr(3, base, false)}))
+	ms, err := s.ListMessages(ctx, fid, model.ListQuery{})
+	require.NoError(t, err)
+	byUID := map[uint32]int64{}
+	for _, m := range ms {
+		byUID[m.UID] = m.ID
+	}
+	require.NoError(t, s.DeleteMessages(ctx, []int64{byUID[1], byUID[3]}))
+	assert.Equal(t, []uint32{2}, uids(t, s, fid))
+	// Vacío o ids que ya no están: no hace nada y no falla.
+	require.NoError(t, s.DeleteMessages(ctx, nil))
+	require.NoError(t, s.DeleteMessages(ctx, []int64{byUID[1], 9999}))
+	assert.Equal(t, []uint32{2}, uids(t, s, fid))
+}

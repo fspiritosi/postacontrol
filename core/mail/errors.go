@@ -46,6 +46,8 @@ func asUserError(err error) error {
 	case errors.Is(err, smtpx.ErrRejected):
 		detail := strings.TrimPrefix(err.Error(), smtpxRejectedPrefix)
 		return &UserError{Code: "rejected", Msg: fmt.Sprintf("El servidor rechazó el envío: %s", detail), Err: err}
+	case errors.Is(err, imapx.ErrUnsupported):
+		return &UserError{Code: "unsupported", Msg: "El servidor no permite mover ni borrar correos de forma segura.", Err: err}
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, imapx.ErrNoMessage):
 		return &UserError{Code: "not_found", Msg: msgNotFound, Err: err}
 	}

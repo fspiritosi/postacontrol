@@ -281,3 +281,28 @@ func (s *Store) RecountFolder(ctx context.Context, folderID int64) error {
  total = (SELECT COUNT(*) FROM messages WHERE folder_id = folders.id)
  WHERE id = ?`)
 }
+
+// DeleteMessages borra de la caché los mensajes con esos ids, en una sola
+// transacción. Los ids que ya no están se ignoran. No recalcula los
+// contadores: para eso está RecountFolder.
+func (s *Store) DeleteMessages(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stmt, err := tx.PrepareContext(ctx, `DELETE FROM messages WHERE id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, id := range ids {
+		if _, err := stmt.ExecContext(ctx, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"postacontrol/core/autoconfig"
+	"postacontrol/core/imapx"
 	"postacontrol/core/smtpx"
 	"postacontrol/core/store"
 )
@@ -21,6 +22,9 @@ func TestAsUserError(t *testing.T) {
 	assert.Equal(t, "El servidor rechazó el envío: 550 sin permiso", ue.Msg)
 
 	assert.Equal(t, "not_found", asUserError(store.ErrNotFound).(*UserError).Code)
+	unsup := asUserError(fmt.Errorf("mover: %w", imapx.ErrUnsupported)).(*UserError)
+	assert.Equal(t, "unsupported", unsup.Code)
+	assert.Equal(t, "El servidor no permite mover ni borrar correos de forma segura.", unsup.Msg)
 	assert.Equal(t, autoconfig.ErrNotDetected, asUserError(autoconfig.ErrNotDetected))
 	assert.NoError(t, asUserError(nil))
 }
