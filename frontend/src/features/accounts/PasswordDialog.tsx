@@ -2,6 +2,7 @@ import { Loader2Icon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
+import { syncErrorToastId } from "@/lib/events";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -40,6 +41,8 @@ export function PasswordDialog({ account, open, onOpenChange }: Props) {
     setError(null);
     try {
       await svc.UpdatePassword(account.id, password);
+      // El aviso de "rechazó la contraseña" ya no aplica.
+      toast.dismiss(syncErrorToastId(account.id));
       toast.success("Contraseña actualizada");
       setSaving(false);
       handleOpenChange(false);
