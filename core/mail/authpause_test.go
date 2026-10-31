@@ -100,3 +100,20 @@ func TestUpdatePassword_ClearsPause(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, folders, "A sincronizó")
 }
+
+func TestUserConnection_SuccessLiftsAuthPause(t *testing.T) {
+	c, n, a, _ := twoAccounts(t)
+	ctx := context.Background()
+	require.NoError(t, c.cfg.Secrets.Set(testUser, "mala"))
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return now }
+	c.backgroundPass(ctx)
+	require.Equal(t, 1, syncErrorsOf(n, a))
+	require.True(t, c.authPaused(a))
+
+	// El servidor vuelve a aceptar la contraseña guardada (por ejemplo, se
+	// arregló del lado del proveedor) y el usuario sincroniza a mano.
+	require.NoError(t, c.cfg.Secrets.Set(testUser, testPass))
+	require.NoError(t, c.SyncAccount(ctx, a))
+	assert.False(t, c.authPaused(a), "una conexión que anduvo levanta la pausa")
+}

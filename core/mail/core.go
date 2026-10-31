@@ -199,7 +199,8 @@ func (c *Core) ctxOrUserError(ctx context.Context, err error) error {
 // Si la conexión no se puede usar (red, credenciales o TLS) emite
 // EventSyncError. Close o la cancelación de ctx cortan la conexión en curso;
 // en ese caso no se reintenta ni se emite nada y el error es el del contexto
-// (context.Canceled). Los demás errores salen como UserError.
+// (context.Canceled). Los demás errores salen como UserError. Si sale bien,
+// levanta la pausa por contraseña rechazada de la cuenta.
 func (c *Core) withConn(ctx context.Context, accountID int64, fn func(context.Context, *imapx.Conn) error) error {
 	return c.useConn(ctx, accountID, 2, fn)
 }
@@ -227,6 +228,9 @@ func (c *Core) useConn(ctx context.Context, accountID int64, attempts int, fn fu
 		}
 	}
 	if err == nil {
+		// La cuenta anduvo: si estaba en pausa por un rechazo de contraseña,
+		// la sincronización periódica vuelve a incluirla.
+		c.clearAuthFailure(accountID)
 		return nil
 	}
 	err = c.ctxOrUserError(ctx, err)
