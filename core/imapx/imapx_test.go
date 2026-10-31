@@ -534,6 +534,10 @@ func TestExpungeUIDs_OnlyGivenUIDs(t *testing.T) {
 	del := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
 	require.NoError(t, sess.Store(nil, imap.UIDSetNum(imap.UID(uids[1])), del, nil))
 
+	fl, err := c.FetchFlags(uids[1:])
+	require.NoError(t, err)
+	require.Contains(t, fl[uids[1]], imap.FlagDeleted)
+
 	require.NoError(t, c.ExpungeUIDs(uids[:1]))
 	left, err := c.AllUIDs()
 	require.NoError(t, err)
@@ -552,4 +556,50 @@ func TestMove_Rev1ServerIsUnsupported(t *testing.T) {
 	left, err := c.AllUIDs()
 	require.NoError(t, err)
 	assert.Equal(t, uids, left)
+}
+
+func uidplusOnly(t *testing.T) (*testenv.IMAP, testenv.TLS) {
+	t.Helper()
+	tlsc := testenv.NewTLS(t)
+	caps := imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapUIDPlus: {}}
+	return testenv.StartIMAPWithCaps(t, tlsc, user, pass, caps), tlsc
+}
+
+func TestMove_UIDPlusOnlyMoves(t *testing.T) {
+	s, tlsc := uidplusOnly(t)
+	require.NoError(t, s.User.Create("Trash", nil))
+	c := dial(t, s, tlsc)
+	uids := seedTwo(t, s, c)
+
+	require.NoError(t, c.Move(uids[:1], "Trash"))
+	left, err := c.AllUIDs()
+	require.NoError(t, err)
+	assert.Equal(t, uids[1:], left)
+	info, err := c.Select("Trash")
+	require.NoError(t, err)
+	assert.Equal(t, uint32(1), info.NumMessages)
+}
+
+func TestMove_UIDPlusOnlyCopyFailureKeepsOriginals(t *testing.T) {
+	s, tlsc := uidplusOnly(t)
+	c := dial(t, s, tlsc)
+	uids := seedTwo(t, s, c)
+
+	require.Error(t, c.Move(uids[:1], "NoExiste"))
+	left, err := c.AllUIDs()
+	require.NoError(t, err)
+	assert.Equal(t, uids, left)
+	fl, err := c.FetchFlags(uids)
+	require.NoError(t, err)
+	assert.NotContains(t, fl[uids[0]], imap.FlagDeleted)
+	require.NoError(t, c.Noop())
+}
+
+func TestWrites_EmptyUIDsAreNoOps(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	seedTwo(t, s, c)
+	require.NoError(t, c.StoreFlags(nil, true, imap.FlagSeen))
+	require.NoError(t, c.Move(nil, "Sent"))
+	require.NoError(t, c.ExpungeUIDs(nil))
 }

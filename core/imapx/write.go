@@ -19,6 +19,9 @@ func (c *Conn) StoreFlags(uids []uint32, add bool, flags ...imap.Flag) error {
 	if !c.rw {
 		return ErrReadOnly
 	}
+	if len(uids) == 0 {
+		return nil
+	}
 	op := imap.StoreFlagsDel
 	if add {
 		op = imap.StoreFlagsAdd
@@ -35,28 +38,51 @@ func (c *Conn) AddFlags(uid uint32, flags ...imap.Flag) error {
 	return c.StoreFlags([]uint32{uid}, true, flags...)
 }
 
-// Move mueve mensajes a otro buzón. Sin MOVE ni UIDPLUS devuelve
-// ErrUnsupported sin mandar nada: el respaldo de la librería sería un EXPUNGE
-// que borraría también lo que otro cliente marcó como \Deleted. Requiere SelectRW.
+// Move mueve mensajes a otro buzón. Con MOVE lo hace el servidor. Con UIDPLUS
+// sin MOVE se hace a mano y en orden (COPY, recién después \Deleted y UID
+// EXPUNGE), porque el respaldo de la librería encadena los tres comandos sin
+// esperar el resultado del COPY y perdería los originales si falla. Sin
+// ninguna de las dos devuelve ErrUnsupported sin mandar nada: nunca se usa un
+// EXPUNGE sin UID. Requiere SelectRW.
 func (c *Conn) Move(uids []uint32, dest string) error {
 	if !c.rw {
 		return ErrReadOnly
 	}
+	if len(uids) == 0 {
+		return nil
+	}
 	caps := c.c.Caps()
-	if !caps.Has(imap.CapMove) && !caps.Has(imap.CapUIDPlus) {
-		return ErrUnsupported
+	set := toUIDs(uids)
+	switch {
+	case caps.Has(imap.CapMove):
+		if _, err := c.c.Move(set, dest).Wait(); err != nil {
+			return opErr(fmt.Sprintf("UID MOVE %q", dest), err)
+		}
+		return nil
+	case caps.Has(imap.CapUIDPlus):
+		if _, err := c.c.Copy(set, dest).Wait(); err != nil {
+			return opErr(fmt.Sprintf("UID COPY %q", dest), err)
+		}
+		if err := c.StoreFlags(uids, true, imap.FlagDeleted); err != nil {
+			return err
+		}
+		if err := c.c.UIDExpunge(set).Close(); err != nil {
+			return opErr("UID EXPUNGE", err)
+		}
+		return nil
 	}
-	if _, err := c.c.Move(toUIDs(uids), dest).Wait(); err != nil {
-		return opErr(fmt.Sprintf("UID MOVE %q", dest), err)
-	}
-	return nil
+	return ErrUnsupported
 }
 
 // ExpungeUIDs marca \Deleted y borra solo esos UIDs (UID EXPUNGE). Exige
-// UIDPLUS o IMAP4rev2. Requiere SelectRW.
+// UIDPLUS o IMAP4rev2. Si el UID EXPUNGE falla después del STORE, los mensajes
+// quedan marcados \Deleted. Requiere SelectRW.
 func (c *Conn) ExpungeUIDs(uids []uint32) error {
 	if !c.rw {
 		return ErrReadOnly
+	}
+	if len(uids) == 0 {
+		return nil
 	}
 	if !c.c.Caps().Has(imap.CapUIDPlus) {
 		return ErrUnsupported

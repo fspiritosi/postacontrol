@@ -47,6 +47,13 @@ func StartIMAPRev1(t testing.TB, tlsc TLS, username, password string) *IMAP {
 	return startIMAP(t, tlsc, username, password, imap.CapSet{imap.CapIMAP4rev1: {}})
 }
 
+// StartIMAPWithCaps es como StartIMAP pero anuncia exactamente las
+// capacidades dadas.
+func StartIMAPWithCaps(t testing.TB, tlsc TLS, username, password string, caps imap.CapSet) *IMAP {
+	t.Helper()
+	return startIMAP(t, tlsc, username, password, caps)
+}
+
 func startIMAP(t testing.TB, tlsc TLS, username, password string, caps imap.CapSet) *IMAP {
 	t.Helper()
 	mem := imapmemserver.New()
