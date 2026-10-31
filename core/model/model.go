@@ -173,6 +173,22 @@ type ListQuery struct {
 	Limit      int  `json:"limit"`
 }
 
+// SearchQuery es una búsqueda en el índice local. FolderID 0 = todas las
+// carpetas de todas las cuentas.
+type SearchQuery struct {
+	Text     string `json:"text"`
+	FolderID int64  `json:"folderId"`
+	Limit    int    `json:"limit"`
+	Offset   int    `json:"offset"`
+}
+
+// SearchResult agrupa los resultados y cuántos mensajes del alcance todavía no
+// tienen el cuerpo indexado.
+type SearchResult struct {
+	Messages []MessageSummary `json:"messages"`
+	Pending  int              `json:"pending"`
+}
+
 // Settings es la configuración de la app. Se guarda como JSON, así sumar
 // opciones no exige migrar.
 type Settings struct {

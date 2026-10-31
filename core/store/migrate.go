@@ -15,10 +15,16 @@ var schemaV2 string
 //go:embed schema_v3.sql
 var schemaV3 string
 
-// migrations[i] lleva la base de la versión i a la i+1.
-var migrations = []string{schemaV1, schemaV2, schemaV3}
+//go:embed schema_v4.sql
+var schemaV4 string
 
-func migrate(db *sql.DB) error {
+// migrations[i] lleva la base de la versión i a la i+1.
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4}
+
+func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
+
+// migrateTo migra hasta la versión target (solo los tests usan un tope menor).
+func migrateTo(db *sql.DB, target int) error {
 	var current int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&current); err != nil {
 		return err
@@ -26,7 +32,7 @@ func migrate(db *sql.DB) error {
 	if current > len(migrations) {
 		return fmt.Errorf("la base tiene versión %d, más nueva que la soportada (%d)", current, len(migrations))
 	}
-	for v := current; v < len(migrations); v++ {
+	for v := current; v < target; v++ {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
