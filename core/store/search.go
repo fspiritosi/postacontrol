@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"strings"
+	"unicode"
 
 	"postacontrol/core/model"
 )
@@ -14,6 +15,9 @@ func ftsQuery(text string) string {
 	words := strings.Fields(text)
 	parts := make([]string, 0, len(words))
 	for _, w := range words {
+		if !strings.ContainsFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsNumber(r) }) {
+			continue
+		}
 		parts = append(parts, `"`+strings.ReplaceAll(w, `"`, `""`)+`"*`)
 	}
 	return strings.Join(parts, " AND ")

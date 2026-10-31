@@ -91,6 +91,23 @@ func TestSearch_SpecialCharactersAreLiteral(t *testing.T) {
 	assert.NotNil(t, search(t, s, "", 0))
 	assert.Equal(t, `"a""b"* AND "c"*`, ftsQuery(`a"b c`))
 	assert.Equal(t, "", ftsQuery("  "))
+	assert.Equal(t, "", ftsQuery("- & —"))
+	assert.Len(t, search(t, s, "hola - mundo", 0), 1)
+	assert.Empty(t, search(t, s, "-", 0))
+}
+
+func TestSearch_RecipientsIndexValuesNotJSONKeys(t *testing.T) {
+	s := newStore(t)
+	_, f := seedFolder(t, s)
+	h := hdr(1, t0, false)
+	h.Subject = "sin relacion"
+	h.To = []model.Address{{Name: "Zulema", Email: "zul@dest.com"}}
+	h.Cc = []model.Address{{Name: "Copia", Email: "cc@dest.com"}}
+	require.NoError(t, s.UpsertHeaders(context.Background(), f, []HeaderRow{h}))
+	assert.Empty(t, search(t, s, "email", 0))
+	assert.Empty(t, search(t, s, "name", 0))
+	assert.Len(t, search(t, s, "zulema", 0), 1)
+	assert.Len(t, search(t, s, "cc@dest.com", 0), 1)
 }
 
 func TestSearch_ScopeAndOrder(t *testing.T) {
@@ -149,6 +166,8 @@ func TestPendingBodies(t *testing.T) {
 	put(t, s, f, 3, "c", "a", t0)
 	id4 := put(t, s, f, 4, "d", "a", t0)
 	id5 := put(t, s, f, 5, "e", "a", t0)
+	f2 := seedSecondFolder(t, s)
+	put(t, s, f2, 1, "z", "a", t0)
 	require.NoError(t, s.SetBody(ctx, id4, BodyRow{Text: "x"}))
 	_, err := s.db.Exec(`UPDATE messages SET index_failures = 3 WHERE id = ?`, id5)
 	require.NoError(t, err)
@@ -157,7 +176,7 @@ func TestPendingBodies(t *testing.T) {
 	assert.Equal(t, 3, n)
 	n, err = s.PendingBodies(ctx, 0)
 	require.NoError(t, err)
-	assert.Equal(t, 3, n)
+	assert.Equal(t, 4, n)
 }
 
 func TestMigrateV4_BackfillsExistingRows(t *testing.T) {
@@ -180,4 +199,17 @@ func TestMigrateV4_BackfillsExistingRows(t *testing.T) {
 	assert.Len(t, search(t, s, "presupuesto", 0), 1)
 	assert.Len(t, search(t, s, "mariana", 0), 1)
 	assert.Len(t, search(t, s, "cotizacion", 0), 1)
+}
+
+func seedSecondFolder(t *testing.T, s *Store) int64 {
+	t.Helper()
+	ctx := context.Background()
+	a := hostinger()
+	a.Email, a.Username = "dos@ejemplo.com", "dos@ejemplo.com"
+	acc, err := s.InsertAccount(ctx, a)
+	require.NoError(t, err)
+	require.NoError(t, s.ReplaceFolders(ctx, acc, []model.Folder{{Name: "INBOX", Delimiter: ".", Role: "inbox", Selectable: true}}))
+	fs, err := s.ListFolders(ctx, acc)
+	require.NoError(t, err)
+	return fs[0].ID
 }
