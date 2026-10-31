@@ -57,6 +57,22 @@ func TestSearchServer_NonASCII(t *testing.T) {
 	assert.Equal(t, []string{"dos"}, subjects(ms))
 }
 
+func TestSearchServer_WordsAnywhereNotPhrase(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", datedMail("uno", time.Now(), "solo presupuesto por acá"))
+	imap.Deliver(t, "INBOX", datedMail("dos", time.Now(), "te mando el presupuesto.\n\nMuchas cosas en el medio.\n\nSaludos, adjunto la planilla"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	ctx := context.Background()
+
+	ms, err := c.SearchServer(ctx, inboxID, "  presupuesto   planilla ")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"dos"}, subjects(ms))
+
+	ms, err = c.SearchServer(ctx, inboxID, "presupuesto inexistente")
+	require.NoError(t, err)
+	assert.Empty(t, ms)
+}
+
 func TestSearchServer_EmptyTextInvalid(t *testing.T) {
 	c, imap, smtp, _ := newTestCore(t)
 	_, inboxID := setupSynced(t, imap, smtp, c)

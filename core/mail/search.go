@@ -29,13 +29,14 @@ func (c *Core) Search(ctx context.Context, q model.SearchQuery) (model.SearchRes
 	return model.SearchResult{Messages: ms, Pending: pending}, nil
 }
 
-// SearchServer busca text en una carpeta con UID SEARCH TEXT en el servidor
-// (sirve para cuerpos todavía sin indexar). Si hay UIDs que la caché no tiene,
+// SearchServer busca en una carpeta del servidor los mensajes con todas las
+// palabras de text, en cualquier lugar (UID SEARCH TEXT por palabra; sirve para
+// cuerpos todavía sin indexar). Si hay UIDs que la caché no tiene,
 // sincroniza la carpeta una vez. Devuelve hasta 200 mensajes por fecha
 // descendente.
 func (c *Core) SearchServer(ctx context.Context, folderID int64, text string) ([]model.MessageSummary, error) {
-	text = strings.TrimSpace(text)
-	if text == "" {
+	words := strings.Fields(text)
+	if len(words) == 0 {
 		return nil, &UserError{Code: "invalid", Msg: "Escribí qué buscar."}
 	}
 	ctx, cancel := c.lifeCtx(ctx)
@@ -50,7 +51,7 @@ func (c *Core) SearchServer(ctx context.Context, folderID int64, text string) ([
 			return err
 		}
 		var err error
-		uids, err = conn.SearchText(text)
+		uids, err = conn.SearchText(words...)
 		return err
 	})
 	if err != nil {
