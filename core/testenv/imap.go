@@ -29,8 +29,10 @@ type IMAP struct {
 	tlsServer *tls.Config
 	caps      imap.CapSet
 
-	mu  sync.Mutex
-	srv *imapserver.Server
+	mu     sync.Mutex
+	srv    *imapserver.Server
+	ln     net.Listener
+	served chan struct{} // se cierra cuando Serve volvió
 }
 
 // StartIMAP levanta el servidor con INBOX y "Sent" vacíos. Se cierra solo al
@@ -91,20 +93,28 @@ func (s *IMAP) serve(ln net.Listener) {
 		// rechazaría LOGIN. El cliente igual verifica el certificado.
 		InsecureAuth: true,
 	})
+	served := make(chan struct{})
 	s.mu.Lock()
-	s.srv = srv
+	s.srv, s.ln, s.served = srv, ln, served
 	s.mu.Unlock()
-	go func() { _ = srv.Serve(ln); _ = ln.Close() }()
+	go func() { _ = srv.Serve(ln); _ = ln.Close(); close(served) }()
 }
 
 func (s *IMAP) stop() {
 	s.mu.Lock()
-	srv := s.srv
-	s.srv = nil
+	srv, ln, served := s.srv, s.ln, s.served
+	s.srv, s.ln, s.served = nil, nil, nil
 	s.mu.Unlock()
-	if srv != nil {
-		_ = srv.Close()
+	if srv == nil {
+		return
 	}
+	// go-imap (v2.0.0-beta.8) hace el Add del WaitGroup de Serve fuera del
+	// lock: si Close llega justo después de arrancar, su Wait compite con ese
+	// Add. Cerrar el listener y esperar a que Serve vuelva lo evita; Close
+	// después solo corta las conexiones abiertas.
+	_ = ln.Close()
+	<-served
+	_ = srv.Close()
 }
 
 // Restart vuelve a levantar el servidor en la misma dirección, con los mismos
