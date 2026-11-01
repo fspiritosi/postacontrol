@@ -1,8 +1,11 @@
 package htmlx
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	"image/png"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,4 +98,23 @@ func TestExtractInlineImages_LeavesRemoteAndCID(t *testing.T) {
 	out, imgs := ExtractInlineImages(in, counterCID())
 	assert.Empty(t, imgs)
 	assert.Equal(t, `<img src="https://x.y/a.png"/><img src="http://x.y/b.png"/><img src="cid:abc"/>`, out)
+}
+
+func pngDataURI(t *testing.T, w int) string {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, w, 2))))
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+func TestExtractInlineImages_WideImagesGetWidth(t *testing.T) {
+	n := 0
+	cid := func() string { n++; return fmt.Sprintf("c%d", n) }
+	out, _ := ExtractInlineImages(`<img src="`+pngDataURI(t, 1200)+`">`, cid)
+	assert.Contains(t, out, `width="600"`)
+	out, _ = ExtractInlineImages(`<img src="`+pngDataURI(t, 300)+`">`, cid)
+	assert.NotContains(t, out, "width=")
+	out, _ = ExtractInlineImages(`<img width="100" src="`+pngDataURI(t, 1200)+`">`, cid)
+	assert.Contains(t, out, `width="100"`)
+	assert.NotContains(t, out, `width="600"`)
 }

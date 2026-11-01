@@ -26,6 +26,7 @@ export type {
     SendRequest,
     ServerSettings,
     Settings,
+    Signature,
     StagedAttachment,
     ThreadSummary
 } from "./models.js";

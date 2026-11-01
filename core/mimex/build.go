@@ -39,6 +39,9 @@ type Outgoing struct {
 	Inline              []OutInline
 	Date                time.Time
 	MessageID           string // con <>, lo genera el que llama
+	// IncludeBcc escribe el encabezado Bcc. Solo para borradores: en un correo
+	// que se envía, Bcc nunca va en el mensaje.
+	IncludeBcc bool
 }
 
 // NewMessageID genera un Message-ID "<uuid@dominio-del-from>".
@@ -75,7 +78,7 @@ func toMailAddrs(list []model.Address) []*gomail.Address {
 	return out
 }
 
-// Build arma el mensaje RFC 5322. Bcc nunca se escribe en los encabezados.
+// Build arma el mensaje RFC 5322. Bcc no se escribe en los encabezados salvo con IncludeBcc (borradores).
 func Build(o Outgoing) ([]byte, error) {
 	if o.From.Email == "" {
 		return nil, fmt.Errorf("mimex: falta el remitente")
@@ -100,6 +103,9 @@ func Build(o Outgoing) ([]byte, error) {
 	}
 	if len(o.Cc) > 0 {
 		h.SetAddressList("Cc", toMailAddrs(o.Cc))
+	}
+	if o.IncludeBcc && len(o.Bcc) > 0 {
+		h.SetAddressList("Bcc", toMailAddrs(o.Bcc))
 	}
 	h.SetSubject(o.Subject)
 	if o.MessageID != "" {

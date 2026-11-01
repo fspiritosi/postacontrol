@@ -87,6 +87,23 @@ func (s *MailService) SetSaveSentCopy(ctx context.Context, accountID int64, save
 	return s.core.SetSaveSentCopy(ctx, accountID, save)
 }
 
+func (s *MailService) ListSignatures(ctx context.Context) ([]model.Signature, error) {
+	return s.core.ListSignatures(ctx)
+}
+
+func (s *MailService) SaveSignature(ctx context.Context, sig model.Signature) (model.Signature, error) {
+	return s.core.SaveSignature(ctx, sig)
+}
+
+func (s *MailService) DeleteSignature(ctx context.Context, id int64) error {
+	return s.core.DeleteSignature(ctx, id)
+}
+
+// SetAccountSignature fija la firma por defecto de la cuenta (0 = sin firma).
+func (s *MailService) SetAccountSignature(ctx context.Context, accountID, signatureID int64) error {
+	return s.core.SetAccountSignature(ctx, accountID, signatureID)
+}
+
 func (s *MailService) ListFolders(ctx context.Context, accountID int64) ([]model.Folder, error) {
 	return s.core.ListFolders(ctx, accountID)
 }

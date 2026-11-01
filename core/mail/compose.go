@@ -10,7 +10,6 @@ import (
 	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
-	"github.com/google/uuid"
 
 	"postacontrol/core/htmlx"
 	"postacontrol/core/imapx"
@@ -140,6 +139,8 @@ func (c *Core) PrepareCompose(ctx context.Context, messageID int64, mode model.C
 		Subject:    subjectFor(mode, d.Subject),
 		QuotedHTML: quotedHTML(mode, d),
 		Reply:      model.ReplyContext{Mode: mode, OriginalMessageID: messageID},
+
+		SignatureID: acc.DefaultSignatureID,
 
 		OriginalAttachments: []model.Attachment{},
 	}
@@ -271,6 +272,9 @@ func (c *Core) checkSize(ctx context.Context, req model.SendRequest) error {
 			body += quotedHTML(req.Reply.Mode, d)
 		}
 	}
+	if sig, ok := c.signatureFor(ctx, req.SignatureID); ok {
+		body += sig
+	}
 	_, imgs := htmlx.ExtractInlineImages(body, func() string { return "x" })
 	for _, im := range imgs {
 		total += int64(len(im.Data))
@@ -286,80 +290,10 @@ func (c *Core) checkSize(ctx context.Context, req model.SendRequest) error {
 // \Answered en el original; si no, lo deja en la bandeja con el motivo.
 // Siempre termina emitiendo EventSendFinished.
 func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req model.SendRequest) (model.SendResult, error) {
-	replying, forwarding := false, false
-	if req.Reply != nil {
-		replying = req.Reply.Mode == modeReply || req.Reply.Mode == modeReplyAll
-		forwarding = req.Reply.Mode == modeForward
-	}
-
-	var orig *model.MessageDetail
-	if replying || forwarding {
-		d, err := c.GetMessage(ctx, req.Reply.OriginalMessageID)
-		if err != nil {
-			return model.SendResult{}, c.failSend(ctx, id, err)
-		}
-		orig = &d
-	}
-
-	body := bodyWrapperOpen + htmlx.EmailHTML(req.BodyHTML) + "</div>"
-	if orig != nil {
-		// En la vista previa la cita tiene las imágenes remotas bloqueadas; el
-		// destinatario las recibe como en el original.
-		body += htmlx.RestoreRemoteImages(quotedHTML(req.Reply.Mode, *orig))
-	}
-	// El texto plano se calcula antes de sacar las imágenes; después, las
-	// pegadas y las de la cita (que GetMessage entregó como data:) viajan como cid.
-	text := htmlx.ToText(body)
-	body, imgs := htmlx.ExtractInlineImages(body, func() string { return uuid.NewString() + "@postacontrol" })
-	out := mimex.Outgoing{
-		From:      model.Address{Name: acc.DisplayName, Email: acc.Email},
-		To:        req.To,
-		Cc:        req.Cc,
-		Bcc:       req.Bcc,
-		Subject:   req.Subject,
-		HTML:      body,
-		Text:      text,
-		Date:      time.Now(),
-		MessageID: mimex.NewMessageID(acc.Email),
-	}
-	for _, im := range imgs {
-		out.Inline = append(out.Inline, mimex.OutInline{CID: im.CID, MIMEType: im.MIMEType, Data: im.Data})
-	}
-	if replying && orig.MessageID != "" && !strings.ContainsAny(orig.MessageID, "\r\n") {
-		out.InReplyTo = orig.MessageID
-		for _, r := range orig.References {
-			if r != "" && !strings.ContainsAny(r, "\r\n") {
-				out.References = append(out.References, r)
-			}
-		}
-		out.References = append(out.References, orig.MessageID)
-	}
-	if forwarding {
-		for i := range orig.Attachments {
-			if slices.Contains(req.SkipOriginalAttachments, i) {
-				continue
-			}
-			att, data, err := c.attachmentBytes(ctx, orig.ID, i)
-			if err != nil {
-				return model.SendResult{}, c.failSend(ctx, id, err)
-			}
-			name := att.Filename
-			if name == "" {
-				name = fmt.Sprintf("adjunto-%d", i+1)
-			}
-			out.Attachments = append(out.Attachments, mimex.OutAttachment{Filename: name, MIMEType: att.MIMEType, Data: data})
-		}
-	}
-	staged, err := c.store.StagedAttachments(ctx, req.Attachments)
-	if errors.Is(err, store.ErrNotFound) {
-		return model.SendResult{}, c.failSend(ctx, id,
-			&UserError{Code: "attach", Msg: "Uno de los adjuntos ya no está disponible. Volvé a adjuntarlo.", Err: err})
-	}
+	replying := req.Reply != nil && (req.Reply.Mode == modeReply || req.Reply.Mode == modeReplyAll)
+	out, err := c.buildOutgoing(ctx, acc, req, false)
 	if err != nil {
 		return model.SendResult{}, c.failSend(ctx, id, err)
-	}
-	for _, f := range staged {
-		out.Attachments = append(out.Attachments, mimex.OutAttachment{Filename: f.Filename, MIMEType: f.MIMEType, Data: f.Data})
 	}
 	rcpts := mimex.Recipients(out)
 	raw, err := mimex.Build(out)
@@ -386,7 +320,9 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 		}
 	}
 	if replying {
-		c.markAnswered(ctx, *orig)
+		if orig, err := c.GetMessage(ctx, req.Reply.OriginalMessageID); err == nil {
+			c.markAnswered(ctx, orig)
+		}
 	}
 	c.emit(EventSendFinished, map[string]any{"draftId": id, "ok": true, "message": "", "warning": res.Warning})
 	return res, nil

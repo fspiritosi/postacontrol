@@ -63,6 +63,11 @@ export interface ComposeDraft {
     "reply": ReplyContext;
 
     /**
+     * SignatureID es la firma por defecto de la cuenta (0 = sin firma).
+     */
+    "signatureId": number;
+
+    /**
      * OriginalAttachments son los adjuntos del original; solo al reenviar (en
      * los otros modos va vacío).
      */
@@ -270,6 +275,15 @@ export interface Settings {
      * ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
      */
     "threadedList": boolean;
+}
+
+/**
+ * Signature es una firma reutilizable, en HTML.
+ */
+export interface Signature {
+    "id": number;
+    "name": string;
+    "html": string;
 }
 
 /**

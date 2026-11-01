@@ -149,6 +149,20 @@ func TestBuild_BccNotInHeaders(t *testing.T) {
 	assert.Contains(t, Recipients(o), "oculto@ej.com")
 }
 
+func TestBuild_IncludeBccOnlyForDrafts(t *testing.T) {
+	o := baseOutgoing()
+	o.Bcc = []model.Address{{Name: "Oculto", Email: "oculto@ej.com"}}
+	o.IncludeBcc = true
+	raw, err := Build(o)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "Bcc:")
+	assert.Contains(t, string(raw), "oculto@ej.com")
+	o.IncludeBcc = false
+	raw, err = Build(o)
+	require.NoError(t, err)
+	assert.NotContains(t, strings.ToLower(string(raw)), "bcc")
+}
+
 func TestBuild_ReplyHeaders(t *testing.T) {
 	o := baseOutgoing()
 	o.InReplyTo = "<a@x>"

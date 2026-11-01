@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -146,9 +151,32 @@ func inlineImg(img *html.Node, images *[]InlineImage, cids map[[sha256.Size]byte
 			*images = append(*images, InlineImage{CID: cid, MIMEType: mime, Data: data})
 		}
 		img.Attr[i].Val = "cid:" + cid
+		capWidth(img, mime, data)
 		return true
 	}
 	return true
+}
+
+// maxInlineWidth es el ancho al que se limitan las imágenes anchas: Outlook
+// ignora max-width y las dibuja a su tamaño natural.
+const maxInlineWidth = 600
+
+// capWidth agrega width="600" a las imágenes PNG, JPEG o GIF más anchas que eso
+// y que no traen width. WebP queda como está (no hay decodificador estándar).
+func capWidth(img *html.Node, mime string, data []byte) {
+	if mime == "image/webp" {
+		return
+	}
+	for _, a := range img.Attr {
+		if a.Key == "width" {
+			return
+		}
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= maxInlineWidth {
+		return
+	}
+	img.Attr = append(img.Attr, html.Attribute{Key: "width", Val: strconv.Itoa(maxInlineWidth)})
 }
 
 // parseImageDataURI acepta solo data:image/(png|jpeg|gif|webp);base64,<datos>.

@@ -191,6 +191,8 @@ type ComposeDraft struct {
 	Subject    string       `json:"subject"`
 	QuotedHTML string       `json:"quotedHtml"` // se muestra debajo del editor; no editable
 	Reply      ReplyContext `json:"reply"`
+	// SignatureID es la firma por defecto de la cuenta (0 = sin firma).
+	SignatureID int64 `json:"signatureId"`
 	// OriginalAttachments son los adjuntos del original; solo al reenviar (en
 	// los otros modos va vacío).
 	OriginalAttachments []Attachment `json:"originalAttachments"`

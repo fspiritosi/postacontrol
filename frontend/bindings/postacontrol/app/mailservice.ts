@@ -31,6 +31,10 @@ export function DeleteMessages(ids: number[] | null): $CancellablePromise<void> 
     return $Call.ByID(2312673024, ids);
 }
 
+export function DeleteSignature(id: number): $CancellablePromise<void> {
+    return $Call.ByID(2139536110, id);
+}
+
 export function DetectSettings(email: string): $CancellablePromise<autoconfig$0.Settings> {
     return $Call.ByID(1057426541, email);
 }
@@ -68,6 +72,10 @@ export function ListLocalDrafts(): $CancellablePromise<model$0.LocalDraft[] | nu
 
 export function ListMessages(folderID: number, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
     return $Call.ByID(3544686215, folderID, q);
+}
+
+export function ListSignatures(): $CancellablePromise<model$0.Signature[] | null> {
+    return $Call.ByID(2055430592);
 }
 
 export function ListThreads(folderID: number, q: model$0.ListQuery): $CancellablePromise<model$0.ThreadSummary[] | null> {
@@ -129,12 +137,23 @@ export function SaveAttachment(messageID: number, index: number): $CancellablePr
     return $Call.ByID(731861391, messageID, index);
 }
 
+export function SaveSignature(sig: model$0.Signature): $CancellablePromise<model$0.Signature> {
+    return $Call.ByID(2198563032, sig);
+}
+
 export function Search(q: model$0.SearchQuery): $CancellablePromise<model$0.SearchResult> {
     return $Call.ByID(3374583751, q);
 }
 
 export function SearchServer(folderID: number, text: string): $CancellablePromise<model$0.MessageSummary[] | null> {
     return $Call.ByID(1112192156, folderID, text);
+}
+
+/**
+ * SetAccountSignature fija la firma por defecto de la cuenta (0 = sin firma).
+ */
+export function SetAccountSignature(accountID: number, signatureID: number): $CancellablePromise<void> {
+    return $Call.ByID(963973822, accountID, signatureID);
 }
 
 export function SetFlagged(ids: number[] | null, flagged: boolean): $CancellablePromise<void> {
