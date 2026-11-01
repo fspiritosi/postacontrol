@@ -61,3 +61,12 @@ func TestSeenIsBestEffort(t *testing.T) {
 	assert.False(t, seenIsBestEffort(errors.New("sql: database is locked")), "error de caché")
 	assert.False(t, seenIsBestEffort(&UserError{Code: "not_found"}))
 }
+
+// Contrato con el frontend: NOT_FOUND_MESSAGE en frontend/src/lib/errors.ts
+// compara este texto exacto (el autoguardado deja de guardar un borrador que
+// ya no existe).
+func TestMsgNotFound_MatchesFrontend(t *testing.T) {
+	assert.Equal(t, "No encontramos lo que buscabas.", msgNotFound)
+	ue := asUserError(store.ErrNotFound).(*UserError)
+	assert.Equal(t, "No encontramos lo que buscabas.", ue.Msg)
+}

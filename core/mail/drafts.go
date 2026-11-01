@@ -28,6 +28,7 @@ const (
 	msgDraftServerDelete = "Borramos el borrador de esta compu, pero no pudimos borrarlo del servidor."
 	msgNotADraft         = "Ese correo no es un borrador."
 	msgDraftUploadFailed = "No pudimos guardar el borrador en el servidor."
+	msgDraftBuildFailed  = "No pudimos armar el borrador."
 )
 
 // withDraftIDs completa en el pedido el id y el Message-ID del borrador: el
@@ -106,6 +107,17 @@ func (c *Core) ListPendingDrafts(ctx context.Context) ([]model.Draft, error) {
 // el motivo en UploadError y todavía pendiente. Un borrador que ya no existe
 // devuelve UserError "not_found" sin ir a la red.
 func (c *Core) UploadDraft(ctx context.Context, id int64) (model.Draft, error) {
+	return c.uploadDraftByID(ctx, id, false)
+}
+
+// uploadDraftIfPending es UploadDraft para la pasada de fondo: si el borrador
+// ya no está pendiente (lo subió el redactor después de que la pasada lo
+// listó) lo devuelve como está, sin ir a la red.
+func (c *Core) uploadDraftIfPending(ctx context.Context, id int64) (model.Draft, error) {
+	return c.uploadDraftByID(ctx, id, true)
+}
+
+func (c *Core) uploadDraftByID(ctx context.Context, id int64, onlyPending bool) (model.Draft, error) {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
 	mu := c.draftLock(id)
@@ -117,6 +129,9 @@ func (c *Core) UploadDraft(ctx context.Context, id int64) (model.Draft, error) {
 	d, err := c.store.GetComposeDraft(ctx, id)
 	if err != nil {
 		return model.Draft{}, c.ctxOrUserError(ctx, err)
+	}
+	if onlyPending && !d.NeedsUpload {
+		return withDraftIDs(d), nil
 	}
 	if err := c.uploadDraft(ctx, d); err != nil {
 		if cerr := c.ctxErr(ctx); cerr != nil {
@@ -145,16 +160,8 @@ func (c *Core) uploadDraft(ctx context.Context, d model.Draft) error {
 	if err != nil {
 		return err
 	}
-	req := d.Request
-	req.DraftMessageID = d.MessageID // siempre el de la fila
-	out, err := c.buildOutgoing(ctx, acc, req, true)
-	if err != nil {
-		return err
-	}
-	raw, err := mimex.Build(out)
-	if err != nil {
-		return &UserError{Code: "invalid", Msg: "No pudimos armar el borrador: " + err.Error(), Err: err}
-	}
+	// Primero lo que no va a la red: armar un reenvío o una respuesta puede
+	// bajar el original del servidor.
 	drafts, ok, err := c.draftsFolder(ctx, acc.ID)
 	if err != nil {
 		return err
@@ -167,12 +174,25 @@ func (c *Core) uploadDraft(ctx context.Context, d model.Draft) error {
 	if c.authPaused(acc.ID) {
 		return &UserError{Code: "auth", Msg: msgAuthRejected}
 	}
+	req := d.Request
+	req.DraftMessageID = d.MessageID // siempre el de la fila
+	out, err := c.buildOutgoing(ctx, acc, req, true)
+	if err != nil {
+		return err
+	}
+	raw, err := mimex.Build(out)
+	if err != nil {
+		return &UserError{Code: "invalid", Msg: msgDraftBuildFailed, Err: err}
+	}
 	// Como en appendSent: NOOP valida (o reemplaza) la conexión del pool y
 	// recién entonces va el APPEND, sin reintento porque no es idempotente.
 	if err := c.withConn(ctx, acc.ID, func(_ context.Context, conn *imapx.Conn) error {
 		return conn.Noop()
 	}); err != nil {
 		return err
+	}
+	if c.beforeDraftAppend != nil {
+		c.beforeDraftAppend(d.ID)
 	}
 	if err := c.withConnNoRetry(ctx, acc.ID, func(_ context.Context, conn *imapx.Conn) error {
 		return conn.Append(drafts.Name, raw, goimap.FlagDraft, goimap.FlagSeen)
@@ -333,6 +353,9 @@ func (c *Core) DeleteDraft(ctx context.Context, id int64) error {
 // discardSentDraft borra del servidor las copias del borrador del que salió un
 // envío, en la cuenta del envío y, si el borrador había quedado subido en
 // otra (oldAccountID), también ahí. Es de mejor esfuerzo: el correo ya salió.
+// Si en la compu hay otro borrador vivo con ese Message-ID (el usuario lo
+// retomó desde Borradores después de que el envío falló), las copias son de
+// ese borrador y no se tocan.
 func (c *Core) discardSentDraft(ctx context.Context, accountID int64, req model.SendRequest, oldAccountID int64) {
 	if req.DraftMessageID == "" {
 		return
@@ -344,10 +367,56 @@ func (c *Core) discardSentDraft(ctx context.Context, accountID int64, req model.
 		mu.Lock()
 		defer mu.Unlock()
 	}
+	// En un reintento de la bandeja de salida ComposeDraftID es 0: cualquier
+	// fila con ese Message-ID es un borrador retomado.
+	if d, err := c.store.ComposeDraftByMessageID(ctx, req.DraftMessageID); err == nil && d.ID != req.ComposeDraftID {
+		return
+	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return // sin poder confirmarlo, no se borra nada
+	}
 	_ = c.removeDraftCopies(ctx, accountID, req.DraftMessageID)
 	if oldAccountID != accountID {
 		c.removeOldAccountCopies(ctx, oldAccountID, req.DraftMessageID)
 	}
+}
+
+// forgetLocalDrafts borra de la compu los borradores de la cuenta cuyas
+// copias el usuario acaba de borrar o de sacar de la carpeta Borradores
+// (DeleteMessages o MoveMessages), con los adjuntos preparados que solo ellos
+// usaban. Así la pasada de fondo no vuelve a subir un borrador que el usuario
+// borró. No escribe nada en el servidor: eso ya lo hizo quien llama.
+func (c *Core) forgetLocalDrafts(ctx context.Context, accountID int64, messageIDs []string) {
+	changed := false
+	for _, mid := range messageIDs {
+		if mid == "" {
+			continue
+		}
+		d, err := c.store.ComposeDraftByMessageID(ctx, mid)
+		// Si el borrador ya es de otra cuenta (cambió "De"), lo borrado era la
+		// copia vieja: el borrador sigue.
+		if err != nil || d.Request.AccountID != accountID {
+			continue
+		}
+		if c.forgetLocalDraft(ctx, d.ID, mid) {
+			changed = true
+		}
+	}
+	if changed {
+		c.emit(EventDraftsChanged, nil)
+	}
+}
+
+// forgetLocalDraft borra el borrador id si todavía tiene ese Message-ID. Toma
+// su lock: si había una subida en curso, espera a que termine.
+func (c *Core) forgetLocalDraft(ctx context.Context, id int64, messageID string) bool {
+	mu := c.draftLock(id)
+	mu.Lock()
+	defer mu.Unlock()
+	d, err := c.store.GetComposeDraft(ctx, id)
+	if err != nil || d.MessageID != messageID {
+		return false
+	}
+	return c.store.DeleteComposeDraftWithStaged(context.WithoutCancel(ctx), id) == nil
 }
 
 // uploadPendingDrafts sube los borradores pendientes de la cuenta (pasada de
@@ -362,7 +431,7 @@ func (c *Core) uploadPendingDrafts(ctx context.Context, accountID int64) {
 			return
 		}
 		if d.Request.AccountID == accountID {
-			_, _ = c.UploadDraft(ctx, d.ID)
+			_, _ = c.uploadDraftIfPending(ctx, d.ID)
 		}
 	}
 }

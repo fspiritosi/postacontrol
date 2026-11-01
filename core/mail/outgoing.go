@@ -42,13 +42,18 @@ func (c *Core) buildOutgoing(ctx context.Context, acc model.Account, req model.S
 		forwarding = req.Reply.Mode == modeForward
 	}
 
+	// Si el original ya no está (se movió o se borró), el correo sale igual:
+	// sin la cita ni los adjuntos del original, y con los encabezados de hilo
+	// que guardó PrepareCompose.
 	var orig *model.MessageDetail
 	if replying || forwarding {
 		d, err := c.GetMessage(ctx, req.Reply.OriginalMessageID)
-		if err != nil {
+		switch {
+		case err == nil:
+			orig = &d
+		case !originalGone(err):
 			return mimex.Outgoing{}, err
 		}
-		orig = &d
 	}
 
 	body := bodyWrapperOpen + htmlx.EmailHTML(req.BodyHTML) + "</div>"
@@ -85,16 +90,21 @@ func (c *Core) buildOutgoing(ctx context.Context, acc model.Account, req model.S
 	for _, im := range imgs {
 		out.Inline = append(out.Inline, mimex.OutInline{CID: im.CID, MIMEType: im.MIMEType, Data: im.Data})
 	}
-	if replying && orig.MessageID != "" && !strings.ContainsAny(orig.MessageID, "\r\n") {
-		out.InReplyTo = orig.MessageID
-		for _, r := range orig.References {
-			if r != "" && !strings.ContainsAny(r, "\r\n") {
-				out.References = append(out.References, r)
+	if replying {
+		inReplyTo, refs := req.Reply.InReplyTo, req.Reply.References
+		if orig != nil {
+			inReplyTo, refs = threadHeaders(*orig)
+		}
+		if validHeaderID(inReplyTo) {
+			out.InReplyTo = inReplyTo
+			for _, r := range refs {
+				if validHeaderID(r) {
+					out.References = append(out.References, r)
+				}
 			}
 		}
-		out.References = append(out.References, orig.MessageID)
 	}
-	if forwarding {
+	if forwarding && orig != nil {
 		for i := range orig.Attachments {
 			if slices.Contains(req.SkipOriginalAttachments, i) {
 				continue
@@ -121,4 +131,33 @@ func (c *Core) buildOutgoing(ctx context.Context, acc model.Account, req model.S
 		out.Attachments = append(out.Attachments, mimex.OutAttachment{Filename: f.Filename, MIMEType: f.MIMEType, Data: f.Data})
 	}
 	return out, nil
+}
+
+// originalGone dice si err es que el original de una respuesta o un reenvío
+// ya no está en la caché: se movió o se borró, y su id no vuelve a servir. Si
+// sigue en la caché pero el servidor ya no lo tiene, el error se mantiene
+// hasta que la sincronización lo saque.
+func originalGone(err error) bool {
+	return errors.Is(err, store.ErrNotFound)
+}
+
+// threadHeaders son el In-Reply-To y el References de una respuesta a orig;
+// vacíos si orig no tiene Message-ID.
+func threadHeaders(orig model.MessageDetail) (string, []string) {
+	if orig.MessageID == "" {
+		return "", nil
+	}
+	refs := make([]string, 0, len(orig.References)+1)
+	for _, r := range orig.References {
+		if r != "" {
+			refs = append(refs, r)
+		}
+	}
+	return orig.MessageID, append(refs, orig.MessageID)
+}
+
+// validHeaderID dice si id se puede poner en un encabezado: no vacío y sin
+// saltos de línea (el pedido puede venir de la UI).
+func validHeaderID(id string) bool {
+	return id != "" && !strings.ContainsAny(id, "\r\n")
 }

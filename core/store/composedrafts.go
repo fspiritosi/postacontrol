@@ -100,7 +100,9 @@ func (s *Store) ListPendingDrafts(ctx context.Context) ([]model.Draft, error) {
 // Borradores de accountID y lo da por subido solo si no cambió desde
 // uploadedAt (el UpdatedAt que se leyó al empezar a subir): un guardado que
 // llegó durante la subida sigue pendiente. La cuenta se anota siempre, porque
-// la copia ya está en el servidor.
+// la copia ya está en el servidor. Si la fila ya no existe (se envió o se
+// descartó durante la subida) o el guardado es más nuevo, devuelve nil a
+// propósito: no hay nada que marcar y no es un error.
 func (s *Store) MarkDraftUploaded(ctx context.Context, id int64, uploadedAt time.Time, accountID int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE compose_drafts SET uploaded_account_id = ?,
  needs_upload = CASE WHEN updated_at <= ? THEN 0 ELSE needs_upload END,
@@ -124,6 +126,9 @@ func (s *Store) DraftUploadedAccount(ctx context.Context, id int64) (int64, erro
 	return acc.Int64, nil
 }
 
+// MarkDraftUploadFailed anota el motivo por el que no se pudo subir el
+// borrador, que sigue pendiente. Si la fila ya no existe devuelve nil a
+// propósito: el borrador se envió o se descartó y no queda nada que anotar.
 func (s *Store) MarkDraftUploadFailed(ctx context.Context, id int64, msg string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE compose_drafts SET upload_error = ? WHERE id = ?`, msg, id)
 	return err

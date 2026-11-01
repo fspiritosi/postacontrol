@@ -132,6 +132,12 @@ type ComposeMode string // "new","reply","replyAll","forward"
 type ReplyContext struct {
 	Mode              ComposeMode `json:"mode"`
 	OriginalMessageID int64       `json:"originalMessageId"`
+	// InReplyTo y References son los encabezados de hilo de la respuesta
+	// (vacíos al reenviar). Los arma PrepareCompose y viajan con el pedido:
+	// si el original ya no está (se movió o se borró) la respuesta sale igual,
+	// sin la cita pero en el mismo hilo.
+	InReplyTo  string   `json:"inReplyTo"`
+	References []string `json:"references"`
 }
 
 type SendRequest struct {

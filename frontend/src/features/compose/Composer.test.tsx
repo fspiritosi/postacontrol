@@ -96,6 +96,7 @@ function DraftHarness() {
         borrador con adjuntos
       </button>
       <button onClick={() => void c.openComposeDraft(composeDraft as never)}>seguir editando</button>
+      <button onClick={() => void c.openComposeDraft(replyComposeDraft as never)}>seguir respuesta</button>
     </>
   );
 }
@@ -118,6 +119,16 @@ const composeDraft = {
     signatureId: 0,
     composeDraftId: 8,
     draftMessageId: "<b8@ej.com>",
+  },
+};
+
+// Un borrador de respuesta, con los encabezados de hilo que armó PrepareCompose.
+const replyComposeDraft = {
+  ...composeDraft,
+  request: {
+    ...composeDraft.request,
+    subject: "Re: Hola",
+    reply: { mode: "reply", originalMessageId: 7, inReplyTo: "<hola@ej.com>", references: ["<hola@ej.com>"] },
   },
 };
 
@@ -522,6 +533,20 @@ describe("Composer: borradores", () => {
     expect(req.subject).toBe("A medio escribir");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 2000 });
     expect(svc.SaveDraft).not.toHaveBeenCalled();
+  });
+
+  it("un borrador de respuesta cuyo original ya no está se abre igual, sin cita, y conserva el hilo", async () => {
+    vi.mocked(svc.PrepareCompose).mockRejectedValue(new Error("No encontramos lo que buscabas."));
+    const user = setup();
+    await user.click(screen.getByText("seguir respuesta"));
+    expect(await screen.findByLabelText("Para")).toHaveValue("z@x.com");
+    expect(screen.queryByLabelText("Mensaje original")).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].reply).toEqual({
+      mode: "reply", originalMessageId: 7, inReplyTo: "<hola@ej.com>", references: ["<hola@ej.com>"],
+    });
   });
 
   it("enviar espera el guardado en vuelo antes de QueueSend", async () => {

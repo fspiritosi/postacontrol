@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,7 +34,13 @@ type IMAP struct {
 	srv    *imapserver.Server
 	ln     net.Listener
 	served chan struct{} // se cierra cuando Serve volvió
+
+	sessions atomic.Int64
 }
+
+// Sessions devuelve cuántas conexiones aceptó el servidor desde que arrancó
+// (Restart no lo reinicia). Sirve para verificar que algo no fue a la red.
+func (s *IMAP) Sessions() int64 { return s.sessions.Load() }
 
 // StartIMAP levanta el servidor con INBOX y "Sent" vacíos. Se cierra solo al
 // terminar el test.
@@ -86,6 +93,7 @@ func startIMAP(t testing.TB, tlsc TLS, username, password string, caps imap.CapS
 func (s *IMAP) serve(ln net.Listener) {
 	srv := imapserver.New(&imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+			s.sessions.Add(1)
 			return s.mem.NewSession(), nil, nil
 		},
 		Caps: s.caps,

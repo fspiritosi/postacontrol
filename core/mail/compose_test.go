@@ -82,7 +82,8 @@ func TestPrepareCompose_ReplyAndReplyAllRecipients(t *testing.T) {
 	assert.Equal(t, addrs("a@x"), d.To)
 	assert.Equal(t, []model.Address{}, d.Cc)
 	assert.Equal(t, m.AccountID, d.AccountID)
-	assert.Equal(t, model.ReplyContext{Mode: "reply", OriginalMessageID: m.ID}, d.Reply)
+	assert.Equal(t, model.ReplyContext{Mode: "reply", OriginalMessageID: m.ID,
+		InReplyTo: "<orig@x>", References: []string{"<r1@x>", "<orig@x>"}}, d.Reply)
 
 	d, err = c.PrepareCompose(ctx, m.ID, "replyAll")
 	require.NoError(t, err)

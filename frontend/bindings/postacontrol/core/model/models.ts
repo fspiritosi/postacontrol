@@ -186,6 +186,15 @@ export interface PickedImage {
 export interface ReplyContext {
     "mode": ComposeMode;
     "originalMessageId": number;
+
+    /**
+     * InReplyTo y References son los encabezados de hilo de la respuesta
+     * (vacíos al reenviar). Los arma PrepareCompose y viajan con el pedido:
+     * si el original ya no está (se movió o se borró) la respuesta sale igual,
+     * sin la cita pero en el mismo hilo.
+     */
+    "inReplyTo": string;
+    "references": string[] | null;
 }
 
 /**

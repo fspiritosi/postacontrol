@@ -336,6 +336,7 @@ type MessageRef struct {
 	ID, AccountID, FolderID int64
 	UID                     uint32
 	Seen, Flagged, Answered bool
+	MessageID               string // el encabezado Message-ID ("" si no tiene)
 }
 
 // MessageRefs devuelve las referencias de los ids, en el mismo orden. Si falta
@@ -345,9 +346,9 @@ func (s *Store) MessageRefs(ctx context.Context, ids []int64) ([]MessageRef, err
 	for _, id := range ids {
 		var r MessageRef
 		var seen, flagged, answered int
-		err := s.db.QueryRowContext(ctx, `SELECT m.id, f.account_id, m.folder_id, m.uid, m.seen, m.flagged, m.answered
+		err := s.db.QueryRowContext(ctx, `SELECT m.id, f.account_id, m.folder_id, m.uid, m.seen, m.flagged, m.answered, m.message_id
  FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.id = ?`, id).
-			Scan(&r.ID, &r.AccountID, &r.FolderID, &r.UID, &seen, &flagged, &answered)
+			Scan(&r.ID, &r.AccountID, &r.FolderID, &r.UID, &seen, &flagged, &answered, &r.MessageID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}

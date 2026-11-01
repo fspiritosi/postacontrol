@@ -69,12 +69,13 @@ type Core struct {
 	syncLocks   map[int64]*sync.Mutex
 
 	// draftLocks serializa lo que toca en el servidor un mismo borrador
-	// (subir, descartar, limpiar después de enviar). afterDraftAppend es un
-	// gancho solo para tests: corre después del APPEND de un borrador y antes
-	// de darlo por subido.
-	draftLocksMu     sync.Mutex
-	draftLocks       map[int64]*sync.Mutex
-	afterDraftAppend func(id int64)
+	// (subir, descartar, limpiar después de enviar). beforeDraftAppend y
+	// afterDraftAppend son ganchos solo para tests: corren justo antes y justo
+	// después del APPEND de un borrador, antes de darlo por subido.
+	draftLocksMu      sync.Mutex
+	draftLocks        map[int64]*sync.Mutex
+	beforeDraftAppend func(id int64)
+	afterDraftAppend  func(id int64)
 
 	// now es el reloj (se inyecta en los tests). authFailedAt anota cuándo el
 	// servidor rechazó por última vez la contraseña de cada cuenta.

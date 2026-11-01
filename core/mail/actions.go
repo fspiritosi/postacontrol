@@ -268,5 +268,12 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 		return c.ctxOrUserError(ctx, err)
 	}
 	c.emit(EventFolderUpdated, map[string]any{"folderId": b.src.ID})
+	if b.src.Role == "drafts" {
+		msgIDs := make([]string, 0, len(b.refs))
+		for _, r := range b.refs {
+			msgIDs = append(msgIDs, r.MessageID)
+		}
+		c.forgetLocalDrafts(ctx, b.src.AccountID, msgIDs)
+	}
 	return nil
 }

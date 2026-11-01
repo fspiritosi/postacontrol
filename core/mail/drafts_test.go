@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"testing"
+	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
 	"github.com/stretchr/testify/assert"
@@ -582,4 +583,362 @@ func TestDrafts_ChangeAccountCleanupOnDeleteAndSend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, serverDraftsAs(t, c, srvA, testUser))
 	assert.Empty(t, serverDraftsAs(t, c, srvB, "g@ej.com"))
+}
+
+// C1: un envío desde un borrador falla, el usuario lo retoma desde Borradores
+// ("Seguir editando") y sigue escribiendo; reintentar después el envío viejo
+// desde la bandeja de salida no borra el borrador retomado.
+func TestSend_RetryFromOutboxKeepsResumedDraft(t *testing.T) {
+	c, srv, smtp, _, acc := newDraftsCore(t, nil, true)
+	ctx := context.Background()
+	d, err := c.SaveDraft(ctx, 0, draftReq(acc, "Original"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+
+	// El envío falla: la fila se borró al encolar, la copia del servidor queda.
+	q, err := c.enqueue(ctx, d.Request)
+	require.NoError(t, err)
+	require.NoError(t, c.store.FailLocalDraft(ctx, q.id, "No pudimos enviar el correo."))
+
+	// "Seguir editando" sobre la copia del servidor: otra fila, mismo Message-ID.
+	draftsID := folderID(t, c, acc.ID, "Drafts")
+	require.NoError(t, c.SyncFolder(ctx, draftsID))
+	resumed, err := c.OpenDraftMessage(ctx, firstMessage(t, c, draftsID).ID)
+	require.NoError(t, err)
+	require.Equal(t, d.MessageID, resumed.MessageID)
+	require.NotEqual(t, d.ID, resumed.ID)
+	_, err = c.SaveDraft(ctx, resumed.ID, draftReq(acc, "Retomado"))
+	require.NoError(t, err)
+	up, err := c.UploadDraft(ctx, resumed.ID)
+	require.NoError(t, err)
+	require.False(t, up.NeedsUpload, up.UploadError)
+
+	// Reintenta el envío viejo.
+	ob := outbox(t, c)
+	require.Len(t, ob, 1)
+	retry := ob[0].Request
+	retry.DraftID = q.id
+	q2, err := c.enqueue(ctx, retry)
+	require.NoError(t, err)
+	_, err = c.deliver(ctx, q2)
+	require.NoError(t, err)
+	require.Len(t, smtp.Received(), 1)
+
+	got, err := c.store.GetComposeDraft(ctx, resumed.ID)
+	require.NoError(t, err, "el borrador retomado sigue en la compu")
+	assert.Equal(t, "Retomado", got.Request.Subject)
+	hs := serverDrafts(t, c, srv)
+	require.Len(t, hs, 1, "la copia del borrador retomado sigue en el servidor")
+	assert.Equal(t, "Retomado", hs[0].Envelope.Subject)
+}
+
+// C1: un correo nuevo (sin borrador ni reintento) no borra nada de
+// Borradores aunque el pedido traiga un DraftMessageID.
+func TestSend_IgnoresDraftMessageIDWithoutDraft(t *testing.T) {
+	c, srv, smtp, _, acc := newDraftsCore(t, nil, true)
+	srv.Deliver(t, "Drafts", webmailDraft("<ajeno@ej.com>", "Ajeno"), goimap.FlagDraft)
+	ctx := context.Background()
+	req := draftReq(acc, "Nuevo")
+	req.DraftMessageID = "<ajeno@ej.com>"
+	_, err := c.Send(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, smtp.Received(), 1)
+	hs := serverDrafts(t, c, srv)
+	require.Len(t, hs, 1)
+	assert.Equal(t, "Ajeno", hs[0].Envelope.Subject)
+}
+
+// replyToGone prepara una respuesta (o un reenvío) a "Hola" y después saca
+// el original de la caché, como cuando se lo mueve o se lo borra.
+func replyToGone(t *testing.T, c *Core, srv *testenv.IMAP, acc model.Account, mode model.ComposeMode) model.SendRequest {
+	t.Helper()
+	ctx := context.Background()
+	raw := []byte("From: Bea <bea@ej.com>\r\nTo: " + testUser + "\r\nSubject: Hola\r\n" +
+		"Date: Mon, 02 Jan 2006 15:04:05 +0000\r\nMessage-ID: <hola@ej.com>\r\nReferences: <antes@ej.com>\r\n" +
+		"MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n" +
+		"--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\ncuerpo original\r\n" +
+		"--b\r\nContent-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n" +
+		"Content-Disposition: attachment; filename=\"factura.pdf\"\r\n\r\n" + wrap76(base64.StdEncoding.EncodeToString(pdfBytes)) +
+		"--b--\r\n")
+	srv.Deliver(t, "INBOX", raw)
+	inboxID := folderID(t, c, acc.ID, "INBOX")
+	require.NoError(t, c.SyncFolder(ctx, inboxID))
+	orig := firstMessage(t, c, inboxID)
+	p, err := c.PrepareCompose(ctx, orig.ID, mode)
+	require.NoError(t, err)
+	req := draftReq(acc, p.Subject)
+	reply := p.Reply
+	req.Reply = &reply
+	req.SkipOriginalAttachments = []int{}
+	require.NoError(t, c.store.DeleteMessages(ctx, []int64{orig.ID}))
+	return req
+}
+
+// C2: PrepareCompose guarda los encabezados de hilo en el contexto de
+// respuesta, para poder usarlos aunque el original ya no esté.
+func TestPrepareCompose_KeepsThreadHeaders(t *testing.T) {
+	c, srv, _, _, acc := newDraftsCore(t, nil, true)
+	req := replyToGone(t, c, srv, acc, modeReply)
+	assert.Equal(t, "<hola@ej.com>", req.Reply.InReplyTo)
+	assert.Equal(t, []string{"<antes@ej.com>", "<hola@ej.com>"}, req.Reply.References)
+
+	c2, srv2, _, _, acc2 := newDraftsCore(t, nil, true)
+	fwd := replyToGone(t, c2, srv2, acc2, modeForward)
+	assert.Empty(t, fwd.Reply.InReplyTo, "un reenvío no sigue el hilo")
+	assert.Empty(t, fwd.Reply.References)
+}
+
+// C2: un borrador de respuesta cuyo original se movió o se borró se sube y se
+// envía igual, sin la cita y con los encabezados de hilo.
+func TestDrafts_ReplyWithOriginalGoneUploadsAndSends(t *testing.T) {
+	c, srv, smtp, _, acc := newDraftsCore(t, nil, true)
+	ctx := context.Background()
+	d, err := c.SaveDraft(ctx, 0, replyToGone(t, c, srv, acc, modeReply))
+	require.NoError(t, err)
+
+	up, err := c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+	require.False(t, up.NeedsUpload, up.UploadError)
+	hs := serverDrafts(t, c, srv)
+	require.Len(t, hs, 1)
+	assert.Equal(t, []string{"<hola@ej.com>"}, bracketAll(hs[0].Envelope.InReplyTo))
+
+	_, err = c.Send(ctx, up.Request)
+	require.NoError(t, err)
+	envs := smtp.Received()
+	require.Len(t, envs, 1)
+	data := string(envs[0].Data)
+	assert.Contains(t, data, "In-Reply-To: <hola@ej.com>")
+	assert.Contains(t, data, "References: <antes@ej.com> <hola@ej.com>")
+	assert.NotContains(t, data, "cuerpo original")
+	assert.Empty(t, serverDrafts(t, c, srv))
+}
+
+// C2: un reenvío cuyo original ya no está sale sin la cita ni los adjuntos
+// del original.
+func TestSend_ForwardWithOriginalGoneSendsWithout(t *testing.T) {
+	c, srv, smtp, _, acc := newDraftsCore(t, nil, true)
+	ctx := context.Background()
+	req := replyToGone(t, c, srv, acc, modeForward)
+	_, err := c.Send(ctx, req)
+	require.NoError(t, err)
+	envs := smtp.Received()
+	require.Len(t, envs, 1)
+	assert.Empty(t, attachmentsOf(t, envs[0]))
+	assert.NotContains(t, string(envs[0].Data), "In-Reply-To")
+}
+
+func bracketAll(ids []string) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = bracketMsgID(id)
+	}
+	return out
+}
+
+// I1: borrar un borrador desde la lista de Borradores también lo borra de la
+// compu, con sus adjuntos, y la pasada de fondo no lo vuelve a subir.
+func TestDeleteMessages_InDraftsRemovesLocalDraft(t *testing.T) {
+	c, srv, _, n, acc := newDraftsCore(t, nil, true)
+	ctx := context.Background()
+	require.NoError(t, srv.User.Create("Trash", nil))
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	st, err := c.store.StageAttachment(ctx, "nota.txt", "text/plain", []byte("nota"))
+	require.NoError(t, err)
+	req := draftReq(acc, "Borrar")
+	req.Attachments = []int64{st.ID}
+	d, err := c.SaveDraft(ctx, 0, req)
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+	// Una edición posterior lo deja pendiente de subir.
+	_, err = c.SaveDraft(ctx, d.ID, req)
+	require.NoError(t, err)
+	draftsID := folderID(t, c, acc.ID, "Drafts")
+	require.NoError(t, c.SyncFolder(ctx, draftsID))
+	before := len(n.matching(EventDraftsChanged))
+
+	require.NoError(t, c.DeleteMessages(ctx, []int64{firstMessage(t, c, draftsID).ID}))
+	_, err = c.store.GetComposeDraft(ctx, d.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	info, err := c.StagedInfo(ctx, []int64{st.ID})
+	require.NoError(t, err)
+	assert.Empty(t, info)
+	assert.Greater(t, len(n.matching(EventDraftsChanged)), before)
+
+	c.backgroundPass(ctx)
+	assert.Empty(t, serverDrafts(t, c, srv), "no se volvió a subir")
+}
+
+// I1: mover un borrador fuera de Borradores también lo saca de la compu; un
+// borrador de otra conversación queda.
+func TestMoveMessages_FromDraftsRemovesLocalDraft(t *testing.T) {
+	c, srv, _, _, acc := newDraftsCore(t, nil, true)
+	ctx := context.Background()
+	require.NoError(t, srv.User.Create("Archivo", nil))
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	moved, err := c.SaveDraft(ctx, 0, draftReq(acc, "Mover"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, moved.ID)
+	require.NoError(t, err)
+	kept, err := c.SaveDraft(ctx, 0, draftReq(acc, "Queda"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, kept.ID)
+	require.NoError(t, err)
+	draftsID := folderID(t, c, acc.ID, "Drafts")
+	require.NoError(t, c.SyncFolder(ctx, draftsID))
+	m := bySubject(t, listAll(t, c, draftsID), "Mover")
+
+	require.NoError(t, c.MoveMessages(ctx, []int64{m.ID}, folderID(t, c, acc.ID, "Archivo")))
+	_, err = c.store.GetComposeDraft(ctx, moved.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	_, err = c.store.GetComposeDraft(ctx, kept.ID)
+	require.NoError(t, err)
+}
+
+// I3: con la cuenta en pausa por contraseña rechazada, subir un reenvío cuyo
+// original no está en caché no va a la red.
+func TestDrafts_PausedForwardDoesNotConnect(t *testing.T) {
+	c, srv, _, _, acc := newDraftsCore(t, nil, true)
+	req := forwardUncached(t, c, srv, acc)
+	ctx := context.Background()
+	d, err := c.SaveDraft(ctx, 0, req)
+	require.NoError(t, err)
+	c.noteAuthFailure(acc.ID)
+	srv.Restart(t) // corta la conexión del pool: ir a la red sería conectarse de nuevo
+	before := srv.Sessions()
+
+	up, err := c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+	assert.True(t, up.NeedsUpload)
+	assert.Equal(t, msgAuthRejected, up.UploadError)
+	assert.Equal(t, before, srv.Sessions(), "no hubo conexión nueva")
+}
+
+// I3: sin carpeta Borradores tampoco se arma el borrador ni se va a la red.
+func TestDrafts_NoDraftsFolderForwardDoesNotConnect(t *testing.T) {
+	c, srv, _, _, acc := newDraftsCore(t, nil, false)
+	req := forwardUncached(t, c, srv, acc)
+	ctx := context.Background()
+	d, err := c.SaveDraft(ctx, 0, req)
+	require.NoError(t, err)
+	srv.Restart(t)
+	before := srv.Sessions()
+
+	up, err := c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, msgNoDraftsFolder, up.UploadError)
+	assert.Equal(t, before, srv.Sessions(), "no hubo conexión nueva")
+}
+
+// I3: la pasada de fondo no vuelve a subir un borrador que ya se subió entre
+// que lo listó y que le tocó el turno.
+func TestDrafts_BackgroundSkipsAlreadyUploaded(t *testing.T) {
+	c, srv, _, _, acc := newDraftsCore(t, nil, true)
+	ctx := context.Background()
+	d, err := c.SaveDraft(ctx, 0, draftReq(acc, "Ya subido"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+	srv.Restart(t)
+	before := srv.Sessions()
+
+	got, err := c.uploadDraftIfPending(ctx, d.ID)
+	require.NoError(t, err)
+	assert.False(t, got.NeedsUpload)
+	assert.Equal(t, before, srv.Sessions(), "no fue a la red")
+	assert.Len(t, serverDrafts(t, c, srv), 1)
+}
+
+// forwardUncached arma un reenvío de un correo de INBOX cuyo cuerpo no está
+// en la caché.
+func forwardUncached(t *testing.T, c *Core, srv *testenv.IMAP, acc model.Account) model.SendRequest {
+	t.Helper()
+	ctx := context.Background()
+	srv.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "Reenviar"))
+	inboxID := folderID(t, c, acc.ID, "INBOX")
+	require.NoError(t, c.SyncFolder(ctx, inboxID))
+	orig := firstMessage(t, c, inboxID)
+	_, cached, err := c.store.GetMessage(ctx, orig.ID)
+	require.NoError(t, err)
+	require.False(t, cached)
+	req := draftReq(acc, "Fwd: Reenviar")
+	req.Reply = &model.ReplyContext{Mode: modeForward, OriginalMessageID: orig.ID}
+	req.SkipOriginalAttachments = []int{}
+	return req
+}
+
+// draftAppendHooks son los dos momentos de una subida en curso en los que los
+// tests de carrera meten un descarte o un envío del mismo borrador.
+func draftAppendHooks(c *Core) map[string]*func(int64) {
+	return map[string]*func(int64){
+		"antes del APPEND":   &c.beforeDraftAppend,
+		"después del APPEND": &c.afterDraftAppend,
+	}
+}
+
+// I4: una subida en curso y un descarte del mismo borrador no se pisan: no
+// queda copia en el servidor ni el borrador revive.
+func TestDrafts_DeleteDuringUploadLeavesNothing(t *testing.T) {
+	for _, when := range []string{"antes del APPEND", "después del APPEND"} {
+		t.Run(when, func(t *testing.T) {
+			c, srv, _, _, acc := newDraftsCore(t, nil, true)
+			ctx := context.Background()
+			d, err := c.SaveDraft(ctx, 0, draftReq(acc, "Carrera"))
+			require.NoError(t, err)
+			deleted := make(chan error, 1)
+			hook := draftAppendHooks(c)[when]
+			*hook = func(id int64) {
+				*hook = nil
+				go func() { deleted <- c.DeleteDraft(ctx, id) }()
+				// Le da tiempo a DeleteDraft de quedar esperando el lock del borrador.
+				time.Sleep(100 * time.Millisecond)
+			}
+			_, err = c.UploadDraft(ctx, d.ID)
+			require.NoError(t, err)
+			require.NoError(t, <-deleted)
+
+			assert.Empty(t, serverDrafts(t, c, srv))
+			_, err = c.store.GetComposeDraft(ctx, d.ID)
+			require.ErrorIs(t, err, store.ErrNotFound)
+			_, err = c.SaveDraft(ctx, d.ID, draftReq(acc, "Carrera"))
+			requireUserError(t, err, "not_found")
+			c.backgroundPass(ctx)
+			assert.Empty(t, serverDrafts(t, c, srv))
+		})
+	}
+}
+
+// I4: enviar el borrador mientras se sube: la limpieza posterior al envío
+// espera a la subida y no deja copia en el servidor.
+func TestDrafts_SendDuringUploadLeavesNothing(t *testing.T) {
+	for _, when := range []string{"antes del APPEND", "después del APPEND"} {
+		t.Run(when, func(t *testing.T) {
+			c, srv, smtp, _, acc := newDraftsCore(t, nil, true)
+			ctx := context.Background()
+			d, err := c.SaveDraft(ctx, 0, draftReq(acc, "Carrera"))
+			require.NoError(t, err)
+			sent := make(chan error, 1)
+			hook := draftAppendHooks(c)[when]
+			*hook = func(int64) {
+				*hook = nil
+				go func() { _, err := c.Send(ctx, d.Request); sent <- err }()
+				// Le da tiempo al envío de llegar a la limpieza de Borradores.
+				time.Sleep(100 * time.Millisecond)
+			}
+			_, err = c.UploadDraft(ctx, d.ID)
+			if err != nil {
+				requireUserError(t, err, "not_found") // el envío ya borró la fila
+			}
+			require.NoError(t, <-sent)
+			require.Len(t, smtp.Received(), 1)
+
+			assert.Empty(t, serverDrafts(t, c, srv))
+			_, err = c.store.GetComposeDraft(ctx, d.ID)
+			require.ErrorIs(t, err, store.ErrNotFound)
+			c.backgroundPass(ctx)
+			assert.Empty(t, serverDrafts(t, c, srv))
+		})
+	}
 }

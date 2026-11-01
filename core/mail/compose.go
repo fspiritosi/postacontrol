@@ -148,6 +148,7 @@ func (c *Core) PrepareCompose(ctx context.Context, messageID int64, mode model.C
 		out.OriginalAttachments = append(out.OriginalAttachments, d.Attachments...)
 	}
 	if mode == modeReply || mode == modeReplyAll {
+		out.Reply.InReplyTo, out.Reply.References = threadHeaders(d)
 		if len(d.ReplyTo) > 0 {
 			out.To = append(out.To, d.ReplyTo...)
 		} else if d.From.Email != "" {
@@ -219,7 +220,8 @@ type queuedSend struct {
 // correo sale de un borrador, el Message-ID del borrador se toma de su fila y
 // la fila se borra recién después de encolar; sus adjuntos quedan, porque
 // ahora los usa la bandeja de salida. En un reintento (DraftID) el
-// ComposeDraftID del pedido se ignora y el Message-ID sale de la bandeja.
+// ComposeDraftID del pedido se ignora y el Message-ID sale de la bandeja. El
+// DraftMessageID que manda la UI nunca se usa.
 func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (queuedSend, error) {
 	if err := c.ctxErr(ctx); err != nil {
 		return queuedSend{}, err
@@ -255,11 +257,17 @@ func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (queuedSend, 
 				}
 			}
 		}
-	} else if req.ComposeDraftID != 0 {
-		if d, err := c.store.GetComposeDraft(ctx, req.ComposeDraftID); err == nil {
-			req.DraftMessageID = d.MessageID
-			if up, err := c.store.DraftUploadedAccount(ctx, d.ID); err == nil && up != acc.ID {
-				oldDraftAccountID = up
+	} else {
+		// El Message-ID del borrador sale de su fila, nunca del pedido: un
+		// correo sin borrador (o cuyo borrador ya no está) no limpia nada de
+		// Borradores.
+		req.DraftMessageID = ""
+		if req.ComposeDraftID != 0 {
+			if d, err := c.store.GetComposeDraft(ctx, req.ComposeDraftID); err == nil {
+				req.DraftMessageID = d.MessageID
+				if up, err := c.store.DraftUploadedAccount(ctx, d.ID); err == nil && up != acc.ID {
+					oldDraftAccountID = up
+				}
 			}
 		}
 	}
