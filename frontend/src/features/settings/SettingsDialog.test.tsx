@@ -8,6 +8,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SetSettings: vi.fn(() => Promise.resolve()),
   GetStartAtLogin: vi.fn(() => Promise.resolve(false)),
   SetStartAtLogin: vi.fn(() => Promise.resolve()),
+  ListAccounts: vi.fn(() => Promise.resolve([])),
+  ListSignatures: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 

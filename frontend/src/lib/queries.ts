@@ -13,6 +13,13 @@ export function useAccounts() {
   });
 }
 
+export function useSignatures() {
+  return useQuery({
+    queryKey: ["signatures"],
+    queryFn: async () => (await svc.ListSignatures()) ?? [],
+  });
+}
+
 export function useFolders(accountId: number | null) {
   return useQuery({
     queryKey: ["folders", accountId],

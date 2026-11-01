@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
 import { useSettings } from "@/lib/queries";
+import { SignaturesSection } from "./SignaturesSection";
 
 type Props = { open: boolean; onOpenChange: (open: boolean) => void };
 
@@ -58,7 +59,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configuración</DialogTitle>
           <DialogDescription className="sr-only">Ajustes de la aplicación.</DialogDescription>
@@ -105,6 +106,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             onCheckedChange={(v) => void setStartAtLogin(v)}
           />
         </div>
+        <SignaturesSection />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cerrar

@@ -198,6 +198,9 @@ export function useMailEvents(queryClient: QueryClient): void {
       Events.On("mail:accounts-changed", () => {
         void queryClient.invalidateQueries({ queryKey: ["accounts"] });
       }),
+      Events.On("mail:signatures-changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["signatures"] });
+      }),
       Events.On("mail:folders-updated", (ev) => {
         const { accountId } = ev.data as { accountId: number };
         void queryClient.invalidateQueries({ queryKey: ["folders", accountId] });
