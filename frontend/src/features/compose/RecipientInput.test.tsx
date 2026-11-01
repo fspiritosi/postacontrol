@@ -133,6 +133,50 @@ describe("RecipientInput", () => {
     expect(screen.getByTitle("a@x.com")).not.toHaveAttribute("aria-invalid", "true");
   });
 
+  it("un < sin cerrar se cierra al confirmar y no se come lo que sigue", async () => {
+    const { user, onChange, input } = setup();
+    await user.type(input, "Ana <a@x.com");
+    await user.tab();
+    expect(lastValue(onChange)).toBe("Ana <a@x.com>");
+    await user.type(input, "f");
+    expect(lastValue(onChange)).toBe("Ana <a@x.com>, f");
+    await user.type(input, "o");
+    expect(lastValue(onChange)).toBe("Ana <a@x.com>, fo");
+    expect(chipButtons()).toHaveLength(1);
+    expect(screen.getByTitle("Ana <a@x.com>")).toHaveTextContent("Ana");
+    expect(input).toHaveValue("fo");
+  });
+
+  it("una coma dentro de <...> separa igual", async () => {
+    const { user, onChange, input } = setup();
+    await user.type(input, "Ana <a@x.com,");
+    expect(lastValue(onChange)).toBe("Ana <a@x.com>");
+    expect(input).toHaveValue("");
+    await user.type(input, "b@y.com,");
+    expect(lastValue(onChange)).toBe("Ana <a@x.com>, b@y.com");
+    expect(chipButtons()).toHaveLength(2);
+    expect(screen.getByTitle("Ana <a@x.com>")).not.toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("una comilla sin cerrar no se come las direcciones que siguen", async () => {
+    const { user, onChange, input } = setup();
+    await user.type(input, '"hola');
+    await user.tab();
+    await user.type(input, "b@y.com,");
+    expect(lastValue(onChange)).toBe("hola, b@y.com");
+    expect(chipButtons()).toHaveLength(2);
+    expect(screen.getByTitle("hola")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTitle("b@y.com")).not.toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveValue("");
+  });
+
+  it("un valor inicial con un < sin cerrar no duplica lo que se escribe", async () => {
+    const { user, onChange, input } = setup("Ana <a@x.com");
+    await user.type(input, "fo");
+    expect(lastValue(onChange)).toBe("Ana <a@x.com>, fo");
+    expect(chipButtons()).toHaveLength(1);
+  });
+
   it("las sugerencias aparecen y Enter elige la activa", async () => {
     vi.mocked(svc.SuggestRecipients).mockResolvedValue(suggestions as never);
     const { user, onChange, input } = setup();

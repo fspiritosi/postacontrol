@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatRecipients, parseRecipients, splitRecipientTokens, takeRecipientTokens } from "./recipients";
+import {
+  balanceRecipientToken,
+  formatRecipients,
+  parseRecipients,
+  splitRecipientTokens,
+  takeRecipientTokens,
+} from "./recipients";
 
 describe("parseRecipients", () => {
   it("parsea nombre y email", () => {
@@ -45,5 +51,47 @@ describe("takeRecipientTokens", () => {
     expect(takeRecipientTokens("a@x.com; b@y.com, c")).toEqual({ tokens: ["a@x.com", "b@y.com"], rest: "c" });
     expect(takeRecipientTokens("a@x.com,")).toEqual({ tokens: ["a@x.com"], rest: "" });
     expect(takeRecipientTokens('"Peña, Fa')).toEqual({ tokens: [], rest: '"Peña, Fa' });
+  });
+
+  it("un separador dentro de <...> lo cierra: un correo no lleva comas", () => {
+    expect(takeRecipientTokens("Ana <a@x.com, b")).toEqual({ tokens: ["Ana <a@x.com>"], rest: "b" });
+  });
+
+  it("los tokens cerrados quedan balanceados", () => {
+    expect(takeRecipientTokens('Ana <a@x.com>; "Peña, F" <f@x.com>,').tokens).toEqual([
+      "Ana <a@x.com>",
+      '"Peña, F" <f@x.com>',
+    ]);
+  });
+});
+
+describe("balanceRecipientToken", () => {
+  it("cierra un < sin >", () => {
+    expect(balanceRecipientToken("Ana <a@x.com")).toBe("Ana <a@x.com>");
+  });
+
+  it("saca la comilla que no se cerró", () => {
+    expect(balanceRecipientToken('"hola')).toBe("hola");
+    expect(balanceRecipientToken('Ana "x <a@x.com>')).toBe("Ana x <a@x.com>");
+  });
+
+  it("deja igual lo que ya está balanceado", () => {
+    for (const t of ["a@x.com", "Ana <a@x.com>", '"Peña, F" <f@x.com>', '"Ana \\"x" <a@x.com>']) {
+      expect(balanceRecipientToken(t)).toBe(t);
+    }
+  });
+
+  it("después de balancear, el texto ya no se come lo que sigue", () => {
+    for (const t of ['"hola', "Ana <a@x.com", '"a \\" b', 'x "y <z']) {
+      expect(splitRecipientTokens(`${balanceRecipientToken(t)}, f`)).toHaveLength(2);
+    }
+  });
+});
+
+describe("comillas escapadas", () => {
+  it("un nombre con una comilla suelta va y vuelve", () => {
+    const list = [{ name: 'Ana "la', email: "a@x.com" }, { name: "", email: "b@x.com" }];
+    expect(splitRecipientTokens(formatRecipients(list))).toHaveLength(2);
+    expect(parseRecipients(formatRecipients(list)).valid).toEqual(list);
   });
 });

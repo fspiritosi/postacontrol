@@ -10,6 +10,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useSuggestions } from "@/lib/queries";
 import {
+  balanceRecipientToken,
   formatRecipients,
   parseRecipients,
   splitRecipientTokens,
@@ -42,7 +43,10 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
 
   const tokens = splitRecipientTokens(value);
   const typed = pending.trim();
-  const chips = typed !== "" && tokens[tokens.length - 1] === typed ? tokens.slice(0, -1) : tokens;
+  // Balanceados por si el valor llegó con algo abierto: si no, lo que se escriba se le pegaría.
+  const chips = (typed !== "" && tokens[tokens.length - 1] === typed ? tokens.slice(0, -1) : tokens).map(
+    balanceRecipientToken,
+  );
   const parsed = chips.map((token) => ({ token, addr: parseRecipients(token).valid[0] as Address | undefined }));
   const exclude = parsed.flatMap((c) => (c.addr ? [c.addr.email] : []));
 
@@ -71,7 +75,7 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
   };
 
   const commit = () => {
-    if (typed !== "") emit([...chips, typed], "");
+    if (typed !== "") emit([...chips, balanceRecipientToken(typed)], "");
   };
 
   const pick = (s: Suggestion) => emit([...chips, formatRecipients([{ name: s.name, email: s.email }])], "");
