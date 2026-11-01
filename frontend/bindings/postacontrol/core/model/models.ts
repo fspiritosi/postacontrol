@@ -80,6 +80,26 @@ export interface ComposeDraft {
 export type ComposeMode = string;
 
 /**
+ * Contact es una ficha de la libreta local.
+ */
+export interface Contact {
+    "id": number;
+    "name": string;
+
+    /**
+     * en orden; nunca nil
+     */
+    "emails": string[] | null;
+
+    /**
+     * nunca nil
+     */
+    "phones": string[] | null;
+    "company": string;
+    "notes": string;
+}
+
+/**
  * Draft es un borrador autoguardado del redactor: se sube a la carpeta
  * Borradores del servidor mientras NeedsUpload sea true.
  */
@@ -317,6 +337,19 @@ export interface StagedAttachment {
     "filename": string;
     "mimeType": string;
     "size": number;
+}
+
+/**
+ * Suggestion es una dirección sugerida al escribir un destinatario.
+ */
+export interface Suggestion {
+    "name": string;
+    "email": string;
+
+    /**
+     * 0 = no es contacto
+     */
+    "contactId": number;
 }
 
 /**

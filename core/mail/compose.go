@@ -366,6 +366,9 @@ func (c *Core) deliver(ctx context.Context, q queuedSend) (model.SendResult, err
 	}
 
 	// El correo ya salió: de acá en adelante nada convierte el envío en error.
+	// Los destinatarios alimentan las sugerencias del redactor.
+	all := append(append(append([]model.Address{}, req.To...), req.Cc...), req.Bcc...)
+	_ = c.store.RecordRecipients(context.WithoutCancel(ctx), all, time.Now())
 	// Se quita de la bandeja aunque se esté cerrando la app.
 	_ = c.store.DeleteLocalDraft(context.WithoutCancel(ctx), id)
 	_ = c.store.DeleteStagedAttachments(context.WithoutCancel(ctx), req.Attachments)
