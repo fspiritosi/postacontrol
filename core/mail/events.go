@@ -12,6 +12,8 @@ const (
 	EventSettingsChanged   = "mail:settings-changed"   // data: nil
 	EventSignaturesChanged = "mail:signatures-changed" // data: nil
 	EventOutboxUpdated     = "mail:outbox-updated"     // data: nil
+	// EventDraftsChanged: se guardó, subió o borró un borrador del redactor.
+	EventDraftsChanged = "mail:drafts-changed" // data: nil
 	// EventSendFinished: terminó un envío. message es el motivo si falló y
 	// warning un aviso si salió (p. ej. sin copia en Enviados).
 	EventSendFinished = "mail:send-finished" // data: {"draftId": int64, "ok": bool, "message": string, "warning": string}

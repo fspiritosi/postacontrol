@@ -23,3 +23,25 @@ func (c *Conn) SearchText(words ...string) ([]uint32, error) {
 	slices.Sort(out)
 	return out, nil
 }
+
+// SearchHeader busca en la carpeta ya abierta los mensajes cuyo encabezado
+// name contiene value (UID SEARCH HEADER name value). Devuelve los UID en
+// orden ascendente. Con value vacío el servidor devolvería todos los que
+// tienen el encabezado, así que no busca y devuelve una lista vacía.
+func (c *Conn) SearchHeader(name, value string) ([]uint32, error) {
+	if value == "" {
+		return []uint32{}, nil
+	}
+	crit := &imap.SearchCriteria{Header: []imap.SearchCriteriaHeaderField{{Key: name, Value: value}}}
+	data, err := c.c.UIDSearch(crit, nil).Wait()
+	if err != nil {
+		return nil, opErr("UID SEARCH HEADER", err)
+	}
+	uids := data.AllUIDs()
+	out := make([]uint32, len(uids))
+	for i, u := range uids {
+		out[i] = uint32(u)
+	}
+	slices.Sort(out)
+	return out, nil
+}

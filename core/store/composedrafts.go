@@ -115,3 +115,27 @@ func (s *Store) DeleteComposeDraft(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM compose_drafts WHERE id = ?`, id)
 	return err
 }
+
+// DeleteComposeDraftWithStaged borra el borrador y los adjuntos preparados que
+// solo él referenciaba: los que usa un correo de la bandeja de salida u otro
+// borrador quedan.
+func (s *Store) DeleteComposeDraftWithStaged(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM staged_attachments WHERE id IN (
+ SELECT j.value FROM compose_drafts c, json_each(c.request_json, '$.attachments') j WHERE c.id = ?)
+ AND NOT EXISTS (
+ SELECT 1 FROM local_drafts d, json_each(d.request_json, '$.attachments') j WHERE j.value = staged_attachments.id)
+ AND NOT EXISTS (
+ SELECT 1 FROM compose_drafts c, json_each(c.request_json, '$.attachments') j WHERE c.id <> ? AND j.value = staged_attachments.id)`,
+		id, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM compose_drafts WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

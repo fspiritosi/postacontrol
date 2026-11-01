@@ -3,6 +3,7 @@ package mail
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -318,8 +319,9 @@ func (c *Core) StartBackgroundSync(ctx context.Context, every time.Duration) {
 	})
 }
 
-// backgroundPass sincroniza todas las cuentas una vez, salteando las que están
-// en pausa por una contraseña rechazada. Lo que pide el usuario no pasa por acá.
+// backgroundPass sincroniza todas las cuentas una vez y sube sus borradores
+// pendientes, salteando las que están en pausa por una contraseña rechazada.
+// Lo que pide el usuario no pasa por acá.
 func (c *Core) backgroundPass(ctx context.Context) {
 	accs, err := c.store.ListAccounts(ctx)
 	if err != nil {
@@ -333,8 +335,23 @@ func (c *Core) backgroundPass(ctx context.Context) {
 			continue
 		}
 		// Los errores de conexión ya los avisa withConn con EventSyncError.
-		_ = c.SyncAccount(ctx, a.ID)
+		// Si la cuenta no se pudo conectar, los borradores esperan a la
+		// próxima pasada en vez de fallar uno por uno.
+		if err := c.SyncAccount(ctx, a.ID); connFailure(err) || c.authPaused(a.ID) {
+			continue
+		}
+		c.uploadPendingDrafts(ctx, a.ID)
 	}
+}
+
+// connFailure dice si err es un problema de conexión con la cuenta (red,
+// credenciales o TLS).
+func connFailure(err error) bool {
+	var ue *UserError
+	if !errors.As(err, &ue) {
+		return false
+	}
+	return ue.Code == "network" || ue.Code == "auth" || ue.Code == "tls"
 }
 
 func headerRows(hs []imapx.RemoteHeader) []store.HeaderRow {

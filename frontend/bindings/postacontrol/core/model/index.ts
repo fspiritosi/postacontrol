@@ -13,6 +13,7 @@ export type {
     Attachment,
     ComposeDraft,
     ComposeMode,
+    Draft,
     Folder,
     FolderRole,
     ListQuery,

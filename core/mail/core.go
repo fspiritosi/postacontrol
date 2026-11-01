@@ -68,6 +68,14 @@ type Core struct {
 	syncLocksMu sync.Mutex
 	syncLocks   map[int64]*sync.Mutex
 
+	// draftLocks serializa lo que toca en el servidor un mismo borrador
+	// (subir, descartar, limpiar después de enviar). afterDraftAppend es un
+	// gancho solo para tests: corre después del APPEND de un borrador y antes
+	// de darlo por subido.
+	draftLocksMu     sync.Mutex
+	draftLocks       map[int64]*sync.Mutex
+	afterDraftAppend func(id int64)
+
 	// now es el reloj (se inyecta en los tests). authFailedAt anota cuándo el
 	// servidor rechazó por última vez la contraseña de cada cuenta.
 	now          func() time.Time
@@ -115,7 +123,7 @@ func New(cfg Config) (*Core, error) {
 	_ = st.PruneStagedAttachments(context.Background(), time.Now().Add(-24*time.Hour))
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
-		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{},
+		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{}, draftLocks: map[int64]*sync.Mutex{},
 		now: time.Now, authFailedAt: map[int64]time.Time{},
 		dialWatch: imapx.DialWatch, watchDebounce: watchDebounce,
 		watchBackoff: slices.Clone(watchBackoff), watchers: map[int64]*watcher{},

@@ -23,6 +23,13 @@ export function AddAccount($in: model$0.AccountInput): $CancellablePromise<model
     return $Call.ByID(1220864989, $in);
 }
 
+/**
+ * DeleteDraft descarta el borrador, también de la carpeta Borradores del servidor.
+ */
+export function DeleteDraft(id: number): $CancellablePromise<void> {
+    return $Call.ByID(3632404791, id);
+}
+
 export function DeleteLocalDraft(id: number): $CancellablePromise<void> {
     return $Call.ByID(1825177514, id);
 }
@@ -74,6 +81,13 @@ export function ListMessages(folderID: number, q: model$0.ListQuery): $Cancellab
     return $Call.ByID(3544686215, folderID, q);
 }
 
+/**
+ * ListPendingDrafts devuelve los borradores que todavía no se subieron al servidor.
+ */
+export function ListPendingDrafts(): $CancellablePromise<model$0.Draft[] | null> {
+    return $Call.ByID(1690963978);
+}
+
 export function ListSignatures(): $CancellablePromise<model$0.Signature[] | null> {
     return $Call.ByID(2055430592);
 }
@@ -88,6 +102,13 @@ export function ListUnified(view: model$0.UnifiedView, q: model$0.ListQuery): $C
 
 export function MoveMessages(ids: number[] | null, destFolderID: number): $CancellablePromise<void> {
     return $Call.ByID(2219385610, ids, destFolderID);
+}
+
+/**
+ * OpenDraftMessage abre para seguir editando un mensaje de la carpeta Borradores.
+ */
+export function OpenDraftMessage(messageID: number): $CancellablePromise<model$0.Draft> {
+    return $Call.ByID(130623333, messageID);
 }
 
 /**
@@ -135,6 +156,14 @@ export function RemoveAccount(id: number): $CancellablePromise<void> {
  */
 export function SaveAttachment(messageID: number, index: number): $CancellablePromise<boolean> {
     return $Call.ByID(731861391, messageID, index);
+}
+
+/**
+ * SaveDraft guarda el borrador del redactor en la compu (id 0 lo crea), sin
+ * tocar la red.
+ */
+export function SaveDraft(id: number, req: model$0.SendRequest): $CancellablePromise<model$0.Draft> {
+    return $Call.ByID(1483319153, id, req);
 }
 
 export function SaveSignature(sig: model$0.Signature): $CancellablePromise<model$0.Signature> {
@@ -208,4 +237,12 @@ export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void
 
 export function UpdatePassword(accountID: number, password: string): $CancellablePromise<void> {
     return $Call.ByID(995610539, accountID, password);
+}
+
+/**
+ * UploadDraft sube el borrador a la carpeta Borradores del servidor. Si no se
+ * pudo, el motivo queda en uploadError y needsUpload sigue en true.
+ */
+export function UploadDraft(id: number): $CancellablePromise<model$0.Draft> {
+    return $Call.ByID(3391337209, id);
 }

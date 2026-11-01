@@ -25,6 +25,8 @@ func (e *UserError) Unwrap() error { return e.Err }
 
 const msgNotFound = "No encontramos lo que buscabas."
 
+const msgAuthRejected = "El servidor rechazó el usuario o la contraseña."
+
 const smtpxRejectedPrefix = "smtpx: envío rechazado: "
 
 const msgServerRefused = "El servidor rechazó la operación"
@@ -44,7 +46,7 @@ func asUserError(err error) error {
 	}
 	switch {
 	case errors.Is(err, imapx.ErrAuth), errors.Is(err, smtpx.ErrAuth):
-		return &UserError{Code: "auth", Msg: "El servidor rechazó el usuario o la contraseña.", Err: err}
+		return &UserError{Code: "auth", Msg: msgAuthRejected, Err: err}
 	case errors.Is(err, imapx.ErrTLS), errors.Is(err, smtpx.ErrTLS):
 		return &UserError{Code: "tls", Msg: "El certificado del servidor no es válido. Por seguridad no nos conectamos.", Err: err}
 	case errors.Is(err, imapx.ErrNetwork), errors.Is(err, smtpx.ErrNetwork):

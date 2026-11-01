@@ -177,7 +177,7 @@ func (c *Core) PrepareCompose(ctx context.Context, messageID int64, mode model.C
 func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResult, error) {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
-	id, acc, err := c.enqueue(ctx, req)
+	id, acc, req, err := c.enqueue(ctx, req)
 	if err != nil {
 		return model.SendResult{}, err
 	}
@@ -190,7 +190,7 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 func (c *Core) QueueSend(ctx context.Context, req model.SendRequest) (int64, error) {
 	qctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
-	id, acc, err := c.enqueue(qctx, req)
+	id, acc, req, err := c.enqueue(qctx, req)
 	if err != nil {
 		return 0, err
 	}
@@ -203,37 +203,53 @@ func (c *Core) QueueSend(ctx context.Context, req model.SendRequest) (int64, err
 }
 
 // enqueue valida req y lo pone en la bandeja de salida como "enviando". Los
-// errores de validación no guardan nada: el redactor sigue abierto.
-func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (int64, model.Account, error) {
+// errores de validación no guardan nada: el redactor sigue abierto. Si el
+// correo sale de un borrador, el Message-ID del borrador se toma de su fila y
+// la fila se borra recién después de encolar; sus adjuntos quedan, porque
+// ahora los usa la bandeja de salida. Devuelve el pedido así completado.
+func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (int64, model.Account, model.SendRequest, error) {
 	if err := c.ctxErr(ctx); err != nil {
-		return 0, model.Account{}, err
+		return 0, model.Account{}, req, err
 	}
 	if req.Reply != nil {
 		switch req.Reply.Mode {
 		case modeReply, modeReplyAll, modeForward, "", "new":
 		default:
-			return 0, model.Account{}, &UserError{Code: "invalid", Msg: "No pudimos preparar la respuesta."}
+			return 0, model.Account{}, req, &UserError{Code: "invalid", Msg: "No pudimos preparar la respuesta."}
 		}
 	}
 	if len(mimex.Recipients(mimex.Outgoing{To: req.To, Cc: req.Cc, Bcc: req.Bcc})) == 0 {
-		return 0, model.Account{}, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
+		return 0, model.Account{}, req, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
 	}
 	acc, err := c.store.GetAccount(ctx, req.AccountID)
 	if err != nil {
-		return 0, model.Account{}, c.ctxOrUserError(ctx, err)
+		return 0, model.Account{}, req, c.ctxOrUserError(ctx, err)
 	}
 	if err := c.checkSize(ctx, req); err != nil {
-		return 0, model.Account{}, err
+		return 0, model.Account{}, req, err
+	}
+	if req.ComposeDraftID != 0 {
+		if d, err := c.store.GetComposeDraft(ctx, req.ComposeDraftID); err == nil {
+			req.DraftMessageID = d.MessageID
+		}
 	}
 	id, err := c.store.QueueLocalDraft(ctx, req.DraftID, req)
 	if errors.Is(err, store.ErrBusy) {
-		return 0, model.Account{}, &UserError{Code: "busy", Msg: "Este correo ya se está enviando."}
+		return 0, model.Account{}, req, &UserError{Code: "busy", Msg: "Este correo ya se está enviando."}
 	}
 	if err != nil {
-		return 0, model.Account{}, c.ctxOrUserError(ctx, err)
+		return 0, model.Account{}, req, c.ctxOrUserError(ctx, err)
 	}
 	c.emit(EventOutboxUpdated, nil)
-	return id, acc, nil
+	if req.ComposeDraftID != 0 {
+		// Ya está en la bandeja de salida: el borrador deja de existir aunque
+		// se esté cerrando la app. Las copias del servidor las borra deliver
+		// cuando el correo sale.
+		if err := c.store.DeleteComposeDraft(context.WithoutCancel(ctx), req.ComposeDraftID); err == nil {
+			c.emit(EventDraftsChanged, nil)
+		}
+	}
+	return id, acc, req, nil
 }
 
 // checkSize verifica que los adjuntos preparados existan y que el correo (esos
@@ -286,8 +302,9 @@ func (c *Core) checkSize(ctx context.Context, req model.SendRequest) error {
 }
 
 // deliver arma el mensaje del correo id de la bandeja de salida y lo envía por
-// SMTP. Si sale, lo quita de la bandeja, guarda la copia en Enviados y marca
-// \Answered en el original; si no, lo deja en la bandeja con el motivo.
+// SMTP. Si sale, lo quita de la bandeja, guarda la copia en Enviados, marca
+// \Answered en el original y borra las copias del borrador del que venía; si
+// no, lo deja en la bandeja con el motivo.
 // Siempre termina emitiendo EventSendFinished.
 func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req model.SendRequest) (model.SendResult, error) {
 	replying := req.Reply != nil && (req.Reply.Mode == modeReply || req.Reply.Mode == modeReplyAll)
@@ -324,6 +341,7 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 			c.markAnswered(ctx, orig)
 		}
 	}
+	c.discardSentDraft(ctx, acc.ID, req)
 	c.emit(EventSendFinished, map[string]any{"draftId": id, "ok": true, "message": "", "warning": res.Warning})
 	return res, nil
 }

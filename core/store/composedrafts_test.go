@@ -152,3 +152,36 @@ func TestPruneStaged_KeepsReferencedByComposeDraft(t *testing.T) {
 	require.Len(t, info, 1)
 	assert.Equal(t, referenced, info[0].ID)
 }
+
+func TestComposeDrafts_DeleteWithStagedKeepsShared(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, _ := seedFolder(t, s)
+	stage := func(name string) int64 {
+		a, err := s.StageAttachment(ctx, name, "text/plain", []byte(name))
+		require.NoError(t, err)
+		return a.ID
+	}
+	only, outbox, other := stage("solo"), stage("salida"), stage("otro")
+	_, err := s.QueueLocalDraft(ctx, 0, model.SendRequest{AccountID: accID, Attachments: []int64{outbox}})
+	require.NoError(t, err)
+	_, err = s.SaveComposeDraft(ctx, 0, accID, model.SendRequest{AccountID: accID, Attachments: []int64{other}}, "<b@x>")
+	require.NoError(t, err)
+	id, err := s.SaveComposeDraft(ctx, 0, accID, model.SendRequest{AccountID: accID, Attachments: []int64{only, outbox, other}}, "<a@x>")
+	require.NoError(t, err)
+	// Un borrador sin adjuntos (null en el JSON) tampoco rompe.
+	empty, err := s.SaveComposeDraft(ctx, 0, accID, model.SendRequest{AccountID: accID}, "<c@x>")
+	require.NoError(t, err)
+
+	require.NoError(t, s.DeleteComposeDraftWithStaged(ctx, id))
+	require.NoError(t, s.DeleteComposeDraftWithStaged(ctx, empty))
+	_, err = s.GetComposeDraft(ctx, id)
+	require.ErrorIs(t, err, ErrNotFound)
+	info, err := s.StagedInfo(ctx, []int64{only, outbox, other})
+	require.NoError(t, err)
+	got := []int64{}
+	for _, a := range info {
+		got = append(got, a.ID)
+	}
+	assert.Equal(t, []int64{outbox, other}, got)
+}

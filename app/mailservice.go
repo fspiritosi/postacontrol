@@ -250,6 +250,33 @@ func (s *MailService) DeleteLocalDraft(ctx context.Context, id int64) error {
 	return s.core.DeleteLocalDraft(ctx, id)
 }
 
+// SaveDraft guarda el borrador del redactor en la compu (id 0 lo crea), sin
+// tocar la red.
+func (s *MailService) SaveDraft(ctx context.Context, id int64, req model.SendRequest) (model.Draft, error) {
+	return s.core.SaveDraft(ctx, id, req)
+}
+
+// UploadDraft sube el borrador a la carpeta Borradores del servidor. Si no se
+// pudo, el motivo queda en uploadError y needsUpload sigue en true.
+func (s *MailService) UploadDraft(ctx context.Context, id int64) (model.Draft, error) {
+	return s.core.UploadDraft(ctx, id)
+}
+
+// DeleteDraft descarta el borrador, también de la carpeta Borradores del servidor.
+func (s *MailService) DeleteDraft(ctx context.Context, id int64) error {
+	return s.core.DeleteDraft(ctx, id)
+}
+
+// OpenDraftMessage abre para seguir editando un mensaje de la carpeta Borradores.
+func (s *MailService) OpenDraftMessage(ctx context.Context, messageID int64) (model.Draft, error) {
+	return s.core.OpenDraftMessage(ctx, messageID)
+}
+
+// ListPendingDrafts devuelve los borradores que todavía no se subieron al servidor.
+func (s *MailService) ListPendingDrafts(ctx context.Context) ([]model.Draft, error) {
+	return s.core.ListPendingDrafts(ctx)
+}
+
 func (s *MailService) GetSettings(ctx context.Context) (model.Settings, error) {
 	return s.core.GetSettings(ctx)
 }

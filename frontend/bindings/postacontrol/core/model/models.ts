@@ -79,6 +79,19 @@ export interface ComposeDraft {
  */
 export type ComposeMode = string;
 
+/**
+ * Draft es un borrador autoguardado del redactor: se sube a la carpeta
+ * Borradores del servidor mientras NeedsUpload sea true.
+ */
+export interface Draft {
+    "id": number;
+    "request": SendRequest;
+    "messageId": string;
+    "needsUpload": boolean;
+    "uploadError": string;
+    "updatedAt": string;
+}
+
 export interface Folder {
     "id": number;
     "accountId": number;
