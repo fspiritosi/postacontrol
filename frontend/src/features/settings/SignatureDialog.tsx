@@ -43,7 +43,7 @@ export function SignatureDialog({ signature, onClose }: Props) {
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[85vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{signature ? "Editar firma" : "Nueva firma"}</DialogTitle>
           <DialogDescription className="sr-only">Nombre y contenido de la firma.</DialogDescription>
