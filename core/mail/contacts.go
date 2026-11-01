@@ -191,7 +191,8 @@ func (c *Core) AddSenderToContacts(ctx context.Context, addr model.Address) (mod
 
 // SuggestRecipients sugiere direcciones para lo escrito en un campo de
 // destinatarios: primero los contactos y después el resto de los destinatarios
-// usados; en cada grupo, antes los que empiezan con lo escrito. exclude son los
+// usados; en cada grupo, antes los que empiezan con lo escrito. Si lo escrito
+// es un correo entero que existe, ese va primero de todo. exclude son los
 // correos que ya están en el campo.
 func (c *Core) SuggestRecipients(ctx context.Context, query string, exclude []string) ([]model.Suggestion, error) {
 	q := fold(strings.TrimSpace(query))
@@ -211,6 +212,7 @@ func (c *Core) SuggestRecipients(ctx context.Context, query string, exclude []st
 		return nil, c.ctxOrUserError(ctx, err)
 	}
 
+	exact := strings.ToLower(strings.TrimSpace(query))
 	type cand struct {
 		model.Suggestion
 		prefix bool
@@ -252,10 +254,20 @@ func (c *Core) SuggestRecipients(ctx context.Context, query string, exclude []st
 	}
 
 	out := []model.Suggestion{}
-	for _, group := range [][]cand{fromContacts, fromRecips} {
+	groups := [][]cand{fromContacts, fromRecips}
+	// Un correo aparece una sola vez, así que hay a lo sumo un exacto.
+	isExact := func(x cand) bool { return strings.ToLower(x.Email) == exact }
+	for _, group := range groups {
+		for _, x := range group {
+			if isExact(x) {
+				out = append(out, x.Suggestion)
+			}
+		}
+	}
+	for _, group := range groups {
 		for _, pass := range []bool{true, false} {
 			for _, x := range group {
-				if x.prefix == pass && len(out) < suggestLimit {
+				if x.prefix == pass && !isExact(x) && len(out) < suggestLimit {
 					out = append(out, x.Suggestion)
 				}
 			}

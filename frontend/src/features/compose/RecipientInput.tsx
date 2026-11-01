@@ -31,14 +31,21 @@ type Props = {
 
 const NO_SUGGESTIONS: Suggestion[] = [];
 
+// El correo, en minúsculas, si el texto es una sola dirección válida.
+function singleEmail(text: string): string | null {
+  const { valid, invalid } = parseRecipients(text);
+  return valid.length === 1 && invalid.length === 0 ? valid[0].email.toLowerCase() : null;
+}
+
 // Destinatarios como chips. El valor sigue siendo el texto completo (se parsea
 // al enviar): los chips son sus tokens y lo que se está escribiendo va al final.
 export function RecipientInput({ id, label, value, onChange, onSuggestionsChange }: Props) {
   const [pending, setPending] = useState("");
   // Texto para el que se cerró la lista con Esc: al seguir escribiendo vuelve a abrir.
   const [dismissed, setDismissed] = useState<string | null>(null);
-  // La opción activa va con la lista a la que corresponde: con resultados nuevos vuelve a la primera.
-  const [active, setActive] = useState<{ list: Suggestion[]; index: number } | null>(null);
+  // La opción elegida con las flechas (o el mouse) va con la lista y el texto a
+  // los que corresponde: si cambia cualquiera de los dos, deja de valer.
+  const [active, setActive] = useState<{ list: Suggestion[]; text: string; index: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const tokens = splitRecipientTokens(value);
@@ -54,7 +61,14 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
   // Sin texto no hay lista, aunque keepPreviousData conserve la última.
   const items = (typed !== "" && suggestions.data) || NO_SUGGESTIONS;
   const open = items.length > 0 && dismissed !== pending;
-  const index = active?.list === items ? active.index : 0;
+  const chosen = active?.list === items && active.text === typed ? active.index : null;
+  // Sin elegir nada, Enter toma lo escrito (y no se marca ninguna) si la lista
+  // es de una búsqueda anterior o si ya es una dirección entera y la primera es
+  // otra: no cambia "ana@x.com" por "mariana@x.com".
+  const typedEmail = singleEmail(typed);
+  const keepTyped =
+    suggestions.isPlaceholderData || (typedEmail !== null && items[0]?.email.toLowerCase() !== typedEmail);
+  const index = chosen ?? (keepTyped ? -1 : 0);
 
   const notifySuggestions = useEffectEvent((close: (() => void) | null) => onSuggestionsChange?.(close));
   useEffect(() => {
@@ -86,10 +100,11 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
     if (open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       const step = e.key === "ArrowDown" ? 1 : -1;
-      setActive({ list: items, index: (index + step + items.length) % items.length });
+      const next = index < 0 ? (step > 0 ? 0 : items.length - 1) : (index + step + items.length) % items.length;
+      setActive({ list: items, text: typed, index: next });
     } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
       // Sin nada escrito, Tab deja pasar el foco.
-      if (open) {
+      if (open && index >= 0) {
         e.preventDefault();
         pick(items[index]);
       } else if (typed !== "") {
@@ -171,7 +186,7 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
             aria-expanded={open}
             aria-controls={open ? listId : undefined}
             aria-autocomplete="list"
-            aria-activedescendant={open ? optionId(index) : undefined}
+            aria-activedescendant={open && index >= 0 ? optionId(index) : undefined}
             autoComplete="off"
             spellCheck={false}
             className="h-7 min-w-24 flex-1 bg-transparent px-1 text-base outline-none md:text-sm"
@@ -195,7 +210,7 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
                   e.preventDefault();
                   pick(s);
                 }}
-                onMouseEnter={() => setActive({ list: items, index: i })}
+                onMouseEnter={() => setActive({ list: items, text: typed, index: i })}
                 className={cn(
                   "flex cursor-pointer gap-2 rounded-sm px-2 py-1.5",
                   i === index && "bg-accent text-accent-foreground",

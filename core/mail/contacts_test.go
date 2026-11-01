@@ -150,6 +150,7 @@ func record(t *testing.T, c *Core, times int, addrs ...model.Address) {
 func TestSuggest_FoldsAccentsAndCase(t *testing.T) {
 	c, _, _, _ := newTestCore(t)
 	mustSave(t, c, model.Contact{Name: "Peña", Emails: []string{"pp@x.com"}})
+	mustSave(t, c, model.Contact{Name: "José", Emails: []string{"js@x.com"}})
 	for _, q := range []string{"pena", "PEÑ"} {
 		got, err := c.SuggestRecipients(context.Background(), q, nil)
 		require.NoError(t, err)
@@ -158,6 +159,10 @@ func TestSuggest_FoldsAccentsAndCase(t *testing.T) {
 		assert.Equal(t, "Peña", got[0].Name)
 		assert.NotZero(t, got[0].ContactID)
 	}
+	got, err := c.SuggestRecipients(context.Background(), "JOSE", nil)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "José", got[0].Name)
 }
 
 func TestSuggest_OrderAndLimit(t *testing.T) {
@@ -166,7 +171,8 @@ func TestSuggest_OrderAndLimit(t *testing.T) {
 	mustSave(t, c, model.Contact{Name: "Juan Pérez", Emails: []string{"jp@x.com"}})
 	record(t, c, 50, model.Address{Email: "juana@y.com"})
 	record(t, c, 2, model.Address{Email: "juanb@y.com"})
-	record(t, c, 1, model.Address{Email: "x-juan@z.com"})
+	// Más usado que juanb: solo queda atrás porque no empieza con "juan".
+	record(t, c, 10, model.Address{Email: "x-juan@z.com"})
 	got, err := c.SuggestRecipients(ctx, "juan", nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"jp@x.com", "juana@y.com", "juanb@y.com", "x-juan@z.com"}, emails(got))
@@ -184,6 +190,26 @@ func TestSuggest_OrderAndLimit(t *testing.T) {
 	got, err = c.SuggestRecipients(ctx, "lim", nil)
 	require.NoError(t, err)
 	assert.Len(t, got, 8)
+}
+
+// Una dirección escrita entera va primero, antes que los contactos que solo la
+// contienen: así Enter no la cambia por la de otra persona.
+func TestSuggest_ExactEmailFirst(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	mustSave(t, c, model.Contact{Name: "Mariana", Emails: []string{"mariana@x.com"}})
+	record(t, c, 1, model.Address{Email: "ana@x.com"})
+	got, err := c.SuggestRecipients(ctx, " ANA@x.com ", nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ana@x.com", "mariana@x.com"}, emails(got))
+
+	// También entre contactos: el exacto va antes que el que lo extiende, aunque
+	// por nombre vaya después.
+	mustSave(t, c, model.Contact{Name: "Ana", Emails: []string{"bea@x.com.ar"}})
+	mustSave(t, c, model.Contact{Name: "Zoe", Emails: []string{"bea@x.com"}})
+	got, err = c.SuggestRecipients(ctx, "bea@x.com", nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bea@x.com", "bea@x.com.ar"}, emails(got))
 }
 
 func TestSuggest_SkipsContactDuplicatesAndExcluded(t *testing.T) {

@@ -54,6 +54,11 @@ function setup(initial = "") {
   return { user: userEvent.setup(), onChange, input: screen.getByLabelText("Para") };
 }
 
+// Contesta solo a esa búsqueda: la lista abre recién con su resultado, no con
+// el de una anterior (que keepPreviousData mostraría mientras tanto).
+const suggestFor = (query: string, list: object[]) =>
+  vi.mocked(svc.SuggestRecipients).mockImplementation((async (q: string) => (q === query ? list : [])) as never);
+
 const chipButtons = () => screen.queryAllByRole("button", { name: /^Quitar / });
 const lastValue = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls[fn.mock.calls.length - 1]?.[0];
 
@@ -178,7 +183,7 @@ describe("RecipientInput", () => {
   });
 
   it("las sugerencias aparecen y Enter elige la activa", async () => {
-    vi.mocked(svc.SuggestRecipients).mockResolvedValue(suggestions as never);
+    suggestFor("jua", suggestions);
     const { user, onChange, input } = setup();
     await user.type(input, "jua");
     const list = await screen.findByRole("listbox");
@@ -212,13 +217,95 @@ describe("RecipientInput", () => {
   });
 
   it("Tab con la lista abierta elige la activa y deja el foco en el campo", async () => {
-    vi.mocked(svc.SuggestRecipients).mockResolvedValue(suggestions as never);
+    suggestFor("jua", suggestions);
     const { user, onChange, input } = setup();
     await user.type(input, "jua");
     await screen.findByRole("listbox");
     await user.tab();
     expect(lastValue(onChange)).toBe("Juan Pérez <juan@x.com>");
     expect(input).toHaveFocus();
+  });
+
+  describe("con una dirección completa escrita", () => {
+    const mariana = { name: "Mariana", email: "mariana@x.com", contactId: 3 };
+    const otra = { name: "", email: "ana.b@x.com", contactId: 0 };
+    const answer = (list: object[]) => suggestFor("ana@x.com", list);
+
+    it("Enter deja lo escrito si la primera sugerencia es otra dirección", async () => {
+      answer([mariana, otra]);
+      const { user, onChange, input } = setup();
+      await user.type(input, "ana@x.com");
+      await screen.findByRole("listbox");
+      // Sin opción marcada: Enter toma lo escrito y la lista no dice otra cosa.
+      expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "false");
+      expect(input).not.toHaveAttribute("aria-activedescendant");
+      await user.keyboard("{Enter}");
+      expect(lastValue(onChange)).toBe("ana@x.com");
+      expect(input).toHaveValue("");
+    });
+
+    it("Tab también deja lo escrito", async () => {
+      answer([mariana, otra]);
+      const { user, onChange, input } = setup();
+      await user.type(input, "ana@x.com");
+      await screen.findByRole("listbox");
+      await user.tab();
+      expect(lastValue(onChange)).toBe("ana@x.com");
+      expect(input).toHaveFocus();
+    });
+
+    it("con las flechas sí se elige otra", async () => {
+      answer([mariana, otra]);
+      const { user, onChange, input } = setup();
+      await user.type(input, "ana@x.com");
+      await screen.findByRole("listbox");
+      await user.keyboard("{ArrowDown}");
+      expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+      await user.keyboard("{ArrowDown}{ArrowUp}{Enter}");
+      expect(lastValue(onChange)).toBe("Mariana <mariana@x.com>");
+    });
+
+    it("si la primera es la misma dirección, Enter la elige con su nombre", async () => {
+      answer([{ name: "Ana", email: "ANA@x.com", contactId: 4 }, mariana]);
+      const { user, onChange, input } = setup();
+      await user.type(input, "ana@x.com");
+      await screen.findByRole("listbox");
+      expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+      await user.keyboard("{Enter}");
+      expect(lastValue(onChange)).toBe("Ana <ANA@x.com>");
+    });
+  });
+
+  it("con la lista de una búsqueda anterior, Enter deja lo escrito", async () => {
+    // La primera búsqueda contesta; las siguientes quedan colgadas, así la lista
+    // que se ve es la anterior (keepPreviousData).
+    vi.mocked(svc.SuggestRecipients)
+      .mockResolvedValueOnce([
+        { name: "Mariana", email: "mariana@x.com", contactId: 3 },
+        { name: "Marta", email: "marta@x.com", contactId: 5 },
+      ] as never)
+      .mockReturnValue(new Promise(() => {}) as never);
+    const { user, onChange, input } = setup();
+    await user.type(input, "m");
+    await screen.findByRole("listbox");
+    // Lo marcado antes de seguir escribiendo no cuenta.
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    await user.type(input, "a");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(lastValue(onChange)).toBe("ma");
+  });
+
+  it("con la lista anterior, lo elegido con las flechas sí vale", async () => {
+    vi.mocked(svc.SuggestRecipients)
+      .mockResolvedValueOnce([{ name: "Mariana", email: "mariana@x.com", contactId: 3 }] as never)
+      .mockReturnValue(new Promise(() => {}) as never);
+    const { user, onChange, input } = setup();
+    await user.type(input, "m");
+    await screen.findByRole("listbox");
+    await user.type(input, "a");
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(lastValue(onChange)).toBe("Mariana <mariana@x.com>");
   });
 
   it("elegir una sugerencia con coma en el nombre deja un chip válido", async () => {
