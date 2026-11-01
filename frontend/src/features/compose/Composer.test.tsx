@@ -14,6 +14,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   PickImage: vi.fn(),
   PickAttachments: vi.fn(),
   StagedInfo: vi.fn(),
+  ListSignatures: vi.fn(),
 }));
 vi.mock("sonner", () => ({
   toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -97,10 +98,13 @@ function DraftHarness() {
 const MB = 1024 * 1024;
 const staged = (id: number, filename: string, size = 1000) => ({ id, filename, mimeType: "application/pdf", size });
 
+let qc: QueryClient;
+
 function setup() {
   const user = userEvent.setup();
+  qc = new QueryClient();
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={qc}>
       <ComposerProvider>
         <Harness />
         <DraftHarness />
@@ -116,6 +120,11 @@ beforeAll(() => {
   Range.prototype.getClientRects = noRects;
   Range.prototype.getBoundingClientRect = () => new DOMRect();
   // La cita se muestra en SafeHtmlFrame, que mide su contenido con ResizeObserver.
+  // Radix Select (el selector de firma) usa APIs que jsdom no trae.
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.scrollIntoView = () => {};
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -131,6 +140,7 @@ describe("Composer", () => {
     vi.clearAllMocks();
     vi.mocked(svc.ListAccounts).mockResolvedValue([account] as never);
     vi.mocked(svc.ListLocalDrafts).mockResolvedValue([]);
+    vi.mocked(svc.ListSignatures).mockResolvedValue([]);
     vi.mocked(svc.DeleteLocalDraft).mockResolvedValue();
     vi.mocked(svc.PrepareCompose).mockResolvedValue({
       accountId: 1,
@@ -399,5 +409,87 @@ describe("Composer", () => {
     await user.click(screen.getByText("respuesta guardada"));
     await screen.findByLabelText("Para");
     expect(screen.queryByLabelText("Mensaje original")).toBeNull();
+  });
+});
+
+describe("Composer: firma", () => {
+  const sigs = [
+    { id: 10, name: "Trabajo", html: "<p>Saludos, Yo (trabajo)</p>" },
+    { id: 11, name: "Personal", html: "<p>Abrazo, Yo (personal)</p>" },
+  ];
+  const acc2 = { ...account, id: 2, email: "otra@ej.com", displayName: "Otra", defaultSignatureId: 11 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(svc.ListAccounts).mockResolvedValue([{ ...account, defaultSignatureId: 10 }, acc2] as never);
+    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([]);
+    vi.mocked(svc.ListSignatures).mockResolvedValue(sigs as never);
+    vi.mocked(svc.QueueSend).mockResolvedValue(9);
+  });
+
+  const preview = () => screen.queryByRole("region", { name: "Vista previa de la firma" });
+
+  it("un correo nuevo arranca con la firma por defecto de la cuenta", async () => {
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    expect(await screen.findByLabelText("Firma")).toHaveTextContent("Trabajo");
+    await waitFor(() => expect(preview()).toBeInTheDocument());
+    expect(preview()!.querySelector("iframe")!.getAttribute("srcdoc")).toContain("Saludos, Yo (trabajo)");
+    await user.type(screen.getByLabelText("Para"), "a@b.com");
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].signatureId).toBe(10);
+  });
+
+  it("cambiar De cambia la firma salvo que se haya elegido a mano", async () => {
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    await screen.findByLabelText("Firma");
+    await waitFor(() => expect(screen.getByLabelText("Firma")).toHaveTextContent("Trabajo"));
+    await user.click(screen.getByLabelText("De"));
+    await user.click(await screen.findByRole("option", { name: /otra@ej.com/ }));
+    await waitFor(() => expect(screen.getByLabelText("Firma")).toHaveTextContent("Personal"));
+    // Elegida a mano: ya no sigue a la cuenta.
+    await user.click(screen.getByLabelText("Firma"));
+    await user.click(await screen.findByRole("option", { name: "Trabajo" }));
+    await user.click(screen.getByLabelText("De"));
+    await user.click(await screen.findByRole("option", { name: /yo@ej.com/ }));
+    expect(screen.getByLabelText("Firma")).toHaveTextContent("Trabajo");
+  });
+
+  it("Sin firma oculta la vista previa y manda signatureId 0", async () => {
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    await waitFor(() => expect(preview()).toBeInTheDocument());
+    await user.click(screen.getByLabelText("Firma"));
+    await user.click(await screen.findByRole("option", { name: "Sin firma" }));
+    expect(preview()).toBeNull();
+    await user.type(screen.getByLabelText("Para"), "a@b.com");
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].signatureId).toBe(0);
+  });
+
+  it("responder usa la firma de PrepareCompose", async () => {
+    vi.mocked(svc.PrepareCompose).mockResolvedValue({
+      accountId: 1, to: [{ name: "Ana", email: "ana@x.com" }], cc: [], subject: "Re: Hola",
+      quotedHtml: "", reply: { mode: "reply", originalMessageId: 7 }, signatureId: 11,
+    } as never);
+    const user = setup();
+    await user.click(screen.getByText("responder"));
+    await waitFor(() => expect(screen.getByLabelText("Firma")).toHaveTextContent("Personal"));
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].signatureId).toBe(11);
+  });
+
+  it("una firma borrada pasa a Sin firma", async () => {
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    await waitFor(() => expect(preview()).toBeInTheDocument());
+    vi.mocked(svc.ListSignatures).mockResolvedValue([sigs[1]] as never);
+    await act(() => qc.invalidateQueries({ queryKey: ["signatures"] }));
+    await waitFor(() => expect(screen.getByLabelText("Firma")).toHaveTextContent("Sin firma"));
+    expect(preview()).toBeNull();
   });
 });

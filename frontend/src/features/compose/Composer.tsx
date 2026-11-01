@@ -23,7 +23,7 @@ import {
 import { errorMessage } from "@/lib/errors";
 import { onFilesStaged } from "@/lib/events";
 import { formatSize } from "@/lib/format";
-import { useAccounts } from "@/lib/queries";
+import { useAccounts, useSignatures } from "@/lib/queries";
 import { formatRecipients, parseRecipients } from "@/lib/recipients";
 import { SafeHtmlFrame } from "../reader/SafeHtmlFrame";
 import type { StagedAttachment } from "../../../bindings/postacontrol/core/model/models";
@@ -31,6 +31,7 @@ import { AttachmentList } from "./AttachmentList";
 import type { ComposerInit } from "./ComposerContext";
 import { RecipientInput } from "./RecipientInput";
 import { RichEditor } from "./RichEditor";
+import { SignaturePicker } from "./SignaturePicker";
 import { sendStarted } from "./sendNotices";
 
 // Cuánto se ve "Enviando…" antes de cerrar: el envío sigue en segundo plano.
@@ -60,7 +61,20 @@ export function Composer({ init, onClose }: Props) {
   const [dirty, setDirty] = useState(false);
   const [staged, setStaged] = useState<StagedAttachment[]>(init.attachments);
   const [skipped, setSkipped] = useState<number[]>(init.skipOriginalAttachments);
+  const [picked, setPicked] = useState<number | null>(null); // firma elegida a mano
+  const signatures = useSignatures();
   const bodyRef = useRef<() => string>(() => init.bodyHtml);
+
+  const accountList = accounts.data ?? [];
+  const isNew = !init.reply && init.draftId === undefined;
+
+  // Mientras la firma no se elija a mano, sigue a la por defecto de la cuenta.
+  // Responder, reenviar y reabrir conservan la que trae el pedido hasta que se
+  // cambie "De". Una firma borrada con el redactor abierto pasa a "Sin firma".
+  const followsAccount = isNew || accountId !== init.accountId;
+  const accountDefault = accountList.find((a) => a.id === accountId)?.defaultSignatureId;
+  const wanted = picked ?? (followsAccount ? (accountDefault ?? init.signatureId) : init.signatureId);
+  const signatureId = signatures.data && !signatures.data.some((s) => s.id === wanted) ? 0 : wanted;
 
   const addStaged = (added: StagedAttachment[]) => {
     if (added.length === 0) return;
@@ -131,7 +145,7 @@ export function Composer({ init, onClose }: Props) {
         draftId: init.draftId,
         attachments: staged.map((a) => a.id),
         skipOriginalAttachments: skipped,
-        signatureId: 0,
+        signatureId,
         composeDraftId: 0,
         draftMessageId: "",
       });
@@ -155,7 +169,8 @@ export function Composer({ init, onClose }: Props) {
   };
 
   const mode = init.reply?.mode ?? "new";
-  const accountList = accounts.data ?? [];
+
+  const signature = (signatures.data ?? []).find((s) => s.id === signatureId);
 
   return (
     <>
@@ -205,6 +220,13 @@ export function Composer({ init, onClose }: Props) {
                   </SelectContent>
                 </Select>
               </div>
+              <SignaturePicker
+                value={signatureId}
+                signatures={signatures.data ?? []}
+                onChange={(id) => {
+                  edit(setPicked)(id);
+                }}
+              />
               <div className="flex items-start gap-2">
                 <div className="flex-1">
                   <RecipientInput id="compose-to" label="Para" value={to} onChange={edit(setTo)} />
@@ -256,6 +278,13 @@ export function Composer({ init, onClose }: Props) {
                 setDirty(true);
               }}
             />
+
+            {signature && (
+              <section aria-label="Vista previa de la firma">
+                <p className="text-xs font-medium text-muted-foreground">Firma</p>
+                <SafeHtmlFrame html={signature.html} text="" allowRemote={false} bare />
+              </section>
+            )}
 
             {init.quotedHtml && (
               <section aria-label="Mensaje original">

@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type {
+  Account,
   Address,
   Attachment,
   LocalDraft,
@@ -25,6 +27,7 @@ export type ComposerInit = {
   attachments: StagedAttachment[];
   originalAttachments: Attachment[]; // solo al reenviar
   skipOriginalAttachments: number[];
+  signatureId: number; // 0: sin firma
 };
 
 type ComposerApi = {
@@ -45,6 +48,7 @@ export function useComposer(): ComposerApi {
 
 export function ComposerProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<{ key: number; init: ComposerInit } | null>(null);
+  const qc = useQueryClient();
   const open = useCallback((init: ComposerInit) => setState((s) => ({ key: (s?.key ?? 0) + 1, init })), []);
 
   const api = useMemo<ComposerApi>(() => {
@@ -81,12 +85,14 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         attachments,
         originalAttachments,
         skipOriginalAttachments: d.request.skipOriginalAttachments ?? [],
+        signatureId: d.request.signatureId,
       });
     };
     return {
       openNew: (accountId) =>
         open({ accountId, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
-          attachments: [], originalAttachments: [], skipOriginalAttachments: [] }),
+          attachments: [], originalAttachments: [], skipOriginalAttachments: [],
+          signatureId: qc.getQueryData<Account[]>(["accounts"])?.find((a) => a.id === accountId)?.defaultSignatureId ?? 0 }),
       openFrom: async (messageId, mode) => {
         try {
           const d = await svc.PrepareCompose(messageId, mode);
@@ -102,6 +108,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             attachments: [],
             originalAttachments: d.originalAttachments ?? [],
             skipOriginalAttachments: [],
+            signatureId: d.signatureId,
           });
         } catch (e) {
           toast.error(errorMessage(e));
@@ -118,7 +125,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         }
       },
     };
-  }, [open]);
+  }, [open, qc]);
   useSendNotices(api.openDraftById);
 
   return (
