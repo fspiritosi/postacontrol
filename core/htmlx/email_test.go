@@ -126,3 +126,19 @@ func TestExtractInlineImages_WideImagesGetWidth(t *testing.T) {
 	out, _ = ExtractInlineImages(`<img style="max-width:100%" src="`+pngDataURI(t, 1200)+`">`, cid)
 	assert.Contains(t, out, `width="600"`)
 }
+
+func TestEmailHTML_FloatsAlignedImages(t *testing.T) {
+	assert.Equal(t,
+		`<img src="a.png" align="left" style="max-width:100%;height:auto;float:left;margin:0 12px 4px 0"/><p style="margin:0">x</p>`+clearFloats,
+		EmailHTML(`<img src="a.png" align="left"><p>x</p>`))
+	assert.Equal(t,
+		`<img src="a.png" align="RIGHT" style="max-width:100%;height:auto;float:right;margin:0 0 4px 12px"/>`+clearFloats,
+		EmailHTML(`<img src="a.png" align="RIGHT">`))
+	// Otro align no flota ni agrega el corte.
+	assert.Equal(t, `<img src="a.png" align="middle" style="max-width:100%;height:auto"/>`, EmailHTML(`<img src="a.png" align="middle">`))
+}
+
+func TestEmailHTML_FloatKeepsUserStyleLast(t *testing.T) {
+	got := EmailHTML(`<img src="a.png" align="left" style="margin:0">`)
+	assert.Contains(t, got, `style="max-width:100%;height:auto;float:left;margin:0 12px 4px 0;margin:0"`)
+}

@@ -6,6 +6,11 @@ import { RichEditor } from "./RichEditor";
 
 // jsdom no calcula layout: ProseMirror pide rectángulos al mover la selección.
 beforeAll(() => {
+  // Radix Select pide APIs de puntero que jsdom no trae.
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.scrollIntoView = () => {};
   const noRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList;
   Range.prototype.getClientRects = noRects;
   Range.prototype.getBoundingClientRect = () => new DOMRect();
@@ -326,5 +331,26 @@ describe("RichEditor: imágenes", () => {
     const { user } = await setupEmpty({ onPickImage });
     await user.click(toolbar().getByRole("button", { name: "Imagen" }));
     expect(onPickImage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RichEditor: tamaño del texto", () => {
+  it("Grande pone font-size 18px a la selección y Normal lo quita", async () => {
+    const { user, onChange } = await setup("<p>hola</p>");
+    const combo = toolbar().getByRole("combobox", { name: "Tamaño del texto" });
+    expect(combo).toHaveTextContent("Normal");
+    await user.click(combo);
+    await user.click(await screen.findByRole("option", { name: "Grande" }));
+    await waitFor(() => expect(lastHTML(onChange)).toBe('<p><span style="font-size: 18px;">hola</span></p>'));
+    await waitFor(() => expect(combo).toHaveTextContent("Grande"));
+    await user.click(combo);
+    await user.click(await screen.findByRole("option", { name: "Normal" }));
+    await waitFor(() => expect(lastHTML(onChange)).toBe("<p>hola</p>"));
+  });
+
+  it("el contenido con font-size se conserva", async () => {
+    const { onChange } = await setup('<p><span style="font-size: 12px">hola</span></p>');
+    await waitFor(() => expect(toolbar().getByRole("combobox", { name: "Tamaño del texto" })).toHaveTextContent("Chico"));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

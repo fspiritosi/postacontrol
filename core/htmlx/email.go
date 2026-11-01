@@ -37,15 +37,27 @@ var emailStyles = map[atom.Atom]string{
 	atom.A:          "color:#2563eb;text-decoration:underline",
 }
 
+// imageFloats son los estilos de una imagen con align="left" o "right": el
+// texto que sigue la rodea. Outlook ignora float pero respeta el align.
+var imageFloats = map[string]string{
+	"left":  "float:left;margin:0 12px 4px 0",
+	"right": "float:right;margin:0 0 4px 12px",
+}
+
+// clearFloats cierra un fragmento con imágenes flotantes, para que no
+// invadan lo que viene después (la firma o la cita).
+const clearFloats = `<div style="clear:both"></div>`
+
 // EmailHTML prepara el HTML del redactor para enviarlo: párrafos ajustados
 // (ver TightParagraphs), estilos en línea por elemento (antepuestos al style
-// existente, así el del usuario gana) y sin los <colgroup> de las tablas de
-// TipTap, que algunos clientes dibujan mal.
+// existente, así el del usuario gana), imágenes alineadas que flotan y sin
+// los <colgroup> de las tablas de TipTap, que algunos clientes dibujan mal.
 func EmailHTML(fragment string) string {
 	nodes, err := parseFragment(fragment)
 	if err != nil {
 		return fragment
 	}
+	floated := false
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
 		for c := n.FirstChild; c != nil; {
@@ -63,13 +75,31 @@ func EmailHTML(fragment string) string {
 		if n.DataAtom == atom.P {
 			tightParagraph(n)
 		} else if st, ok := emailStyles[n.DataAtom]; ok {
+			if n.DataAtom == atom.Img {
+				if fl, ok := imageFloats[strings.ToLower(attr(n, "align"))]; ok {
+					st += ";" + fl
+					floated = true
+				}
+			}
 			prependStyle(n, st)
 		}
 	}
 	for _, n := range nodes {
 		walk(n)
 	}
+	if floated {
+		return render(nodes) + clearFloats
+	}
 	return render(nodes)
+}
+
+func attr(n *html.Node, key string) string {
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return a.Val
+		}
+	}
+	return ""
 }
 
 func prependStyle(n *html.Node, style string) {

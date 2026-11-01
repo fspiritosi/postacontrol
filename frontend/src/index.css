@@ -128,3 +128,53 @@
     @apply font-sans;
     }
 }
+/* Imágenes del redactor: el node view redimensionable de TipTap envuelve el
+   <img> en un contenedor; la alineación (data-align) flota ese contenedor. */
+@layer components {
+  .tiptap {
+    display: flow-root; /* contiene las imágenes flotantes */
+  }
+  .tiptap [data-resize-container][data-node="image"] {
+    max-width: 100%;
+    margin: 4px 0;
+  }
+  .tiptap [data-resize-container][data-align="left"] {
+    float: left;
+    margin: 0 12px 4px 0;
+  }
+  .tiptap [data-resize-container][data-align="right"] {
+    float: right;
+    margin: 0 0 4px 12px;
+  }
+  .tiptap [data-resize-wrapper] {
+    max-width: 100%;
+  }
+  /* El align del <img> lo flotaría dentro del contenedor. */
+  .tiptap [data-resize-wrapper] img {
+    float: none;
+    display: block;
+  }
+  .tiptap .ProseMirror-selectednode [data-resize-wrapper] {
+    outline: 2px solid var(--primary);
+  }
+  .tiptap [data-resize-handle] {
+    display: none;
+    z-index: 1;
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--background);
+    border-radius: 2px;
+    background: var(--primary);
+  }
+  .tiptap .ProseMirror-selectednode [data-resize-handle] {
+    display: block;
+  }
+  .tiptap [data-resize-handle="top-left"],
+  .tiptap [data-resize-handle="bottom-right"] {
+    cursor: nwse-resize;
+  }
+  .tiptap [data-resize-handle="top-right"],
+  .tiptap [data-resize-handle="bottom-left"] {
+    cursor: nesw-resize;
+  }
+}

@@ -178,3 +178,11 @@ func TestToText_RulesAndNumberedLists(t *testing.T) {
 	assert.Equal(t, "1. a\n2. b", ToText(`<ol><li>a<li>b</ol>`))
 	assert.Equal(t, "- a\n- b", ToText(`<ul><li>a</li><li>b</li></ul>`))
 }
+
+func TestSanitize_KeepsImageSizeAlignAndFontSize(t *testing.T) {
+	clean, _ := Sanitize(`<img src="data:image/png;base64,iVBORw0KGgo=" width="120" height="40" align="left"><p><span style="font-size: 18px">x</span></p>`)
+	assert.Contains(t, clean, `width="120"`)
+	assert.Contains(t, clean, `height="40"`)
+	assert.Contains(t, clean, `align="left"`)
+	assert.Contains(t, clean, `font-size: 18px`)
+}
