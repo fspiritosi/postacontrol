@@ -56,12 +56,13 @@ function setup(role: string) {
     selectContact: vi.fn(),
     openContact,
   } as unknown as ShellState;
+  const client = new QueryClient();
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <MessageView accounts={[account]} state={state} />
     </QueryClientProvider>,
   );
-  return { openContact, user: userEvent.setup() };
+  return { openContact, user: userEvent.setup(), client };
 }
 
 describe("MessageView: contactos", () => {
@@ -96,15 +97,32 @@ describe("MessageView: contactos", () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 
-  it("en un borrador no hay botón de contactos", async () => {
-    setup("drafts");
+  // En borradores y enviados el remitente es uno mismo. Se espera a que el rol
+  // de la carpeta y la búsqueda en la libreta hayan contestado: si no, el botón
+  // podría faltar solo porque todavía no cargó. En la bandeja, con la misma
+  // espera, está.
+  const settled = async (client: QueryClient) => {
     await screen.findByText("Hola");
-    await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
-    await screen.findByText("Ana");
-    // Aparece un instante hasta que carga el rol de la carpeta; después se va.
-    await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Agregar a contactos" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Ver contacto" })).toBeNull();
-    });
+    await waitFor(() => expect(client.getQueryState(["folders", 7])?.status).toBe("success"));
+    await waitFor(() =>
+      expect(client.getQueryCache().findAll({ fetchStatus: "fetching" })).toHaveLength(0),
+    );
+  };
+  const contactButtons = () => [
+    ...screen.queryAllByRole("button", { name: "Agregar a contactos" }),
+    ...screen.queryAllByRole("button", { name: "Ver contacto" }),
+  ];
+
+  it("en la bandeja, ya cargado todo, está el botón de contactos", async () => {
+    const { client } = setup("inbox");
+    await settled(client);
+    expect(contactButtons()).toHaveLength(1);
+  });
+
+  it.each(["drafts", "sent"])("en %s no hay botón de contactos", async (role) => {
+    vi.mocked(svc.ContactForEmail).mockResolvedValue(contact);
+    const { client } = setup(role);
+    await settled(client);
+    expect(contactButtons()).toHaveLength(0);
   });
 });

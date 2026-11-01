@@ -86,9 +86,9 @@ function Body({
   // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
   const [allowRemote, setAllowRemote] = useState(false);
   const composer = useComposer();
+  const role = useFolders(message.accountId).data?.find((f) => f.id === message.folderId)?.role;
   // Un borrador no se responde ni se reenvía (MessageActions ofrece seguir editándolo).
-  const inDrafts =
-    useFolders(message.accountId).data?.find((f) => f.id === message.folderId)?.role === "drafts";
+  const inDrafts = role === "drafts";
   const compose = onCompose ?? ((id: number, mode: ComposeMode) => void composer.openFrom(id, mode));
   const to = message.to ?? [];
   const actions: { mode: ComposeMode; label: string; icon: React.ReactNode }[] = inDrafts
@@ -148,8 +148,8 @@ function Body({
                 {fullDate(message.date)}
               </p>
             </div>
-            {/* En un borrador el remitente es uno mismo. */}
-            {!inDrafts && <SenderContactButton from={message.from} openContact={openContact} />}
+            {/* En un borrador o un enviado el remitente es uno mismo. */}
+            {!inDrafts && role !== "sent" && <SenderContactButton from={message.from} openContact={openContact} />}
           </div>
         </div>
 
