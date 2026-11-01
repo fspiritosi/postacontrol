@@ -64,11 +64,13 @@ WITH raw AS (
        json_each(m.cc_json) j
 ), per_msg AS (
   SELECT email, max(name) AS name, date FROM raw WHERE email LIKE '%@%' GROUP BY mid, email
+), latest_name AS ( -- una pasada con ventana: una subconsulta por correo sería cuadrática
+  SELECT email, name FROM (
+    SELECT email, name, row_number() OVER (PARTITION BY email ORDER BY date DESC) AS rn
+    FROM per_msg WHERE name <> ''
+  ) WHERE rn = 1
 )
 INSERT INTO recipients (email, name, times, last_used)
-SELECT email,
-       coalesce((SELECT p.name FROM per_msg p WHERE p.email = per_msg.email AND p.name <> ''
-                 ORDER BY p.date DESC LIMIT 1), ''),
-       count(*), max(date)
-FROM per_msg
-GROUP BY email;
+SELECT g.email, coalesce(n.name, ''), g.times, g.last_used
+FROM (SELECT email, count(*) AS times, max(date) AS last_used FROM per_msg GROUP BY email) g
+LEFT JOIN latest_name n ON n.email = g.email;
