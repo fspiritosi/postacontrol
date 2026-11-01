@@ -105,3 +105,14 @@ Final fix wave: re-review clean (all addressed, 540957b..33feaaa)
 
 ## Pendiente
 Task 7: prueba de aceptación manual de Fabricio con `task install:desktop` (no se despacha). Verificar además si el webmail de Hostinger conserva el Message-ID al re-guardar un borrador (decide la prioridad de I2, Ruling 11).
+
+## Ajustes pedidos por Fabricio (2026-11-01)
+
+- Configuración: el diálogo desbordaba porque su grilla tomaba el ancho mínimo de "Firma por defecto · <correo largo>". Ahora la columna es `minmax(0,1fr)` y el diálogo es `sm:max-w-2xl` (el de firma, `sm:max-w-3xl`).
+- Redactor (cuerpo y firmas):
+  - las imágenes se redimensionan desde las esquinas con el node view de TipTap;
+  - una barra sobre la imagen la deja sola en su renglón, a la izquierda o a la derecha del texto, y la sube o baja de a un bloque;
+  - hay un selector de tamaño de texto.
+- Ruling 14: la alineación se guarda como `align="left|right"` en el `<img>` y no como `data-*` ni como `style`. Por qué: el saneo de firmas (bluemonday UGC) lo conserva y Outlook lo respeta. `EmailHTML` le suma `float` y margen, y cierra el fragmento con `clear:both`. Si me equivoqué, algún cliente muestra la imagen sin el texto alrededor.
+- Ruling 15: "arriba" y "abajo" se resuelven con "Subir imagen" y "Bajar imagen", que mueven la imagen de a un bloque; además se puede arrastrar. No pasa del renglón vacío final. Si me equivoqué, hace falta otra forma de ubicarla.
+- Ruling 16: los tamaños son Chico 12px, Normal (sin tamaño, 14px del correo), Grande 18px y Muy grande 24px. Si me equivoqué, se cambian en `FONT_SIZES`.
