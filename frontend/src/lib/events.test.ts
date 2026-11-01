@@ -114,6 +114,13 @@ describe("useMailEvents", () => {
     expect(searchRefreshes()).toBe(2);
   });
 
+  it("recarga contactos y sugerencias cuando cambian los contactos", () => {
+    emit("mail:contacts-changed", null);
+    for (const key of ["contacts", "contact", "contact-for", "suggest"]) {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: [key] });
+    }
+  });
+
   it("recarga la configuración cuando cambia", () => {
     emit("mail:settings-changed", null);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });

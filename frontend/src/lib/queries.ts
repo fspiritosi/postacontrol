@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useQueries, useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQueries,
+  useQuery,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
 import type { Account, Folder, UnifiedView } from "../../bindings/postacontrol/core/model/models";
 import type { View } from "./view";
@@ -136,5 +142,16 @@ export function useSearch(text: string, folderId: number) {
     getNextPageParam: (last, all) =>
       last.messages.length < PAGE_SIZE ? undefined : all.length * PAGE_SIZE,
     enabled: text.trim() !== "",
+  });
+}
+
+// Direcciones sugeridas al escribir un destinatario; exclude son las que ya
+// están en el campo. Mientras llega la respuesta se sigue viendo la anterior.
+export function useSuggestions(query: string, exclude: string[]) {
+  return useQuery({
+    queryKey: ["suggest", query, exclude],
+    queryFn: async () => (await svc.SuggestRecipients(query, exclude)) ?? [],
+    enabled: query.trim() !== "",
+    placeholderData: keepPreviousData,
   });
 }
