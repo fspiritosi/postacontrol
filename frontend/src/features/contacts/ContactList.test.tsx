@@ -74,6 +74,30 @@ describe("ContactList", () => {
     expect(await screen.findByText("Ningún contacto coincide con «zzz».")).toBeTruthy();
   });
 
+  it("mientras busca deja la lista anterior a la vista", async () => {
+    vi.mocked(svc.ListContacts).mockImplementation(((q: string) =>
+      q ? new Promise(() => {}) : Promise.resolve(contacts)) as never);
+    const { user } = setup();
+    await screen.findByText("Ana Pérez");
+    await user.type(screen.getByPlaceholderText("Buscar contactos"), "a");
+    await waitFor(() => expect(svc.ListContacts).toHaveBeenLastCalledWith("a"));
+    expect(screen.getByText("Ana Pérez")).toBeTruthy();
+  });
+
+  it("mientras busca no dice que no hay resultados con la lista anterior vacía", async () => {
+    vi.mocked(svc.ListContacts).mockImplementation(((q: string) =>
+      q === "zz" ? Promise.resolve([]) : q === "z" ? new Promise(() => {}) : Promise.resolve(contacts)) as never);
+    const { user } = setup();
+    await screen.findByText("Ana Pérez");
+    const box = screen.getByPlaceholderText("Buscar contactos");
+    await user.type(box, "zz");
+    await screen.findByText("Ningún contacto coincide con «zz».");
+    // "z" quedó colgada desde que se escribió: vuelve a esa búsqueda, todavía sin respuesta.
+    await user.type(box, "{Backspace}");
+    expect(box).toHaveValue("z");
+    expect(screen.queryByText("Ningún contacto coincide con «z».")).toBeNull();
+  });
+
   it("Nuevo contacto abre una ficha nueva", async () => {
     const { user, selectContact } = setup();
     await user.click(screen.getByRole("button", { name: "Nuevo contacto" }));

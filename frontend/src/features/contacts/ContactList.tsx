@@ -29,7 +29,8 @@ export function ContactList({ state }: { state: ShellState }) {
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {list?.length === 0 && (
+        {/* La lista anterior vacía no dice nada de la búsqueda nueva. */}
+        {list?.length === 0 && !contacts.isPlaceholderData && (
           <p className="p-4 text-center text-sm text-muted-foreground">
             {query === "" ? "Todavía no tenés contactos." : `Ningún contacto coincide con «${query}».`}
           </p>

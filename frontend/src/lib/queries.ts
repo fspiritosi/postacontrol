@@ -30,6 +30,8 @@ export function useContacts(query: string) {
   return useQuery({
     queryKey: ["contacts", query],
     queryFn: async () => (await svc.ListContacts(query)) ?? [],
+    // Mientras busca queda la lista anterior: no se vacía con cada tecla.
+    placeholderData: keepPreviousData,
   });
 }
 
