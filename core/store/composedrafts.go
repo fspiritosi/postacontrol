@@ -96,13 +96,32 @@ func (s *Store) ListPendingDrafts(ctx context.Context) ([]model.Draft, error) {
 	return out, rows.Err()
 }
 
-// MarkDraftUploaded da el borrador por subido solo si no cambió desde
+// MarkDraftUploaded anota que la última copia del borrador está en la carpeta
+// Borradores de accountID y lo da por subido solo si no cambió desde
 // uploadedAt (el UpdatedAt que se leyó al empezar a subir): un guardado que
-// llegó durante la subida sigue pendiente.
-func (s *Store) MarkDraftUploaded(ctx context.Context, id int64, uploadedAt time.Time) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE compose_drafts SET needs_upload = 0, upload_error = ''
- WHERE id = ? AND updated_at <= ?`, id, uploadedAt.UnixNano())
+// llegó durante la subida sigue pendiente. La cuenta se anota siempre, porque
+// la copia ya está en el servidor.
+func (s *Store) MarkDraftUploaded(ctx context.Context, id int64, uploadedAt time.Time, accountID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE compose_drafts SET uploaded_account_id = ?,
+ needs_upload = CASE WHEN updated_at <= ? THEN 0 ELSE needs_upload END,
+ upload_error = CASE WHEN updated_at <= ? THEN '' ELSE upload_error END
+ WHERE id = ?`, accountID, uploadedAt.UnixNano(), uploadedAt.UnixNano(), id)
 	return err
+}
+
+// DraftUploadedAccount devuelve la cuenta en cuya carpeta Borradores está la
+// última copia subida del borrador (0 si nunca se subió o la cuenta ya no
+// existe).
+func (s *Store) DraftUploadedAccount(ctx context.Context, id int64) (int64, error) {
+	var acc sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT uploaded_account_id FROM compose_drafts WHERE id = ?`, id).Scan(&acc)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return acc.Int64, nil
 }
 
 func (s *Store) MarkDraftUploadFailed(ctx context.Context, id int64, msg string) error {

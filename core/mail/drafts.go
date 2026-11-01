@@ -189,10 +189,15 @@ func (c *Core) uploadDraft(ctx context.Context, d model.Draft) error {
 		// pendiente y la próxima subida las limpia.
 		return err
 	}
+	prevAccountID, prevErr := c.store.DraftUploadedAccount(ctx, d.ID)
 	// Con el UpdatedAt que se leyó al empezar: si se guardó durante la subida,
 	// sigue pendiente.
-	if err := c.store.MarkDraftUploaded(ctx, d.ID, d.UpdatedAt); err != nil {
+	if err := c.store.MarkDraftUploaded(ctx, d.ID, d.UpdatedAt, acc.ID); err != nil {
 		return err
+	}
+	if prevErr == nil && prevAccountID != acc.ID {
+		// Cambió "De": la copia anterior quedó en la otra cuenta.
+		c.removeOldAccountCopies(ctx, prevAccountID, d.MessageID)
 	}
 	_ = c.SyncFolder(ctx, drafts.ID) // mejor esfuerzo
 	c.emit(EventFolderUpdated, map[string]any{"folderId": drafts.ID})
@@ -282,6 +287,17 @@ func (c *Core) removeDraftCopies(ctx context.Context, accountID int64, messageID
 	return nil
 }
 
+// removeOldAccountCopies borra las copias del borrador messageID que quedaron
+// en la carpeta Borradores de accountID, una cuenta que el borrador ya no usa.
+// Es de mejor esfuerzo, y con la cuenta en pausa por contraseña rechazada no
+// lo intenta.
+func (c *Core) removeOldAccountCopies(ctx context.Context, accountID int64, messageID string) {
+	if accountID == 0 || c.authPaused(accountID) {
+		return
+	}
+	_ = c.removeDraftCopies(ctx, accountID, messageID)
+}
+
 // DeleteDraft descarta el borrador: borra sus copias del servidor, la fila y
 // los adjuntos preparados que solo él usaba (los de la bandeja de salida
 // quedan). Si el servidor no responde, borra lo local igual y devuelve un
@@ -300,6 +316,9 @@ func (c *Core) DeleteDraft(ctx context.Context, id int64) error {
 		return c.ctxOrUserError(ctx, err)
 	}
 	serverErr := c.removeDraftCopies(ctx, d.Request.AccountID, d.MessageID)
+	if up, err := c.store.DraftUploadedAccount(ctx, id); err == nil && up != d.Request.AccountID {
+		c.removeOldAccountCopies(ctx, up, d.MessageID)
+	}
 	// Lo local se borra aunque se esté cerrando la app.
 	if err := c.store.DeleteComposeDraftWithStaged(context.WithoutCancel(ctx), id); err != nil {
 		return c.ctxOrUserError(ctx, err)
@@ -312,8 +331,9 @@ func (c *Core) DeleteDraft(ctx context.Context, id int64) error {
 }
 
 // discardSentDraft borra del servidor las copias del borrador del que salió un
-// envío. Es de mejor esfuerzo: el correo ya salió.
-func (c *Core) discardSentDraft(ctx context.Context, accountID int64, req model.SendRequest) {
+// envío, en la cuenta del envío y, si el borrador había quedado subido en
+// otra (oldAccountID), también ahí. Es de mejor esfuerzo: el correo ya salió.
+func (c *Core) discardSentDraft(ctx context.Context, accountID int64, req model.SendRequest, oldAccountID int64) {
 	if req.DraftMessageID == "" {
 		return
 	}
@@ -325,6 +345,9 @@ func (c *Core) discardSentDraft(ctx context.Context, accountID int64, req model.
 		defer mu.Unlock()
 	}
 	_ = c.removeDraftCopies(ctx, accountID, req.DraftMessageID)
+	if oldAccountID != accountID {
+		c.removeOldAccountCopies(ctx, oldAccountID, req.DraftMessageID)
+	}
 }
 
 // uploadPendingDrafts sube los borradores pendientes de la cuenta (pasada de
@@ -450,7 +473,7 @@ func (c *Core) OpenDraftMessage(ctx context.Context, messageID int64) (model.Dra
 	if m.MessageID != "" {
 		// El servidor ya tiene esta versión: no hay nada que subir hasta que
 		// se edite.
-		if err := c.store.MarkDraftUploaded(ctx, id, d.UpdatedAt); err == nil {
+		if err := c.store.MarkDraftUploaded(ctx, id, d.UpdatedAt, f.AccountID); err == nil {
 			d.NeedsUpload = false
 		}
 	}

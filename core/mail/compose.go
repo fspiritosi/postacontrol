@@ -177,11 +177,11 @@ func (c *Core) PrepareCompose(ctx context.Context, messageID int64, mode model.C
 func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResult, error) {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
-	id, acc, req, err := c.enqueue(ctx, req)
+	q, err := c.enqueue(ctx, req)
 	if err != nil {
 		return model.SendResult{}, err
 	}
-	return c.deliver(ctx, id, acc, req)
+	return c.deliver(ctx, q)
 }
 
 // QueueSend valida req, lo guarda en la bandeja de salida y lo envía en
@@ -190,55 +190,89 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 func (c *Core) QueueSend(ctx context.Context, req model.SendRequest) (int64, error) {
 	qctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
-	id, acc, req, err := c.enqueue(qctx, req)
+	q, err := c.enqueue(qctx, req)
 	if err != nil {
 		return 0, err
 	}
-	if !c.spawn(func(life context.Context) { _, _ = c.deliver(life, id, acc, req) }) {
+	if !c.spawn(func(life context.Context) { _, _ = c.deliver(life, q) }) {
 		// El núcleo se está cerrando: el correo queda en la bandeja y al volver
 		// figura como interrumpido.
 		return 0, context.Canceled
 	}
-	return id, nil
+	return q.id, nil
+}
+
+// queuedSend es un correo que enqueue puso en la bandeja de salida, listo
+// para deliver.
+type queuedSend struct {
+	id  int64
+	acc model.Account
+	req model.SendRequest
+	// oldDraftAccountID es la cuenta en cuya carpeta Borradores quedó la
+	// última copia del borrador del que sale el envío, si no es la del envío
+	// (cambió "De"); 0 si no hay.
+	oldDraftAccountID int64
 }
 
 // enqueue valida req y lo pone en la bandeja de salida como "enviando". Los
 // errores de validación no guardan nada: el redactor sigue abierto. Si el
 // correo sale de un borrador, el Message-ID del borrador se toma de su fila y
 // la fila se borra recién después de encolar; sus adjuntos quedan, porque
-// ahora los usa la bandeja de salida. Devuelve el pedido así completado.
-func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (int64, model.Account, model.SendRequest, error) {
+// ahora los usa la bandeja de salida. En un reintento (DraftID) el
+// ComposeDraftID del pedido se ignora y el Message-ID sale de la bandeja.
+func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (queuedSend, error) {
 	if err := c.ctxErr(ctx); err != nil {
-		return 0, model.Account{}, req, err
+		return queuedSend{}, err
 	}
 	if req.Reply != nil {
 		switch req.Reply.Mode {
 		case modeReply, modeReplyAll, modeForward, "", "new":
 		default:
-			return 0, model.Account{}, req, &UserError{Code: "invalid", Msg: "No pudimos preparar la respuesta."}
+			return queuedSend{}, &UserError{Code: "invalid", Msg: "No pudimos preparar la respuesta."}
 		}
 	}
 	if len(mimex.Recipients(mimex.Outgoing{To: req.To, Cc: req.Cc, Bcc: req.Bcc})) == 0 {
-		return 0, model.Account{}, req, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
+		return queuedSend{}, &UserError{Code: "no_recipients", Msg: "Agregá al menos un destinatario."}
 	}
 	acc, err := c.store.GetAccount(ctx, req.AccountID)
 	if err != nil {
-		return 0, model.Account{}, req, c.ctxOrUserError(ctx, err)
+		return queuedSend{}, c.ctxOrUserError(ctx, err)
 	}
 	if err := c.checkSize(ctx, req); err != nil {
-		return 0, model.Account{}, req, err
+		return queuedSend{}, err
 	}
-	if req.ComposeDraftID != 0 {
+	var oldDraftAccountID int64
+	if req.DraftID != 0 {
+		// Reintento desde la bandeja de salida: el borrador ya se borró al
+		// encolar la primera vez, así que un ComposeDraftID del pedido es
+		// viejo y no se usa. El Message-ID del borrador sale de lo que quedó
+		// guardado en la bandeja, no del pedido.
+		req.ComposeDraftID, req.DraftMessageID = 0, ""
+		if ds, err := c.store.ListLocalDrafts(ctx); err == nil {
+			for _, d := range ds {
+				if d.ID == req.DraftID {
+					req.DraftMessageID = d.Request.DraftMessageID
+				}
+			}
+		}
+	} else if req.ComposeDraftID != 0 {
 		if d, err := c.store.GetComposeDraft(ctx, req.ComposeDraftID); err == nil {
 			req.DraftMessageID = d.MessageID
+			if up, err := c.store.DraftUploadedAccount(ctx, d.ID); err == nil && up != acc.ID {
+				oldDraftAccountID = up
+			}
 		}
 	}
-	id, err := c.store.QueueLocalDraft(ctx, req.DraftID, req)
+	// La bandeja de salida guarda el Message-ID (para limpiar Borradores
+	// cuando el correo sale) pero no el id del borrador, que deja de existir.
+	stored := req
+	stored.ComposeDraftID = 0
+	id, err := c.store.QueueLocalDraft(ctx, req.DraftID, stored)
 	if errors.Is(err, store.ErrBusy) {
-		return 0, model.Account{}, req, &UserError{Code: "busy", Msg: "Este correo ya se está enviando."}
+		return queuedSend{}, &UserError{Code: "busy", Msg: "Este correo ya se está enviando."}
 	}
 	if err != nil {
-		return 0, model.Account{}, req, c.ctxOrUserError(ctx, err)
+		return queuedSend{}, c.ctxOrUserError(ctx, err)
 	}
 	c.emit(EventOutboxUpdated, nil)
 	if req.ComposeDraftID != 0 {
@@ -249,7 +283,7 @@ func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (int64, model
 			c.emit(EventDraftsChanged, nil)
 		}
 	}
-	return id, acc, req, nil
+	return queuedSend{id: id, acc: acc, req: req, oldDraftAccountID: oldDraftAccountID}, nil
 }
 
 // checkSize verifica que los adjuntos preparados existan y que el correo (esos
@@ -306,7 +340,8 @@ func (c *Core) checkSize(ctx context.Context, req model.SendRequest) error {
 // \Answered en el original y borra las copias del borrador del que venía; si
 // no, lo deja en la bandeja con el motivo.
 // Siempre termina emitiendo EventSendFinished.
-func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req model.SendRequest) (model.SendResult, error) {
+func (c *Core) deliver(ctx context.Context, q queuedSend) (model.SendResult, error) {
+	id, acc, req := q.id, q.acc, q.req
 	replying := req.Reply != nil && (req.Reply.Mode == modeReply || req.Reply.Mode == modeReplyAll)
 	out, err := c.buildOutgoing(ctx, acc, req, false)
 	if err != nil {
@@ -341,7 +376,7 @@ func (c *Core) deliver(ctx context.Context, id int64, acc model.Account, req mod
 			c.markAnswered(ctx, orig)
 		}
 	}
-	c.discardSentDraft(ctx, acc.ID, req)
+	c.discardSentDraft(ctx, acc.ID, req, q.oldDraftAccountID)
 	c.emit(EventSendFinished, map[string]any{"draftId": id, "ok": true, "message": "", "warning": res.Warning})
 	return res, nil
 }

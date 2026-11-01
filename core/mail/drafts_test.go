@@ -50,7 +50,12 @@ func newDraftsCore(t *testing.T, caps goimap.CapSet, withDrafts bool) (*Core, *t
 // directo al servidor con una conexión aparte.
 func serverDrafts(t *testing.T, c *Core, srv *testenv.IMAP) []imapx.RemoteHeader {
 	t.Helper()
-	conn, err := imapx.Dial(context.Background(), srv.Settings, testUser, testPass, c.cfg.TLS)
+	return serverDraftsAs(t, c, srv, testUser)
+}
+
+func serverDraftsAs(t *testing.T, c *Core, srv *testenv.IMAP, user string) []imapx.RemoteHeader {
+	t.Helper()
+	conn, err := imapx.Dial(context.Background(), srv.Settings, user, testPass, c.cfg.TLS)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 	_, err = conn.Select("Drafts")
@@ -438,8 +443,7 @@ func TestSend_FromDraftRemovesDraftKeepsStaged(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, serverDrafts(t, c, srv), 2)
 
-	send := d.Request // trae ComposeDraftID y DraftMessageID
-	id, _, send, err := c.enqueue(ctx, send)
+	q, err := c.enqueue(ctx, d.Request) // trae ComposeDraftID y DraftMessageID
 	require.NoError(t, err)
 	// Encolado: el borrador ya no está, pero su adjunto sigue para el envío.
 	_, err = c.store.GetComposeDraft(ctx, d.ID)
@@ -448,7 +452,7 @@ func TestSend_FromDraftRemovesDraftKeepsStaged(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, info, 1)
 
-	_, err = c.deliver(ctx, id, acc, send)
+	_, err = c.deliver(ctx, q)
 	require.NoError(t, err)
 	envs := smtp.Received()
 	require.Len(t, envs, 1)
@@ -456,4 +460,126 @@ func TestSend_FromDraftRemovesDraftKeepsStaged(t *testing.T) {
 	hs := serverDrafts(t, c, srv)
 	require.Len(t, hs, 1)
 	assert.Equal(t, "Ajeno", hs[0].Envelope.Subject)
+}
+
+// Un reintento desde la bandeja de salida no toca un borrador más nuevo,
+// aunque el pedido traiga ids que apuntan a él.
+func TestSend_RetryFromOutboxKeepsNewerDraft(t *testing.T) {
+	c, srv, smtp, _, acc := newDraftsCore(t, nil, true)
+	ctx := context.Background()
+	d1, err := c.SaveDraft(ctx, 0, draftReq(acc, "Viejo"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, d1.ID)
+	require.NoError(t, err)
+
+	// Se encola y el envío queda a medias (la app se cerró).
+	q, err := c.enqueue(ctx, d1.Request)
+	require.NoError(t, err)
+	require.NoError(t, c.store.FailLocalDraft(ctx, q.id, msgSendInterrupted))
+	ob := outbox(t, c)
+	require.Len(t, ob, 1)
+	assert.Zero(t, ob[0].Request.ComposeDraftID, "la bandeja de salida no guarda el id del borrador")
+	assert.Equal(t, d1.MessageID, ob[0].Request.DraftMessageID)
+
+	// El usuario empieza otro borrador; nunca reutiliza el id del anterior.
+	d2, err := c.SaveDraft(ctx, 0, draftReq(acc, "Nuevo"))
+	require.NoError(t, err)
+	assert.NotEqual(t, d1.ID, d2.ID)
+	_, err = c.UploadDraft(ctx, d2.ID)
+	require.NoError(t, err)
+
+	// Reintenta, con un pedido que encima apunta al borrador nuevo.
+	retry := ob[0].Request
+	retry.DraftID = q.id
+	retry.ComposeDraftID = d2.ID
+	retry.DraftMessageID = d2.MessageID
+	q2, err := c.enqueue(ctx, retry)
+	require.NoError(t, err)
+	_, err = c.deliver(ctx, q2)
+	require.NoError(t, err)
+	require.Len(t, smtp.Received(), 1)
+
+	got, err := c.store.GetComposeDraft(ctx, d2.ID)
+	require.NoError(t, err, "el borrador nuevo sigue en la compu")
+	assert.Equal(t, "Nuevo", got.Request.Subject)
+	hs := serverDrafts(t, c, srv)
+	require.Len(t, hs, 1, "solo se borró la copia del borrador enviado")
+	assert.Equal(t, "Nuevo", hs[0].Envelope.Subject)
+}
+
+// addDraftsAccount agrega al núcleo una cuenta email contra un servidor propio
+// con carpeta "Drafts", y la sincroniza.
+func addDraftsAccount(t *testing.T, c *Core, tlsEnv testenv.TLS, email string) (*testenv.IMAP, model.Account) {
+	t.Helper()
+	srv := testenv.StartIMAP(t, tlsEnv, email, testPass)
+	require.NoError(t, srv.User.Create("Drafts", nil))
+	smtp := testenv.StartSMTP(t, tlsEnv, email, testPass)
+	in := inputFor(srv, smtp, testPass)
+	in.Account.Email = email
+	acc, err := c.AddAccount(context.Background(), in)
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(context.Background(), acc.ID))
+	return srv, acc
+}
+
+// twoDraftAccounts arma un núcleo con dos cuentas (A y B) en servidores
+// distintos, cada una con su carpeta Borradores.
+func twoDraftAccounts(t *testing.T) (c *Core, srvA, srvB *testenv.IMAP, accA, accB model.Account) {
+	t.Helper()
+	tlsEnv := testenv.NewTLS(t)
+	c, err := New(Config{DBPath: t.TempDir() + "/t.db", Secrets: secrets.NewMemory(), Notifier: &recNotifier{},
+		TLS: tlsEnv.Client, SkipInitialSync: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	srvA, accA = addDraftsAccount(t, c, tlsEnv, testUser)
+	srvB, accB = addDraftsAccount(t, c, tlsEnv, "g@ej.com")
+	return c, srvA, srvB, accA, accB
+}
+
+func TestDrafts_ChangeAccountRemovesOldServerCopy(t *testing.T) {
+	c, srvA, srvB, accA, accB := twoDraftAccounts(t)
+	ctx := context.Background()
+	d, err := c.SaveDraft(ctx, 0, draftReq(accA, "Desde A"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+	require.Len(t, serverDraftsAs(t, c, srvA, testUser), 1)
+
+	// Cambia "De" a la cuenta B y se sube de nuevo.
+	_, err = c.SaveDraft(ctx, d.ID, draftReq(accB, "Desde B"))
+	require.NoError(t, err)
+	up, err := c.UploadDraft(ctx, d.ID)
+	require.NoError(t, err)
+	require.False(t, up.NeedsUpload, up.UploadError)
+	assert.Empty(t, serverDraftsAs(t, c, srvA, testUser), "la copia vieja se borró de A")
+	hs := serverDraftsAs(t, c, srvB, "g@ej.com")
+	require.Len(t, hs, 1)
+	assert.Equal(t, "Desde B", hs[0].Envelope.Subject)
+}
+
+// Descartar o enviar un borrador que cambió de cuenta sin volver a subirse
+// también borra la copia que quedó en la cuenta anterior.
+func TestDrafts_ChangeAccountCleanupOnDeleteAndSend(t *testing.T) {
+	c, srvA, srvB, accA, accB := twoDraftAccounts(t)
+	ctx := context.Background()
+
+	discard, err := c.SaveDraft(ctx, 0, draftReq(accA, "Descartar"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, discard.ID)
+	require.NoError(t, err)
+	_, err = c.SaveDraft(ctx, discard.ID, draftReq(accB, "Descartar"))
+	require.NoError(t, err)
+	require.NoError(t, c.DeleteDraft(ctx, discard.ID))
+	assert.Empty(t, serverDraftsAs(t, c, srvA, testUser))
+
+	send, err := c.SaveDraft(ctx, 0, draftReq(accA, "Enviar"))
+	require.NoError(t, err)
+	_, err = c.UploadDraft(ctx, send.ID)
+	require.NoError(t, err)
+	d, err := c.SaveDraft(ctx, send.ID, draftReq(accB, "Enviar"))
+	require.NoError(t, err)
+	_, err = c.Send(ctx, d.Request)
+	require.NoError(t, err)
+	assert.Empty(t, serverDraftsAs(t, c, srvA, testUser))
+	assert.Empty(t, serverDraftsAs(t, c, srvB, "g@ej.com"))
 }

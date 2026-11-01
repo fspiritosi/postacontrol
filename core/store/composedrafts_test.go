@@ -60,6 +60,9 @@ func TestComposeDrafts_MarkUploadedIgnoresStale(t *testing.T) {
 	accID, _ := seedFolder(t, s)
 	id, err := s.SaveComposeDraft(ctx, 0, accID, model.SendRequest{AccountID: accID}, "<m@x>")
 	require.NoError(t, err)
+	up, err := s.DraftUploadedAccount(ctx, id)
+	require.NoError(t, err)
+	assert.Zero(t, up, "nunca se subió")
 	old, err := s.GetComposeDraft(ctx, id) // lo que lee la subida al empezar
 	require.NoError(t, err)
 
@@ -70,12 +73,16 @@ func TestComposeDrafts_MarkUploadedIgnoresStale(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, cur.UpdatedAt.After(old.UpdatedAt))
 
-	require.NoError(t, s.MarkDraftUploaded(ctx, id, old.UpdatedAt))
+	require.NoError(t, s.MarkDraftUploaded(ctx, id, old.UpdatedAt, accID))
 	cur, err = s.GetComposeDraft(ctx, id)
 	require.NoError(t, err)
 	assert.True(t, cur.NeedsUpload, "el guardado nuevo sigue pendiente")
+	// La copia ya está en el servidor de la cuenta aunque siga pendiente.
+	up, err = s.DraftUploadedAccount(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, accID, up)
 
-	require.NoError(t, s.MarkDraftUploaded(ctx, id, cur.UpdatedAt))
+	require.NoError(t, s.MarkDraftUploaded(ctx, id, cur.UpdatedAt, accID))
 	cur, err = s.GetComposeDraft(ctx, id)
 	require.NoError(t, err)
 	assert.False(t, cur.NeedsUpload)
@@ -93,7 +100,7 @@ func TestComposeDrafts_PendingList(t *testing.T) {
 	a, b, c := mk("<a>"), mk("<b>"), mk("<c>")
 	d, err := s.GetComposeDraft(ctx, b)
 	require.NoError(t, err)
-	require.NoError(t, s.MarkDraftUploaded(ctx, b, d.UpdatedAt))
+	require.NoError(t, s.MarkDraftUploaded(ctx, b, d.UpdatedAt, accID))
 	require.NoError(t, s.MarkDraftUploadFailed(ctx, a, "sin red"))
 
 	list, err := s.ListPendingDrafts(ctx)
@@ -184,4 +191,20 @@ func TestComposeDrafts_DeleteWithStagedKeepsShared(t *testing.T) {
 		got = append(got, a.ID)
 	}
 	assert.Equal(t, []int64{outbox, other}, got)
+}
+
+// Un id borrado no se reutiliza: un id viejo que quedó en la bandeja de
+// salida no apunta a un borrador nuevo.
+func TestComposeDrafts_IDsAreNotReused(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, _ := seedFolder(t, s)
+	id, err := s.SaveComposeDraft(ctx, 0, accID, model.SendRequest{AccountID: accID}, "<a@x>")
+	require.NoError(t, err)
+	require.NoError(t, s.DeleteComposeDraft(ctx, id))
+	id2, err := s.SaveComposeDraft(ctx, 0, accID, model.SendRequest{AccountID: accID}, "<b@x>")
+	require.NoError(t, err)
+	assert.Greater(t, id2, id)
+	_, err = s.DraftUploadedAccount(ctx, id)
+	require.ErrorIs(t, err, ErrNotFound)
 }
