@@ -170,3 +170,27 @@ describe("MailShell conversaciones", () => {
     expect(state().threadRoot).toBeNull();
   });
 });
+
+describe("MailShell contactos", () => {
+  afterEach(() => localStorage.clear());
+
+  it("openContact pasa a la libreta con la ficha abierta, sin sincronizar; selectView la cierra", async () => {
+    const { state } = setup({ kind: "folder", folderId: 21 }, false);
+    await waitFor(() => expect(svc.SyncFolder).toHaveBeenCalledWith(21));
+    act(() => state().openContact(4));
+    expect(shown()).toEqual({ kind: "contacts" });
+    expect(state().contactId).toBe(4);
+    act(() => state().selectContact(0));
+    expect(state().contactId).toBe(0);
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().contactId).toBeNull();
+    await waitFor(() => expect(svc.SyncFolder).toHaveBeenCalledWith(22));
+    expect(vi.mocked(svc.SyncFolder)).toHaveBeenCalledTimes(2);
+  });
+
+  it("la libreta guardada vuelve al reabrir", async () => {
+    setup({ kind: "contacts" }, false);
+    await waitFor(() => expect(shown()).toEqual({ kind: "contacts" }));
+    expect(svc.SyncFolder).not.toHaveBeenCalled();
+  });
+});

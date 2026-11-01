@@ -3,11 +3,13 @@ import type { Account, Folder } from "../../bindings/postacontrol/core/model/mod
 export type UnifiedRole = "inbox" | "flagged" | "sent" | "drafts" | "trash";
 
 // Lo que se ve en la lista: una carpeta de una cuenta, una vista que junta
-// las carpetas de un rol de todas las cuentas, o la Bandeja de salida.
+// las carpetas de un rol de todas las cuentas, la Bandeja de salida o la
+// libreta de contactos.
 export type View =
   | { kind: "folder"; folderId: number }
   | { kind: "unified"; role: UnifiedRole }
-  | { kind: "outbox" };
+  | { kind: "outbox" }
+  | { kind: "contacts" };
 
 export const UNIFIED_LABEL: Record<UnifiedRole, string> = {
   inbox: "Entrada",
@@ -28,6 +30,7 @@ function isView(v: unknown): v is View {
     case "unified":
       return typeof o.role === "string" && o.role in UNIFIED_LABEL;
     case "outbox":
+    case "contacts":
       return true;
     default:
       return false;
@@ -66,6 +69,7 @@ export function viewIsValid(v: View, folders: Folder[], unifiedEnabled: boolean)
     case "unified":
       return unifiedEnabled;
     case "outbox":
+    case "contacts":
       return true;
   }
 }

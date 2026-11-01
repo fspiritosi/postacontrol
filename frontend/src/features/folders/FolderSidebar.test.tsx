@@ -37,6 +37,9 @@ const baseState: ShellState = {
   setSearch: vi.fn(),
   threadRoot: null,
   selectThread: vi.fn(),
+  contactId: null,
+  selectContact: vi.fn(),
+  openContact: vi.fn(),
 };
 
 const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X", color: "#0f0" };
@@ -97,6 +100,18 @@ describe("FolderSidebar", () => {
     renderSidebar([account]);
     await waitFor(() => expect(svc.ListFolders).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Entrada" })).toBeNull();
+  });
+
+  it("la fila Contactos abre la libreta y queda marcada cuando es la vista", async () => {
+    const selectView = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = renderSidebar([account], { ...baseState, selectView });
+    await user.click(await screen.findByRole("button", { name: "Contactos" }));
+    expect(selectView).toHaveBeenCalledWith({ kind: "contacts" });
+    expect(screen.getByRole("button", { name: "Contactos" }).getAttribute("aria-current")).toBeNull();
+    unmount();
+    renderSidebar([account], { ...baseState, view: { kind: "contacts" } });
+    expect((await screen.findByRole("button", { name: "Contactos" })).getAttribute("aria-current")).toBe("true");
   });
 
   it("sin la bandeja unificada no muestra Todas las cuentas", async () => {

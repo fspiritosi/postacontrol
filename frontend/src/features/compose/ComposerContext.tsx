@@ -35,7 +35,8 @@ export type ComposerInit = {
 };
 
 type ComposerApi = {
-  openNew(accountId: number): void;
+  // `to` precarga Para (p. ej. "Escribirle" desde un contacto).
+  openNew(accountId: number, to?: Address[]): void;
   openFrom(messageId: number, mode: "reply" | "replyAll" | "forward"): Promise<void>;
   openDraft(d: LocalDraft): Promise<void>;
   // Sigue editando un borrador autoguardado (o uno de la carpeta Borradores).
@@ -99,8 +100,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
     const openComposeDraft = async (d: Draft) =>
       open({ ...(await fromRequest(d.request)), composeDraftId: d.id, draftMessageId: d.messageId });
     return {
-      openNew: (accountId) =>
-        open({ accountId, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
+      openNew: (accountId, to = []) =>
+        open({ accountId, to, cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
           attachments: [], originalAttachments: [], skipOriginalAttachments: [],
           signatureId: qc.getQueryData<Account[]>(["accounts"])?.find((a) => a.id === accountId)?.defaultSignatureId ?? 0 }),
       openFrom: async (messageId, mode) => {

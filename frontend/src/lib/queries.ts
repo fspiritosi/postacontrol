@@ -26,6 +26,30 @@ export function useSignatures() {
   });
 }
 
+export function useContacts(query: string) {
+  return useQuery({
+    queryKey: ["contacts", query],
+    queryFn: async () => (await svc.ListContacts(query)) ?? [],
+  });
+}
+
+// id null o 0 (ficha nueva): sin consulta.
+export function useContact(id: number | null) {
+  return useQuery({
+    queryKey: ["contact", id],
+    queryFn: () => svc.GetContact(id!),
+    enabled: id != null && id !== 0,
+  });
+}
+
+export function useContactForEmail(email: string) {
+  return useQuery({
+    queryKey: ["contact-for", email.toLowerCase()],
+    queryFn: () => svc.ContactForEmail(email),
+    enabled: email !== "",
+  });
+}
+
 export function useFolders(accountId: number | null) {
   return useQuery({
     queryKey: ["folders", accountId],

@@ -59,6 +59,7 @@ function Harness({ initial }: { initial: View }) {
         state={{
           view, messageId: null, selectView: vi.fn(), selectMessage, search, setSearch,
           threadRoot: null, selectThread: vi.fn(),
+          contactId: null, selectContact: vi.fn(), openContact: vi.fn(),
         }}
       />
     </>

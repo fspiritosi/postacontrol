@@ -75,6 +75,9 @@ function setup(msgs: MessageSummary[] = thread) {
     setSearch: vi.fn(),
     threadRoot: "<r@x>",
     selectThread,
+    contactId: null,
+    selectContact: vi.fn(),
+    openContact: vi.fn(),
   };
   const user = userEvent.setup();
   const qc = new QueryClient();
