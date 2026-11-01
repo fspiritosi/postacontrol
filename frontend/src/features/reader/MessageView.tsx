@@ -1,13 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ForwardIcon, ReplyAllIcon, ReplyIcon } from "lucide-react";
+import { ForwardIcon, ReplyAllIcon, ReplyIcon, UserIcon, UserPlusIcon } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
+import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account, Address, MessageDetail } from "../../../bindings/postacontrol/core/model/models";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { contactDisplayName } from "@/lib/contacts";
 import { errorMessage, isStaleError } from "@/lib/errors";
 import { syncFolder, syncUnified } from "@/lib/events";
 import { fullDate, initials } from "@/lib/format";
-import { useAllFolders, useFolders, useMessage } from "@/lib/queries";
+import { useAllFolders, useContactForEmail, useFolders, useMessage } from "@/lib/queries";
 import { useComposer } from "../compose/ComposerContext";
 import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
@@ -30,11 +33,46 @@ type Props = {
 
 const addr = (a: Address) => a.name || a.email;
 
+// Junto al remitente: lo agrega a la libreta o, si ya está, abre su ficha.
+// Al agregar, el evento mail:contacts-changed refresca useContactForEmail.
+function SenderContactButton({
+  from,
+  openContact,
+}: {
+  from: Address;
+  openContact: (id: number) => void;
+}) {
+  const contact = useContactForEmail(from.email);
+  if (contact.isPending) return null;
+  const add = async () => {
+    try {
+      const c = await svc.AddSenderToContacts(from);
+      toast.success(`«${contactDisplayName(c)}» se agregó a tus contactos.`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+  const existing = contact.data;
+  const label = existing ? "Ver contacto" : "Agregar a contactos";
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={label}
+      title={label}
+      onClick={() => (existing ? openContact(existing.id) : void add())}
+    >
+      {existing ? <UserIcon /> : <UserPlusIcon />}
+    </Button>
+  );
+}
+
 function Body({
   message,
   account,
   onCompose,
   selectMessage,
+  openContact,
   embedded,
 }: {
   message: MessageDetail;
@@ -42,6 +80,7 @@ function Body({
   account: Account | undefined;
   onCompose?: Props["onCompose"];
   selectMessage: (id: number | null) => void;
+  openContact: (id: number) => void;
   embedded: boolean;
 }) {
   // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
@@ -109,6 +148,8 @@ function Body({
                 {fullDate(message.date)}
               </p>
             </div>
+            {/* En un borrador el remitente es uno mismo. */}
+            {!inDrafts && <SenderContactButton from={message.from} openContact={openContact} />}
           </div>
         </div>
 
@@ -190,6 +231,7 @@ export function MessageView({
       account={accounts.find((a) => a.id === message.data.accountId)}
       onCompose={onCompose}
       selectMessage={selectMessage}
+      openContact={state.openContact}
       embedded={embedded}
     />
   );

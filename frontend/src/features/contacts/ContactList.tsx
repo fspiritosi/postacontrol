@@ -2,6 +2,7 @@ import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { contactDisplayName } from "@/lib/contacts";
 import { useContacts } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
@@ -48,7 +49,7 @@ export function ContactList({ state }: { state: ShellState }) {
                     active && "bg-accent font-medium",
                   )}
                 >
-                  <span className="truncate">{c.name || emails[0]}</span>
+                  <span className="truncate">{contactDisplayName(c)}</span>
                   {c.name && emails[0] && (
                     <span className="truncate text-xs font-normal text-muted-foreground">{emails[0]}</span>
                   )}

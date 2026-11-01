@@ -16,15 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { contactDisplayName } from "@/lib/contacts";
 import { errorMessage } from "@/lib/errors";
 import { useAccounts, useContact } from "@/lib/queries";
 import type { ShellState } from "../layout/MailShell";
 import { useComposer } from "../compose/ComposerContext";
 
 const NEW_CONTACT: Contact = { id: 0, name: "", emails: [], phones: [], company: "", notes: "" };
-
-// Lo que se muestra de un contacto: su nombre, o si no tiene, su primer correo.
-const displayName = (c: Contact) => c.name || (c.emails ?? [])[0] || "";
 
 export function ContactPanel({ state }: { state: ShellState }) {
   const id = state.contactId;
@@ -124,7 +122,7 @@ function ContactCard({ contact, state }: { contact: Contact; state: ShellState }
     return (
       <div className="h-full overflow-y-auto p-6">
         <div className="mx-auto max-w-xl space-y-5">
-          <h2 className="text-xl font-semibold">{displayName(contact)}</h2>
+          <h2 className="text-xl font-semibold">{contactDisplayName(contact)}</h2>
           <div className="flex gap-2">
             {emails.length > 0 && (
               <Button
@@ -159,7 +157,7 @@ function ContactCard({ contact, state }: { contact: Contact; state: ShellState }
         <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{`¿Eliminar a «${displayName(contact)}»?`}</DialogTitle>
+              <DialogTitle>{`¿Eliminar a «${contactDisplayName(contact)}»?`}</DialogTitle>
               <DialogDescription>Se borra de la libreta. Los correos no se tocan.</DialogDescription>
             </DialogHeader>
             <DialogFooter>
