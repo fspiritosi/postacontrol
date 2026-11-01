@@ -13,7 +13,9 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ),
   SetSettings: vi.fn(() => Promise.resolve()),
   ListThreads: vi.fn(() => Promise.resolve([])),
+  ListPendingDrafts: vi.fn(() => Promise.resolve([])),
 }));
+vi.mock("../compose/ComposerContext", () => ({ useComposer: () => ({ openComposeDraft: vi.fn() }) }));
 
 import type { Account, MessageSummary } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
@@ -128,5 +130,42 @@ describe("MessageList conversaciones", () => {
     expect(await screen.findByText("No hay correos en esta vista.")).toBeTruthy();
     expect(screen.queryByRole("switch", { name: "Conversaciones" })).toBeNull();
     expect(svc.ListThreads).not.toHaveBeenCalled();
+  });
+});
+
+describe("MessageList borradores sin subir", () => {
+  const pending = (id: number, accountId: number) => ({
+    id, messageId: "", needsUpload: true, uploadError: "", updatedAt: "",
+    request: { accountId, subject: `Borrador ${id}` },
+  });
+
+  beforeEach(() => {
+    resetSyncStateForTests();
+    vi.clearAllMocks();
+    vi.mocked(svc.ListPendingDrafts).mockResolvedValue([pending(1, 7), pending(2, 8)] as never);
+  });
+
+  it("en la carpeta Borradores avisa de los pendientes de esa cuenta", async () => {
+    vi.mocked(svc.ListFolders).mockImplementation((accountId: number) =>
+      Promise.resolve(
+        accountId === 7
+          ? [{ id: 70, accountId: 7, name: "Drafts", delimiter: "/", role: "drafts", unread: 0, total: 0, selectable: true }]
+          : [],
+      ) as never,
+    );
+    renderList({ kind: "folder", folderId: 70 });
+    expect(await screen.findByText("1 borrador todavía no se subió al servidor.")).toBeTruthy();
+    expect(screen.getByText("Borrador 1")).toBeTruthy();
+  });
+
+  it("en la vista unificada de Borradores avisa de todos", async () => {
+    renderList({ kind: "unified", role: "drafts" });
+    expect(await screen.findByText("2 borradores todavía no se subieron al servidor.")).toBeTruthy();
+  });
+
+  it("en otras carpetas no avisa", async () => {
+    renderList({ kind: "unified", role: "inbox" });
+    expect(await screen.findByText("No hay correos en esta vista.")).toBeTruthy();
+    expect(svc.ListPendingDrafts).not.toHaveBeenCalled();
   });
 });

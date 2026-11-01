@@ -9,8 +9,11 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SetFlagged: vi.fn(() => Promise.resolve()),
   MoveMessages: vi.fn(() => Promise.resolve()),
   DeleteMessages: vi.fn(() => Promise.resolve()),
+  OpenDraftMessage: vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const composer = vi.hoisted(() => ({ openComposeDraft: vi.fn(() => Promise.resolve()) }));
+vi.mock("../compose/ComposerContext", () => ({ useComposer: () => composer }));
 
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Folder, MessageDetail } from "../../../bindings/postacontrol/core/model/models";
@@ -25,6 +28,7 @@ const folders = [
   folder(2, "Trabajo"),
   folder(3, "Trash", "trash"),
   folder(4, "Padre", "", false),
+  folder(5, "Drafts", "drafts"),
 ];
 
 function msg(folderId: number, flagged = false): MessageDetail {
@@ -139,5 +143,35 @@ describe("MessageActions", () => {
     const { user } = setup(msg(1), qc);
     await user.click(screen.getByRole("button", { name: "Marcar como no leído" }));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["search"] }));
+  });
+
+  it("en Borradores muestra Seguir editando y abre el redactor con el borrador", async () => {
+    const d = {
+      id: 8, messageId: "<b8@x>", needsUpload: false, uploadError: "", updatedAt: "",
+      request: { accountId: 7, subject: "s" },
+    };
+    vi.mocked(svc.OpenDraftMessage).mockResolvedValue(d as never);
+    const { user } = setup(msg(5));
+    const keep = await screen.findByRole("button", { name: "Seguir editando" });
+    // Borrar y mover siguen estando.
+    expect(screen.getByRole("button", { name: "Borrar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mover a…" })).toBeTruthy();
+    await user.click(keep);
+    await waitFor(() => expect(composer.openComposeDraft).toHaveBeenCalledWith(d));
+    expect(svc.OpenDraftMessage).toHaveBeenCalledWith(55);
+  });
+
+  it("fuera de Borradores no muestra Seguir editando", async () => {
+    setup(msg(1));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Borrar" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByRole("button", { name: "Seguir editando" })).toBeNull();
+  });
+
+  it("si no se puede abrir el borrador avisa", async () => {
+    vi.mocked(svc.OpenDraftMessage).mockRejectedValue(new Error("Ese correo no es un borrador."));
+    const { user } = setup(msg(5));
+    await user.click(await screen.findByRole("button", { name: "Seguir editando" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Ese correo no es un borrador."));
+    expect(composer.openComposeDraft).not.toHaveBeenCalled();
   });
 });

@@ -34,7 +34,12 @@ const account: Account = {
 function folder(id: number, name: string, role: string): Folder {
   return { id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable: true };
 }
-const folders = [folder(3, "INBOX", "inbox"), folder(4, "Sent", "sent"), folder(5, "Trabajo", "")];
+const folders = [
+  folder(3, "INBOX", "inbox"),
+  folder(4, "Sent", "sent"),
+  folder(5, "Trabajo", ""),
+  folder(6, "Drafts", "drafts"),
+];
 
 function summary(id: number, folderId: number, from: string, day: number): MessageSummary {
   return {
@@ -154,5 +159,14 @@ describe("ThreadView", () => {
     await waitFor(() => expect(svc.GetThread).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Cuerpo 2")).toBeTruthy();
     expect(screen.queryByText("Cuerpo 4")).toBeNull();
+  });
+
+  it("un borrador no se responde ni se reenvía: se sigue editando", async () => {
+    setup([summary(9, 6, "Yo", 23)]);
+    expect(await screen.findByText("Cuerpo 9")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Seguir editando" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Responder" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Responder a todos" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reenviar" })).toBeNull();
   });
 });

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { errorMessage, isStaleError } from "@/lib/errors";
 import { syncFolder, syncUnified } from "@/lib/events";
 import { fullDate, initials } from "@/lib/format";
-import { useAllFolders, useMessage } from "@/lib/queries";
+import { useAllFolders, useFolders, useMessage } from "@/lib/queries";
 import { useComposer } from "../compose/ComposerContext";
 import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
@@ -47,13 +47,18 @@ function Body({
   // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
   const [allowRemote, setAllowRemote] = useState(false);
   const composer = useComposer();
+  // Un borrador no se responde ni se reenvía (MessageActions ofrece seguir editándolo).
+  const inDrafts =
+    useFolders(message.accountId).data?.find((f) => f.id === message.folderId)?.role === "drafts";
   const compose = onCompose ?? ((id: number, mode: ComposeMode) => void composer.openFrom(id, mode));
   const to = message.to ?? [];
-  const actions: { mode: ComposeMode; label: string; icon: React.ReactNode }[] = [
-    { mode: "reply", label: "Responder", icon: <ReplyIcon /> },
-    { mode: "replyAll", label: "Responder a todos", icon: <ReplyAllIcon /> },
-    { mode: "forward", label: "Reenviar", icon: <ForwardIcon /> },
-  ];
+  const actions: { mode: ComposeMode; label: string; icon: React.ReactNode }[] = inDrafts
+    ? []
+    : [
+        { mode: "reply", label: "Responder", icon: <ReplyIcon /> },
+        { mode: "replyAll", label: "Responder a todos", icon: <ReplyAllIcon /> },
+        { mode: "forward", label: "Reenviar", icon: <ForwardIcon /> },
+      ];
   return (
     <div className={embedded ? "flex flex-col" : "flex h-full flex-col"}>
       <div className="flex flex-wrap gap-2 border-b px-4 py-2">

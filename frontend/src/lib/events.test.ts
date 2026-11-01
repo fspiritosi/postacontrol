@@ -69,6 +69,11 @@ describe("useMailEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["drafts"] });
   });
 
+  it("recarga los borradores sin subir cuando cambian", () => {
+    emit("mail:drafts-changed", null);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["pending-drafts"] });
+  });
+
   it("al actualizarse una carpeta recarga también las vistas unificadas", () => {
     emit("mail:folder-updated", { folderId: 3 });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages", 3] });

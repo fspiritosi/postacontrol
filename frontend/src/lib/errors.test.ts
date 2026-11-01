@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorMessage, isStaleError } from "./errors";
+import { errorMessage, isNotFoundError, isStaleError } from "./errors";
 
 // Forma real: @wailsio/runtime rechaza con Error name="RuntimeError" + cause.
 const runtimeError = (msg: string, cause?: unknown) =>
@@ -25,5 +25,12 @@ describe("isStaleError", () => {
     const e = runtimeError("El mensaje cambió en el servidor. Actualizá la carpeta.");
     expect(isStaleError(e)).toBe(true);
     expect(isStaleError(runtimeError("Sin conexión."))).toBe(false);
+  });
+});
+
+describe("isNotFoundError", () => {
+  it("detecta el not_found del núcleo", () => {
+    expect(isNotFoundError(runtimeError("No encontramos lo que buscabas."))).toBe(true);
+    expect(isNotFoundError(runtimeError("Sin conexión."))).toBe(false);
   });
 });

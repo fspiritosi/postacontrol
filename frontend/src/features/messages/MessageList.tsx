@@ -17,6 +17,7 @@ import { SearchBox } from "../search/SearchBox";
 import { SearchResults } from "../search/SearchResults";
 import { MessageRow } from "./MessageRow";
 import { ThreadList } from "./ThreadList";
+import { UnsyncedDraftsBanner } from "./UnsyncedDraftsBanner";
 
 export function MessageList({
   accounts,
@@ -46,6 +47,9 @@ export function MessageList({
       : folder
         ? folderLabel(folder)
         : "";
+  // En Borradores se avisa de los que todavía no llegaron al servidor.
+  const draftsView =
+    view?.kind === "unified" ? view.role === "drafts" : folder?.role === "drafts";
   const items = messages.data?.pages.flat() ?? [];
   const syncing =
     progress != null && folderId != null && progress.folderId === folderId;
@@ -142,6 +146,10 @@ export function MessageList({
           />
         )}
       </div>
+
+      {draftsView && search == null && (
+        <UnsyncedDraftsBanner accountId={folder ? folder.accountId : null} />
+      )}
 
       {search != null ? (
         <SearchResults accounts={accounts} state={state} search={search} />

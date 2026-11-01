@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderInputIcon, MailIcon, StarIcon, Trash2Icon } from "lucide-react";
+import { FolderInputIcon, MailIcon, PencilIcon, StarIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -22,6 +22,7 @@ import {
 import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
+import { useComposer } from "../compose/ComposerContext";
 
 type Props = {
   message: MessageDetail;
@@ -30,6 +31,7 @@ type Props = {
 
 export function MessageActions({ message, selectMessage }: Props) {
   const queryClient = useQueryClient();
+  const composer = useComposer();
   const folders = useFolders(message.accountId).data ?? [];
   const [confirmOpen, setConfirmOpen] = useState(false);
   const current = folders.find((f) => f.id === message.folderId);
@@ -37,6 +39,8 @@ export function MessageActions({ message, selectMessage }: Props) {
   // borrado es definitivo y tiene que pedir confirmación.
   const folderKnown = current !== undefined;
   const inTrash = current?.role === "trash";
+  // En Borradores no se responde ni se reenvía: se sigue editando.
+  const inDrafts = current?.role === "drafts";
   const targets = folders.filter((f) => f.selectable && f.id !== message.folderId);
 
   const refresh = () => {
@@ -85,8 +89,22 @@ export function MessageActions({ message, selectMessage }: Props) {
       },
     );
 
+  const keepEditing = async () => {
+    try {
+      await composer.openComposeDraft(await svc.OpenDraftMessage(message.id));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   return (
     <>
+      {inDrafts && (
+        <Button size="sm" onClick={() => void keepEditing()}>
+          <PencilIcon />
+          Seguir editando
+        </Button>
+      )}
       <Button
         variant="outline"
         size="sm"

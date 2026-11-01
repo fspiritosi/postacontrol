@@ -1,5 +1,6 @@
-import { PaperclipIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { PaperclipIcon, Trash2Icon } from "lucide-react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,19 +21,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { errorMessage } from "@/lib/errors";
-import { onFilesStaged } from "@/lib/events";
+import { errorMessage, isNotFoundError } from "@/lib/errors";
+import { onFilesStaged, type FilesStaged } from "@/lib/events";
 import { formatSize } from "@/lib/format";
 import { useAccounts, useSignatures } from "@/lib/queries";
 import { formatRecipients, parseRecipients } from "@/lib/recipients";
 import { SafeHtmlFrame } from "../reader/SafeHtmlFrame";
-import type { StagedAttachment } from "../../../bindings/postacontrol/core/model/models";
+import type { SendRequest, StagedAttachment } from "../../../bindings/postacontrol/core/model/models";
 import { AttachmentList } from "./AttachmentList";
 import type { ComposerInit } from "./ComposerContext";
 import { RecipientInput } from "./RecipientInput";
 import { RichEditor } from "./RichEditor";
 import { SignaturePicker } from "./SignaturePicker";
 import { sendStarted } from "./sendNotices";
+import { useDraftAutosave, type DraftStatus } from "./useDraftAutosave";
 
 // Cuánto se ve "Enviando…" antes de cerrar: el envío sigue en segundo plano.
 export const SENDING_FEEDBACK_MS = 800;
@@ -44,6 +46,19 @@ const TITLES: Record<string, string> = {
   replyAll: "Responder a todos",
   forward: "Reenviar",
 };
+
+const DRAFT_STATUS_TEXT: Record<DraftStatus, string> = {
+  idle: "",
+  saving: "Guardando…",
+  saved: "Guardado",
+  local: "Guardado solo en esta compu",
+};
+
+// Sin texto ni imágenes: lo que deja el editor vacío ("<p></p>").
+function isBlankHtml(html: string): boolean {
+  if (/<(img|hr|table)\b/i.test(html)) return false;
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;|\u00a0/g, " ").trim() === "";
+}
 
 type Props = { init: ComposerInit; onClose: () => void };
 
@@ -58,6 +73,8 @@ export function Composer({ init, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmDiscardDraft, setConfirmDiscardDraft] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [staged, setStaged] = useState<StagedAttachment[]>(init.attachments);
   const [skipped, setSkipped] = useState<number[]>(init.skipOriginalAttachments);
@@ -66,7 +83,9 @@ export function Composer({ init, onClose }: Props) {
   const bodyRef = useRef<() => string>(() => init.bodyHtml);
 
   const accountList = accounts.data ?? [];
-  const isNew = !init.reply && init.draftId === undefined;
+  const isNew = !init.reply && init.draftId === undefined && !init.composeDraftId;
+  // Un reintento de la Bandeja de salida no autoguarda: ya está en la cola.
+  const autosaveOn = init.draftId === undefined;
 
   // Mientras la firma no se elija a mano, sigue a la por defecto de la cuenta.
   // Responder, reenviar y reabrir conservan la que trae el pedido hasta que se
@@ -76,29 +95,6 @@ export function Composer({ init, onClose }: Props) {
   const wanted = picked ?? (followsAccount ? (accountDefault ?? init.signatureId) : init.signatureId);
   const signatureId = signatures.data && !signatures.data.some((s) => s.id === wanted) ? 0 : wanted;
 
-  const addStaged = (added: StagedAttachment[]) => {
-    if (added.length === 0) return;
-    setStaged((cur) => [...cur, ...added]);
-    setDirty(true);
-  };
-
-  // Los archivos soltados sobre el redactor llegan por evento mientras está abierto.
-  useEffect(
-    () =>
-      onFilesStaged(({ attachments, error }) => {
-        addStaged(attachments ?? []);
-        if (error) setError(error);
-      }),
-    [],
-  );
-
-  const pickAttachments = () => {
-    void svc
-      .PickAttachments()
-      .then((picked) => addStaged(picked ?? []))
-      .catch((e) => setError(errorMessage(e)));
-  };
-
   const keptOriginals = init.originalAttachments.filter((a) => !skipped.includes(a.index));
   const attachmentItems = [
     ...keptOriginals.map((a) => ({ key: `o${a.index}`, filename: a.filename, size: a.size })),
@@ -107,13 +103,6 @@ export function Composer({ init, onClose }: Props) {
   const attachmentsTotal = attachmentItems.reduce((n, a) => n + a.size, 0);
   const tooBig = attachmentsTotal > MAX_ATTACHMENTS_BYTES;
 
-  const removeAttachment = (key: string) => {
-    setDirty(true);
-    const n = Number(key.slice(1));
-    if (key[0] === "o") setSkipped((cur) => [...cur, n]);
-    else setStaged((cur) => cur.filter((a) => a.id !== n));
-  };
-
   const parsedTo = parseRecipients(to);
   const parsedCc = parseRecipients(cc);
   const parsedBcc = parseRecipients(bcc);
@@ -121,8 +110,72 @@ export function Composer({ init, onClose }: Props) {
   const recipientCount = parsedTo.valid.length + parsedCc.valid.length + parsedBcc.valid.length;
   const canSend = recipientCount > 0 && invalid.length === 0 && !sending && !tooBig;
 
-  const edit = <T,>(set: (v: T) => void) => (v: T) => {
+  // El mismo pedido sirve para autoguardar y para QueueSend; el envío le suma
+  // el id y el Message-ID del borrador.
+  const buildRequest = (): SendRequest => ({
+    accountId,
+    to: parsedTo.valid,
+    cc: parsedCc.valid,
+    bcc: parsedBcc.valid,
+    subject,
+    bodyHtml: bodyRef.current(),
+    reply: init.reply && init.reply.mode !== "new" ? init.reply : null,
+    draftId: init.draftId,
+    attachments: staged.map((a) => a.id),
+    skipOriginalAttachments: skipped,
+    signatureId,
+    composeDraftId: 0,
+    draftMessageId: "",
+  });
+
+  const isEmpty = () =>
+    [to, cc, bcc, subject].every((v) => v.trim() === "") &&
+    attachmentItems.length === 0 &&
+    isBlankHtml(bodyRef.current());
+
+  const autosave = useDraftAutosave({
+    enabled: autosaveOn,
+    initialDraftId: init.composeDraftId ?? 0,
+    initialMessageId: init.draftMessageId,
+    buildRequest,
+    isEmpty,
+  });
+
+  // Cada cambio marca el redactor como modificado y programa el autoguardado.
+  const touch = () => {
     setDirty(true);
+    autosave.notifyChange();
+  };
+
+  const addStaged = (added: StagedAttachment[]) => {
+    if (added.length === 0) return;
+    setStaged((cur) => [...cur, ...added]);
+    touch();
+  };
+
+  // Los archivos soltados sobre el redactor llegan por evento mientras está abierto.
+  const onStaged = useEffectEvent(({ attachments, error }: FilesStaged) => {
+    addStaged(attachments ?? []);
+    if (error) setError(error);
+  });
+  useEffect(() => onFilesStaged((p) => onStaged(p)), []);
+
+  const pickAttachments = () => {
+    void svc
+      .PickAttachments()
+      .then((picked) => addStaged(picked ?? []))
+      .catch((e) => setError(errorMessage(e)));
+  };
+
+  const removeAttachment = (key: string) => {
+    touch();
+    const n = Number(key.slice(1));
+    if (key[0] === "o") setSkipped((cur) => [...cur, n]);
+    else setStaged((cur) => cur.filter((a) => a.id !== n));
+  };
+
+  const edit = <T,>(set: (v: T) => void) => (v: T) => {
+    touch();
     set(v);
   };
 
@@ -134,25 +187,17 @@ export function Composer({ init, onClose }: Props) {
     setError(null);
     const shownAt = Date.now();
     try {
-      const id = await svc.QueueSend({
-        accountId,
-        to: parsedTo.valid,
-        cc: parsedCc.valid,
-        bcc: parsedBcc.valid,
-        subject,
-        bodyHtml: bodyRef.current(),
-        reply: init.reply && init.reply.mode !== "new" ? init.reply : null,
-        draftId: init.draftId,
-        attachments: staged.map((a) => a.id),
-        skipOriginalAttachments: skipped,
-        signatureId,
-        composeDraftId: 0,
-        draftMessageId: "",
-      });
+      // Un guardado en vuelo podría llegar después del envío (y recrear el
+      // borrador): se cancelan los timers y se espera antes de encolar.
+      await autosave.cancel();
+      const { draftId: composeDraftId, messageId: draftMessageId } = autosave.current();
+      const id = await svc.QueueSend({ ...buildRequest(), composeDraftId, draftMessageId });
       sendStarted(id);
     } catch (e) {
       setError(errorMessage(e));
       setSending(false);
+      // Sigue abierto: vuelve a autoguardar lo que no se guardó.
+      autosave.resume();
       return;
     }
     const left = SENDING_FEEDBACK_MS - (Date.now() - shownAt);
@@ -162,10 +207,53 @@ export function Composer({ init, onClose }: Props) {
 
   const closeSlashRef = useRef<(() => void) | null>(null);
 
+  // Con autoguardado, cerrar guarda (sin preguntar). Un redactor vacío o sin
+  // tocar no crea borrador.
+  const closeSaving = async () => {
+    const hasDraft = autosave.current().draftId !== 0;
+    if (!hasDraft && (!dirty || isEmpty())) {
+      onClose();
+      return;
+    }
+    setClosing(true);
+    try {
+      await autosave.flush();
+    } catch (e) {
+      setError(errorMessage(e));
+      setClosing(false);
+      return;
+    }
+    toast.success("Guardado en Borradores.");
+    onClose();
+  };
+
   const requestClose = () => {
-    if (sending) return;
-    if (dirty) setConfirmDiscard(true);
+    if (sending || closing) return;
+    if (autosaveOn) void closeSaving();
+    else if (dirty) setConfirmDiscard(true);
     else onClose();
+  };
+
+  const requestDiscard = () => {
+    if (sending || closing) return;
+    if (!dirty && autosave.current().draftId === 0) {
+      void autosave.discard();
+      onClose();
+    } else {
+      setConfirmDiscardDraft(true);
+    }
+  };
+
+  const discardDraft = async () => {
+    setConfirmDiscardDraft(false);
+    setClosing(true);
+    try {
+      await autosave.discard();
+    } catch (e) {
+      // Ya no existía (se envió o se descartó en otro lado): nada que avisar.
+      if (!isNotFoundError(e)) toast.error(errorMessage(e));
+    }
+    onClose();
   };
 
   const mode = init.reply?.mode ?? "new";
@@ -275,7 +363,7 @@ export function Composer({ init, onClose }: Props) {
               }}
               onChange={(getHTML) => {
                 bodyRef.current = getHTML;
-                setDirty(true);
+                touch();
               }}
             />
 
@@ -306,14 +394,36 @@ export function Composer({ init, onClose }: Props) {
           )}
 
           <DialogFooter className="sm:justify-between">
-            <Button type="button" variant="ghost" onClick={pickAttachments} disabled={sending}>
-              <PaperclipIcon /> Adjuntar
-            </Button>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row">
-              <Button type="button" variant="ghost" onClick={requestClose} disabled={sending}>
-                Cancelar
+            <div className="flex items-center gap-1">
+              {autosaveOn && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Descartar"
+                  title="Descartar"
+                  onClick={requestDiscard}
+                  disabled={sending || closing}
+                >
+                  <Trash2Icon />
+                </Button>
+              )}
+              <Button type="button" variant="ghost" onClick={pickAttachments} disabled={sending}>
+                <PaperclipIcon /> Adjuntar
               </Button>
-              <Button type="button" onClick={() => void send()} disabled={!canSend}>
+              {autosaveOn && (
+                <span className="ml-2 text-xs text-muted-foreground" aria-live="polite">
+                  {DRAFT_STATUS_TEXT[autosave.status]}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              {!autosaveOn && (
+                <Button type="button" variant="ghost" onClick={requestClose} disabled={sending}>
+                  Cancelar
+                </Button>
+              )}
+              <Button type="button" onClick={() => void send()} disabled={!canSend || closing}>
                 {sending ? "Enviando…" : "Enviar"}
               </Button>
             </div>
@@ -332,6 +442,23 @@ export function Composer({ init, onClose }: Props) {
               Seguir editando
             </Button>
             <Button variant="destructive" onClick={onClose}>
+              Descartar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDiscardDraft} onOpenChange={setConfirmDiscardDraft}>
+        <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>¿Descartar este borrador?</DialogTitle>
+            <DialogDescription>Se borra también de la carpeta Borradores del servidor.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDiscardDraft(false)}>
+              Seguir editando
+            </Button>
+            <Button variant="destructive" onClick={() => void discardDraft()}>
               Descartar
             </Button>
           </DialogFooter>

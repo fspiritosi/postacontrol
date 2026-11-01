@@ -16,3 +16,10 @@ export const STALE_MESSAGE_FRAGMENT = "cambió en el servidor";
 export function isStaleError(e: unknown): boolean {
   return errorMessage(e).includes(STALE_MESSAGE_FRAGMENT);
 }
+
+// Contrato con Go: msgNotFound de core/mail/errors.go (código "not_found").
+export const NOT_FOUND_MESSAGE = "No encontramos lo que buscabas.";
+
+export function isNotFoundError(e: unknown): boolean {
+  return errorMessage(e) === NOT_FOUND_MESSAGE;
+}

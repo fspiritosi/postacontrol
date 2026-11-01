@@ -113,6 +113,15 @@ export function useDrafts() {
   });
 }
 
+// Borradores autoguardados que todavía no se subieron a la carpeta Borradores
+// del servidor (de todas las cuentas).
+export function usePendingDrafts() {
+  return useQuery({
+    queryKey: ["pending-drafts"],
+    queryFn: async () => (await svc.ListPendingDrafts()) ?? [],
+  });
+}
+
 // Búsqueda en el índice local; folderId 0 = todas las carpetas de todas las
 // cuentas. `pending` (mensajes sin el cuerpo indexado) se toma de la primera
 // página, que es la que corresponde a todo el alcance.

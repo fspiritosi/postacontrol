@@ -6,8 +6,10 @@ import type {
   Account,
   Address,
   Attachment,
+  Draft,
   LocalDraft,
   ReplyContext,
+  SendRequest,
   StagedAttachment,
 } from "../../../bindings/postacontrol/core/model/models";
 import { errorMessage } from "@/lib/errors";
@@ -23,7 +25,9 @@ export type ComposerInit = {
   bodyHtml: string;
   quotedHtml: string;
   reply: ReplyContext | null; // null: correo nuevo
-  draftId?: number; // correo de la bandeja de salida que se está reintentando
+  draftId?: number; // correo de la bandeja de salida que se está reintentando (no autoguarda)
+  composeDraftId?: number; // borrador autoguardado que se sigue editando
+  draftMessageId?: string; // su Message-ID
   attachments: StagedAttachment[];
   originalAttachments: Attachment[]; // solo al reenviar
   skipOriginalAttachments: number[];
@@ -34,6 +38,8 @@ type ComposerApi = {
   openNew(accountId: number): void;
   openFrom(messageId: number, mode: "reply" | "replyAll" | "forward"): Promise<void>;
   openDraft(d: LocalDraft): Promise<void>;
+  // Sigue editando un borrador autoguardado (o uno de la carpeta Borradores).
+  openComposeDraft(d: Draft): Promise<void>;
   // Abre un correo de la bandeja de salida por id (p. ej. desde un aviso).
   openDraftById(id: number): Promise<void>;
 };
@@ -52,8 +58,10 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
   const open = useCallback((init: ComposerInit) => setState((s) => ({ key: (s?.key ?? 0) + 1, init })), []);
 
   const api = useMemo<ComposerApi>(() => {
-    const openDraft = async (d: LocalDraft) => {
-      const ids = d.request.attachments ?? [];
+    // Arma el redactor a partir de un pedido guardado (de la bandeja de salida
+    // o de un borrador).
+    const fromRequest = async (req: SendRequest) => {
+      const ids = req.attachments ?? [];
       // Los nombres y tamaños no viajan en el pedido: se piden por id.
       const attachments = ids.length > 0 ? ((await svc.StagedInfo(ids)) ?? []) : [];
       // Una respuesta o un reenvío reabierto sigue citando el original (y un
@@ -61,7 +69,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       // mostrarlos. Si el original ya no está, no se muestra nada.
       let quotedHtml = "";
       let originalAttachments: Attachment[] = [];
-      const reply = d.request.reply;
+      const reply = req.reply;
       if (reply && reply.mode !== "new") {
         try {
           const prepared = await svc.PrepareCompose(reply.originalMessageId, reply.mode);
@@ -72,22 +80,24 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           originalAttachments = [];
         }
       }
-      open({
-        accountId: d.request.accountId,
-        to: d.request.to ?? [],
-        cc: d.request.cc ?? [],
-        bcc: d.request.bcc ?? [],
-        subject: d.request.subject,
-        bodyHtml: d.request.bodyHtml,
+      return {
+        accountId: req.accountId,
+        to: req.to ?? [],
+        cc: req.cc ?? [],
+        bcc: req.bcc ?? [],
+        subject: req.subject,
+        bodyHtml: req.bodyHtml,
         quotedHtml,
-        reply: d.request.reply,
-        draftId: d.id,
+        reply: req.reply,
         attachments,
         originalAttachments,
-        skipOriginalAttachments: d.request.skipOriginalAttachments ?? [],
-        signatureId: d.request.signatureId,
-      });
+        skipOriginalAttachments: req.skipOriginalAttachments ?? [],
+        signatureId: req.signatureId,
+      } satisfies ComposerInit;
     };
+    const openDraft = async (d: LocalDraft) => open({ ...(await fromRequest(d.request)), draftId: d.id });
+    const openComposeDraft = async (d: Draft) =>
+      open({ ...(await fromRequest(d.request)), composeDraftId: d.id, draftMessageId: d.messageId });
     return {
       openNew: (accountId) =>
         open({ accountId, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
@@ -115,6 +125,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         }
       },
       openDraft,
+      openComposeDraft,
       openDraftById: async (id) => {
         try {
           const d = ((await svc.ListLocalDrafts()) ?? []).find((x) => x.id === id);
