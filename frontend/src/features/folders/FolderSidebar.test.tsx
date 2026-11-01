@@ -25,6 +25,7 @@ const account: Account = {
   imap: { host: "", port: 993, security: Security.SecurityTLS },
   smtp: { host: "", port: 465, security: Security.SecurityTLS },
   saveSentCopy: true,
+  defaultSignatureId: 0,
 };
 
 const baseState: ShellState = {

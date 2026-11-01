@@ -29,6 +29,7 @@ const accounts: Account[] = [7].map((id) => ({
   imap: { host: "", port: 993, security: Security.SecurityTLS },
   smtp: { host: "", port: 465, security: Security.SecurityTLS },
   saveSentCopy: true,
+  defaultSignatureId: 0,
 }));
 const FOLDERS: Folder[] = [
   { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true },

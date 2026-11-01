@@ -31,6 +31,15 @@ type Account struct {
 	IMAP         ServerSettings `json:"imap"`
 	SMTP         ServerSettings `json:"smtp"`
 	SaveSentCopy bool           `json:"saveSentCopy"`
+	// DefaultSignatureID es la firma que se pone sola al redactar (0 = sin firma).
+	DefaultSignatureID int64 `json:"defaultSignatureId"`
+}
+
+// Signature es una firma reutilizable, en HTML.
+type Signature struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	HTML string `json:"html"`
 }
 
 // AccountInput es lo que llega desde la UI. Account.ID se ignora.
@@ -140,6 +149,23 @@ type SendRequest struct {
 	// SkipOriginalAttachments son los índices de los adjuntos del original que
 	// un reenvío no incluye.
 	SkipOriginalAttachments []int `json:"skipOriginalAttachments"`
+	// SignatureID es la firma elegida en el redactor (0 = ninguna).
+	SignatureID int64 `json:"signatureId"`
+	// ComposeDraftID es el borrador autoguardado del que sale el envío (0 si no hay).
+	ComposeDraftID int64 `json:"composeDraftId"`
+	// DraftMessageID es el Message-ID del borrador del que viene el envío.
+	DraftMessageID string `json:"draftMessageId"`
+}
+
+// Draft es un borrador autoguardado del redactor: se sube a la carpeta
+// Borradores del servidor mientras NeedsUpload sea true.
+type Draft struct {
+	ID          int64       `json:"id"`
+	Request     SendRequest `json:"request"`
+	MessageID   string      `json:"messageId"`
+	NeedsUpload bool        `json:"needsUpload"`
+	UploadError string      `json:"uploadError"`
+	UpdatedAt   time.Time   `json:"updatedAt"`
 }
 
 // StagedAttachment es un archivo elegido para adjuntar y guardado a la espera

@@ -10,6 +10,11 @@ export interface Account {
     "imap": ServerSettings;
     "smtp": ServerSettings;
     "saveSentCopy": boolean;
+
+    /**
+     * DefaultSignatureID es la firma que se pone sola al redactar (0 = sin firma).
+     */
+    "defaultSignatureId": number;
 }
 
 /**
@@ -24,6 +29,11 @@ export interface AccountInput {
     "imap": ServerSettings;
     "smtp": ServerSettings;
     "saveSentCopy": boolean;
+
+    /**
+     * DefaultSignatureID es la firma que se pone sola al redactar (0 = sin firma).
+     */
+    "defaultSignatureId": number;
     "password": string;
 }
 
@@ -221,6 +231,21 @@ export interface SendRequest {
      * un reenvío no incluye.
      */
     "skipOriginalAttachments": number[] | null;
+
+    /**
+     * SignatureID es la firma elegida en el redactor (0 = ninguna).
+     */
+    "signatureId": number;
+
+    /**
+     * ComposeDraftID es el borrador autoguardado del que sale el envío (0 si no hay).
+     */
+    "composeDraftId": number;
+
+    /**
+     * DraftMessageID es el Message-ID del borrador del que viene el envío.
+     */
+    "draftMessageId": string;
 }
 
 export interface ServerSettings {

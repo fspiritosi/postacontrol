@@ -131,6 +131,9 @@ export function Composer({ init, onClose }: Props) {
         draftId: init.draftId,
         attachments: staged.map((a) => a.id),
         skipOriginalAttachments: skipped,
+        signatureId: 0,
+        composeDraftId: 0,
+        draftMessageId: "",
       });
       sendStarted(id);
     } catch (e) {

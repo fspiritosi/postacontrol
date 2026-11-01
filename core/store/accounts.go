@@ -9,14 +9,14 @@ import (
 )
 
 const accountCols = `id, email, display_name, username, color, imap_host, imap_port, imap_security,
- smtp_host, smtp_port, smtp_security, save_sent_copy`
+ smtp_host, smtp_port, smtp_security, save_sent_copy, COALESCE(default_signature_id, 0)`
 
 func scanAccount(sc interface{ Scan(...any) error }) (model.Account, error) {
 	var a model.Account
 	var imapSec, smtpSec string
 	var save int
 	err := sc.Scan(&a.ID, &a.Email, &a.DisplayName, &a.Username, &a.Color,
-		&a.IMAP.Host, &a.IMAP.Port, &imapSec, &a.SMTP.Host, &a.SMTP.Port, &smtpSec, &save)
+		&a.IMAP.Host, &a.IMAP.Port, &imapSec, &a.SMTP.Host, &a.SMTP.Port, &smtpSec, &save, &a.DefaultSignatureID)
 	a.IMAP.Security = model.Security(imapSec)
 	a.SMTP.Security = model.Security(smtpSec)
 	a.SaveSentCopy = save != 0
@@ -76,6 +76,22 @@ func (s *Store) DeleteAccount(ctx context.Context, id int64) error {
 // SetSaveSentCopy cambia si se guarda la copia de lo enviado en Enviados.
 func (s *Store) SetSaveSentCopy(ctx context.Context, id int64, save bool) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET save_sent_copy = ? WHERE id = ?`, b2i(save), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetAccountSignature fija la firma por defecto de la cuenta; 0 la deja sin firma.
+func (s *Store) SetAccountSignature(ctx context.Context, accountID, signatureID int64) error {
+	var sig any // NULL cuando no hay firma
+	if signatureID != 0 {
+		sig = signatureID
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET default_signature_id = ? WHERE id = ?`, sig, accountID)
 	if err != nil {
 		return err
 	}

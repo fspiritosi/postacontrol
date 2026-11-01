@@ -113,10 +113,12 @@ func (s *Store) DeleteStagedAttachments(ctx context.Context, ids []int64) error 
 }
 
 // PruneStagedAttachments borra los adjuntos creados antes de olderThan que
-// ningún correo de la bandeja de salida referencia: son restos de redactores
-// cancelados. (La fase 3B suma a este filtro los borradores.)
+// ni un correo de la bandeja de salida ni un borrador autoguardado referencian:
+// son restos de redactores cancelados.
 func (s *Store) PruneStagedAttachments(ctx context.Context, olderThan time.Time) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM staged_attachments WHERE created_at < ? AND NOT EXISTS (
- SELECT 1 FROM local_drafts d, json_each(d.request_json, '$.attachments') j WHERE j.value = staged_attachments.id)`, olderThan.Unix())
+ SELECT 1 FROM local_drafts d, json_each(d.request_json, '$.attachments') j WHERE j.value = staged_attachments.id)
+ AND NOT EXISTS (
+ SELECT 1 FROM compose_drafts c, json_each(c.request_json, '$.attachments') j WHERE j.value = staged_attachments.id)`, olderThan.Unix())
 	return err
 }

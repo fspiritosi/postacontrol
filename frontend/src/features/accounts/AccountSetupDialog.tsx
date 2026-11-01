@@ -176,6 +176,7 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
         imap: { host: imap.host.trim(), port: Number(imap.port), security: imap.security as Security },
         smtp: { host: smtp.host.trim(), port: Number(smtp.port), security: smtp.security as Security },
         saveSentCopy: true,
+        defaultSignatureId: 0,
         password,
       });
       void queryClient.invalidateQueries({ queryKey: ["accounts"] });
