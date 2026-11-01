@@ -162,13 +162,15 @@ func inlineImg(img *html.Node, images *[]InlineImage, cids map[[sha256.Size]byte
 const maxInlineWidth = 600
 
 // capWidth agrega width="600" a las imágenes PNG, JPEG o GIF más anchas que eso
-// y que no traen width. WebP queda como está (no hay decodificador estándar).
+// y que no traen tamaño (ni width, ni height, ni width en el estilo): un width
+// junto a un height propio la deformaría. WebP queda como está (no hay
+// decodificador estándar).
 func capWidth(img *html.Node, mime string, data []byte) {
 	if mime == "image/webp" {
 		return
 	}
 	for _, a := range img.Attr {
-		if a.Key == "width" {
+		if a.Key == "width" || a.Key == "height" || (a.Key == "style" && styleHasWidth(a.Val)) {
 			return
 		}
 	}
@@ -177,6 +179,18 @@ func capWidth(img *html.Node, mime string, data []byte) {
 		return
 	}
 	img.Attr = append(img.Attr, html.Attribute{Key: "width", Val: strconv.Itoa(maxInlineWidth)})
+}
+
+// styleHasWidth dice si el estilo en línea declara width (max-width y
+// min-width no cuentan).
+func styleHasWidth(style string) bool {
+	for _, decl := range strings.Split(style, ";") {
+		prop, _, ok := strings.Cut(decl, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(prop), "width") {
+			return true
+		}
+	}
+	return false
 }
 
 // parseImageDataURI acepta solo data:image/(png|jpeg|gif|webp);base64,<datos>.

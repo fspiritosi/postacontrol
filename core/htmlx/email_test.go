@@ -117,4 +117,12 @@ func TestExtractInlineImages_WideImagesGetWidth(t *testing.T) {
 	out, _ = ExtractInlineImages(`<img width="100" src="`+pngDataURI(t, 1200)+`">`, cid)
 	assert.Contains(t, out, `width="100"`)
 	assert.NotContains(t, out, `width="600"`)
+	// Con alto o con ancho en el estilo, ya tiene tamaño: no se agrega width.
+	out, _ = ExtractInlineImages(`<img height="80" src="`+pngDataURI(t, 1200)+`">`, cid)
+	assert.NotContains(t, out, `width="600"`)
+	out, _ = ExtractInlineImages(`<img style="border:0; Width: 200px" src="`+pngDataURI(t, 1200)+`">`, cid)
+	assert.NotContains(t, out, `width="600"`)
+	// max-width en el estilo no es un ancho: Outlook lo ignora.
+	out, _ = ExtractInlineImages(`<img style="max-width:100%" src="`+pngDataURI(t, 1200)+`">`, cid)
+	assert.Contains(t, out, `width="600"`)
 }
