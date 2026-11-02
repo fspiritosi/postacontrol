@@ -278,6 +278,35 @@ func writeFileAtomic(destPath string, data []byte, perm os.FileMode) error {
 	return err
 }
 
+// MaxPreviewBytes es el tope de un adjunto para verlo en memoria en el visor.
+const MaxPreviewBytes = 50 << 20
+
+const msgTooBig = "Es muy grande para verlo acá."
+
+// AttachmentData devuelve el contenido del adjunto index para mostrarlo en el
+// visor. Corta por Size antes de bajar nada (es el tamaño codificado
+// aproximado) y vuelve a chequear con el tamaño real ya decodificado.
+func (c *Core) AttachmentData(ctx context.Context, messageID int64, index int) (model.AttachmentData, error) {
+	d, err := c.GetMessage(ctx, messageID)
+	if err != nil {
+		return model.AttachmentData{}, err
+	}
+	if index < 0 || index >= len(d.Attachments) {
+		return model.AttachmentData{}, &UserError{Code: "not_found", Msg: msgNotFound}
+	}
+	if d.Attachments[index].Size > MaxPreviewBytes {
+		return model.AttachmentData{}, &UserError{Code: "too_big", Msg: msgTooBig}
+	}
+	att, data, err := c.attachmentBytes(ctx, messageID, index)
+	if err != nil {
+		return model.AttachmentData{}, err
+	}
+	if len(data) > MaxPreviewBytes {
+		return model.AttachmentData{}, &UserError{Code: "too_big", Msg: msgTooBig}
+	}
+	return model.AttachmentData{Filename: att.Filename, MIMEType: att.MIMEType, Data: data}, nil
+}
+
 // attachmentBytes baja y decodifica un adjunto. Lo usa SaveAttachment y el
 // reenvío (Task 13). Funciona aunque el adjunto no tenga nombre.
 func (c *Core) attachmentBytes(ctx context.Context, messageID int64, index int) (model.Attachment, []byte, error) {

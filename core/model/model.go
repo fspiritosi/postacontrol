@@ -138,6 +138,13 @@ type NewMail struct {
 	Items     []NewMailItem `json:"items"`
 }
 
+// AttachmentData es el contenido de un adjunto para mostrarlo en el visor.
+type AttachmentData struct {
+	Filename string `json:"filename"`
+	MIMEType string `json:"mimeType"`
+	Data     []byte `json:"data"`
+}
+
 type Attachment struct {
 	Index    int    `json:"index"`
 	Filename string `json:"filename"`

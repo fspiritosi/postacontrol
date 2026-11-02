@@ -262,3 +262,53 @@ func TestGetMessage_UIDValidityChangedIsStale(t *testing.T) {
 	// Contrato con el frontend (STALE_MESSAGE_FRAGMENT en src/lib/errors.ts).
 	assert.Contains(t, ue.Msg, "cambió en el servidor")
 }
+
+func TestAttachmentData_ReturnsBytes(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", attachmentMail("factura.pdf"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := firstMessage(t, c, inboxID)
+
+	got, err := c.AttachmentData(context.Background(), m.ID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, pdfBytes, got.Data)
+	assert.Equal(t, "factura.pdf", got.Filename)
+	assert.Equal(t, "application/pdf", got.MIMEType)
+}
+
+func TestAttachmentData_TooBigSkipsFetch(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", attachmentMail("factura.pdf"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := firstMessage(t, c, inboxID)
+
+	// Deja el detalle en la caché y fuerza el tamaño del adjunto.
+	d, err := c.GetMessage(context.Background(), m.ID)
+	require.NoError(t, err)
+	require.Len(t, d.Attachments, 1)
+	d.Attachments[0].Size = MaxPreviewBytes + 1
+	require.NoError(t, c.store.SetBody(context.Background(), m.ID, store.BodyRow{
+		HTML: d.HTML, Text: d.Text, HasRemoteImages: d.HasRemoteImages, Attachments: d.Attachments,
+	}))
+	// Sin servidor, cualquier FETCH daría otro error.
+	imap.Stop()
+
+	_, err = c.AttachmentData(context.Background(), m.ID, 0)
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "too_big", ue.Code)
+	assert.Equal(t, "Es muy grande para verlo acá.", ue.Msg)
+}
+
+func TestAttachmentData_BadIndex(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", attachmentMail("factura.pdf"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := firstMessage(t, c, inboxID)
+	for _, idx := range []int{-1, 1, 5} {
+		_, err := c.AttachmentData(context.Background(), m.ID, idx)
+		var ue *UserError
+		require.ErrorAs(t, err, &ue)
+		assert.Equal(t, "not_found", ue.Code)
+	}
+}

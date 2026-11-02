@@ -11,6 +11,7 @@ export type {
     AccountInput,
     Address,
     Attachment,
+    AttachmentData,
     ComposeDraft,
     ComposeMode,
     Contact,

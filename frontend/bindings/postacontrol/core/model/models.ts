@@ -50,6 +50,15 @@ export interface Attachment {
     "part": number[] | null;
 }
 
+/**
+ * AttachmentData es el contenido de un adjunto para mostrarlo en el visor.
+ */
+export interface AttachmentData {
+    "filename": string;
+    "mimeType": string;
+    "data": string | null;
+}
+
 export interface ComposeDraft {
     "accountId": number;
     "to": Address[] | null;

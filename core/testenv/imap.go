@@ -132,6 +132,10 @@ func (s *IMAP) stop() {
 	_ = srv.Close()
 }
 
+// Stop baja el servidor (cierra el listener y las conexiones abiertas). Restart
+// lo vuelve a levantar.
+func (s *IMAP) Stop() { s.stop() }
+
 // Restart vuelve a levantar el servidor en la misma dirección, con los mismos
 // buzones y mensajes. Si estaba levantado, primero lo baja.
 func (s *IMAP) Restart(t testing.TB) {

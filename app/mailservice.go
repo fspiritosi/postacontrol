@@ -188,6 +188,11 @@ func (s *MailService) GetMessage(ctx context.Context, id int64) (model.MessageDe
 	return s.core.GetMessage(ctx, id)
 }
 
+// AttachmentData devuelve los bytes del adjunto para el visor (tope de 50 MB).
+func (s *MailService) AttachmentData(ctx context.Context, messageID int64, index int) (model.AttachmentData, error) {
+	return s.core.AttachmentData(ctx, messageID, index)
+}
+
 // SaveAttachment abre el diálogo nativo "Guardar como" con el nombre del
 // adjunto sugerido. Devuelve saved=false (sin error) si se cancela.
 func (s *MailService) SaveAttachment(ctx context.Context, messageID int64, index int) (saved bool, err error) {

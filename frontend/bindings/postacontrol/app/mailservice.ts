@@ -31,6 +31,13 @@ export function AddSenderToContacts(addr: model$0.Address): $CancellablePromise<
 }
 
 /**
+ * AttachmentData devuelve los bytes del adjunto para el visor (tope de 50 MB).
+ */
+export function AttachmentData(messageID: number, index: number): $CancellablePromise<model$0.AttachmentData> {
+    return $Call.ByID(1462054818, messageID, index);
+}
+
+/**
  * BackgroundImage devuelve el fondo como data URL, o "" si no hay.
  */
 export function BackgroundImage(): $CancellablePromise<string> {
