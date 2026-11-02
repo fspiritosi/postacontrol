@@ -229,6 +229,13 @@ export function Composer({ init, onClose, windowId }: Props) {
     closeSuggestionsRef.current = close;
   };
 
+  // Un aviso de un redactor que se cierra: en su ventana lo muestra la
+  // principal, porque esta desaparece antes de que se vea.
+  const notify = (kind: "success" | "error", message: string) => {
+    if (windowId !== undefined) void svc.ComposeNotice(kind, message);
+    else toast[kind](message);
+  };
+
   // Con autoguardado, cerrar guarda (sin preguntar). Un redactor vacío o sin
   // tocar no crea borrador.
   const closeSaving = async () => {
@@ -245,7 +252,7 @@ export function Composer({ init, onClose, windowId }: Props) {
       setClosing(false);
       return;
     }
-    toast.success("Guardado en Borradores.");
+    notify("success", "Guardado en Borradores.");
     onClose();
   };
 
@@ -274,13 +281,20 @@ export function Composer({ init, onClose, windowId }: Props) {
       await autosave.discard();
     } catch (e) {
       // Ya no existía (se envió o se descartó en otro lado): nada que avisar.
-      if (!isNotFoundError(e)) toast.error(errorMessage(e));
+      if (!isNotFoundError(e)) notify("error", errorMessage(e));
     }
     onClose();
   };
 
   const mode = init.reply?.mode ?? "new";
   const title = TITLES[mode] ?? "Nuevo correo";
+
+  // Al abrir, el foco va a Para si no hay destinatarios; si no, al cuerpo
+  // (RichEditor con autoFocus).
+  const focusBody = init.to.length > 0;
+  useEffect(() => {
+    if (!focusBody) document.getElementById("compose-to")?.focus();
+  }, [focusBody]);
 
   // Esc: primero cierra el menú "/" o las sugerencias; si no, cierra el
   // redactor. Lo que ya manejó la tecla (una confirmación, un Select abierto,
@@ -454,6 +468,7 @@ export function Composer({ init, onClose, windowId }: Props) {
 
           <RichEditor
             content={init.bodyHtml}
+            autoFocus={focusBody}
             onError={setError}
             onPickImage={(editor) => {
               void svc

@@ -283,3 +283,24 @@ func TestComposeWindows_QuitTimeout(t *testing.T) {
 		t.Fatal("una respuesta tardía hizo salir")
 	}
 }
+
+func TestComposeNotice(t *testing.T) {
+	cases := []struct {
+		kind, msg string
+		ok        bool
+	}{
+		{"success", "Guardado en Borradores.", true},
+		{"error", "No se pudo.", true},
+		{"warning", "x", false},
+		{"success", "", false},
+	}
+	for _, c := range cases {
+		n, ok := composeNotice(c.kind, c.msg)
+		if ok != c.ok {
+			t.Fatalf("composeNotice(%q, %q) ok = %v, quería %v", c.kind, c.msg, ok, c.ok)
+		}
+		if ok && (n.Kind != c.kind || n.Message != c.msg) {
+			t.Fatalf("composeNotice(%q, %q) = %+v", c.kind, c.msg, n)
+		}
+	}
+}

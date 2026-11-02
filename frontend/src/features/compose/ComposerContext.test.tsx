@@ -97,4 +97,12 @@ describe("ComposerProvider", () => {
     act(() => handlers.get("compose:send-started")!({ data: 42 }));
     expect(toast.loading).toHaveBeenCalledWith("Enviando correo…", { id: "send-42" });
   });
+
+  it("compose:notice muestra el aviso de un redactor que se cerró", () => {
+    setup();
+    act(() => handlers.get("compose:notice")!({ data: { kind: "success", message: "Guardado en Borradores." } }));
+    expect(toast.success).toHaveBeenCalledWith("Guardado en Borradores.");
+    act(() => handlers.get("compose:notice")!({ data: { kind: "error", message: "No pudimos borrarlo del servidor." } }));
+    expect(toast.error).toHaveBeenCalledWith("No pudimos borrarlo del servidor.");
+  });
 });

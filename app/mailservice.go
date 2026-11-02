@@ -436,6 +436,15 @@ func (s *MailService) ComposeSendStarted(draftID int64) {
 	}
 }
 
+// ComposeNotice pasa a todas las ventanas un aviso ("success" o "error") de
+// un redactor que se cierra: su propia ventana desaparece antes de mostrarlo.
+func (s *MailService) ComposeNotice(kind string, message string) {
+	n, ok := composeNotice(kind, message)
+	if ok && s.app != nil {
+		s.app.Event.Emit(EventComposeNotice, n)
+	}
+}
+
 func (s *MailService) GetSettings(ctx context.Context) (model.Settings, error) {
 	return s.core.GetSettings(ctx)
 }

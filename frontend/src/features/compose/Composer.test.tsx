@@ -27,6 +27,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   CloseComposeWindow: vi.fn(),
   ComposeFlushed: vi.fn(),
   ComposeSendStarted: vi.fn(),
+  ComposeNotice: vi.fn(),
   SetComposeKey: vi.fn(),
 }));
 vi.mock("sonner", () => ({
@@ -759,6 +760,8 @@ describe("Composer: en su ventana", () => {
     vi.mocked(svc.UploadDraft).mockResolvedValue({ ...composeDraft, id: 9, messageId: "<b9@ej.com>" } as never);
     vi.mocked(svc.ComposeFlushed).mockResolvedValue();
     vi.mocked(svc.ComposeSendStarted).mockResolvedValue();
+    vi.mocked(svc.ComposeNotice).mockResolvedValue();
+    vi.mocked(svc.DeleteDraft).mockResolvedValue();
     vi.mocked(svc.SetComposeKey).mockResolvedValue();
   });
 
@@ -776,7 +779,7 @@ describe("Composer: en su ventana", () => {
       emit("compose:close-request");
       await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
       expect(svc.SaveDraft).toHaveBeenCalledTimes(1);
-      expect(toast.success).toHaveBeenCalledWith("Guardado en Borradores.");
+      expect(svc.ComposeNotice).toHaveBeenCalledWith("success", "Guardado en Borradores.");
     });
 
     it("sin autoguardado y con cambios, pregunta", async () => {
@@ -912,6 +915,42 @@ describe("Composer: en su ventana", () => {
     await waitFor(() => expect(svc.ComposeSendStarted).toHaveBeenCalledWith(99));
     expect(toast.loading).not.toHaveBeenCalled();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), { timeout: 2000 });
+  });
+
+  it("cerrar guardando pasa el aviso a la principal", async () => {
+    const { user, onClose } = mount(base);
+    await user.type(screen.getByLabelText("Asunto"), "algo");
+    emit("compose:close-request");
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(svc.ComposeNotice).toHaveBeenCalledWith("success", "Guardado en Borradores.");
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("si no se pudo borrar del servidor el aviso va a la principal", async () => {
+    vi.mocked(svc.DeleteDraft).mockRejectedValue(
+      new Error("Borramos el borrador de esta compu, pero no pudimos borrarlo del servidor."),
+    );
+    const { user, onClose } = mount({ ...withTo, subject: "s", composeDraftId: 8, draftMessageId: "<b8@ej.com>" });
+    await user.click(await screen.findByRole("button", { name: "Descartar" }));
+    await screen.findByText("¿Descartar este borrador?");
+    await user.click(screen.getAllByRole("button", { name: "Descartar" }).slice(-1)[0]);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(svc.ComposeNotice).toHaveBeenCalledWith(
+      "error",
+      "Borramos el borrador de esta compu, pero no pudimos borrarlo del servidor.",
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("un correo nuevo arranca con el foco en Para", async () => {
+    mount(base);
+    await waitFor(() => expect(screen.getByLabelText("Para")).toHaveFocus());
+  });
+
+  it("con destinatarios arranca con el foco en el cuerpo", async () => {
+    mount(withTo);
+    const body = await screen.findByLabelText("Cuerpo del mensaje");
+    await waitFor(() => expect(body).toHaveFocus());
   });
 
   it("Esc con el diálogo de descartar abierto no cierra la ventana", async () => {

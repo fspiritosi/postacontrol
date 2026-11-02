@@ -149,6 +149,16 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
   useSendNotices(api.openDraftById);
   // El envío arranca en la ventana del redactor; el aviso se muestra en todas.
   useEffect(() => Events.On("compose:send-started", (ev) => sendStarted(ev.data as number)), []);
+  // Los avisos de un redactor que se cerró (su ventana ya no está para mostrarlos).
+  useEffect(
+    () =>
+      Events.On("compose:notice", (ev) => {
+        const { kind, message } = ev.data as { kind: "success" | "error"; message: string };
+        if (kind === "success") toast.success(message);
+        else if (kind === "error") toast.error(message);
+      }),
+    [],
+  );
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }

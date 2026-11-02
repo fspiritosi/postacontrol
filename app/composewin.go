@@ -26,6 +26,10 @@ const (
 	// EventComposeSendStarted avisa a todas las ventanas que se empezó a
 	// enviar un correo; data es su id en la Bandeja de salida.
 	EventComposeSendStarted = "compose:send-started"
+	// EventComposeNotice le pasa a todas las ventanas un aviso de un redactor
+	// que se está cerrando, para que lo muestre la principal; data es un
+	// ComposeNoticeData.
+	EventComposeNotice = "compose:notice"
 
 	// composeQuitTimeout es cuánto espera la salida a que respondan los redactores.
 	composeQuitTimeout = 10 * time.Second
@@ -35,6 +39,20 @@ const (
 
 // WindowBackground es el fondo de todas las ventanas, mientras carga el webview.
 var WindowBackground = application.NewRGB(6, 7, 15)
+
+// ComposeNoticeData es el aviso de compose:notice. Kind es "success" o "error".
+type ComposeNoticeData struct {
+	Kind    string `json:"kind"`
+	Message string `json:"message"`
+}
+
+// composeNotice arma el aviso; un kind desconocido o un mensaje vacío no avisan.
+func composeNotice(kind, message string) (ComposeNoticeData, bool) {
+	if (kind != "success" && kind != "error") || message == "" {
+		return ComposeNoticeData{}, false
+	}
+	return ComposeNoticeData{Kind: kind, Message: message}, true
+}
 
 // composeWindow es lo que el registro necesita de una ventana del redactor.
 type composeWindow interface {

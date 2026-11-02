@@ -74,6 +74,14 @@ export function ComposeInit(id: number): $CancellablePromise<string> {
 }
 
 /**
+ * ComposeNotice pasa a todas las ventanas un aviso ("success" o "error") de
+ * un redactor que se cierra: su propia ventana desaparece antes de mostrarlo.
+ */
+export function ComposeNotice(kind: string, message: string): $CancellablePromise<void> {
+    return $Call.ByID(989634325, kind, message);
+}
+
+/**
  * ComposeSendStarted avisa a todas las ventanas que se empezó a enviar el
  * correo draftID de la Bandeja de salida.
  */

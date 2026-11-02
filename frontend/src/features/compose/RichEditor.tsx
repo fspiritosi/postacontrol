@@ -166,6 +166,8 @@ type Props = {
   onError?: (msg: string) => void;
   // Avisa cuando el menú "/" abre (con cómo cerrarlo) o cierra (null): su Esc no debe cerrar el diálogo.
   onSlashMenuChange?: (close: (() => void) | null) => void;
+  // Pone el foco al principio del cuerpo al crearse.
+  autoFocus?: boolean;
 };
 
 // La barra de formato sale con texto seleccionado, no con una imagen ni con celdas de tabla.
@@ -180,7 +182,7 @@ const showImageBubble = ({ state }: { state: Editor["state"] }) => {
   return sel instanceof NodeSelection && sel.node.type.name === "image";
 };
 
-export function RichEditor({ content, onChange, onPickImage, onError, onSlashMenuChange }: Props) {
+export function RichEditor({ content, onChange, onPickImage, onError, onSlashMenuChange, autoFocus = false }: Props) {
   const [linkOpen, setLinkOpen] = useState(false);
   // El menú "/" se arma una sola vez: lee lo último de `latest`.
   const [latest] = useState(() => {
@@ -230,6 +232,7 @@ export function RichEditor({ content, onChange, onPickImage, onError, onSlashMen
   const editor = useEditor({
     extensions,
     content,
+    autofocus: autoFocus ? "start" : false,
     onUpdate: ({ editor }) => onChange(() => editor.getHTML()),
     editorProps: {
       attributes: {
