@@ -109,6 +109,13 @@ func normalizeDetail(d model.MessageDetail) model.MessageDetail {
 // selectChecked abre la carpeta y verifica que el UIDVALIDITY siga siendo el
 // de la caché: si cambió, los UID guardados ya no apuntan a lo mismo.
 func selectChecked(conn *imapx.Conn, f model.Folder, last store.FolderSync, rw bool) error {
+	_, err := selectInfoChecked(conn, f, last, rw)
+	return err
+}
+
+// selectInfoChecked es selectChecked pero además devuelve lo que informó el
+// servidor al abrir la carpeta.
+func selectInfoChecked(conn *imapx.Conn, f model.Folder, last store.FolderSync, rw bool) (imapx.SelectInfo, error) {
 	var (
 		info imapx.SelectInfo
 		err  error
@@ -119,12 +126,12 @@ func selectChecked(conn *imapx.Conn, f model.Folder, last store.FolderSync, rw b
 		info, err = conn.Select(f.Name)
 	}
 	if err != nil {
-		return err
+		return imapx.SelectInfo{}, err
 	}
 	if last.UIDValidity != 0 && info.UIDValidity != last.UIDValidity {
-		return &UserError{Code: "stale", Msg: "El mensaje cambió en el servidor. Actualizá la carpeta."}
+		return imapx.SelectInfo{}, &UserError{Code: "stale", Msg: "El mensaje cambió en el servidor. Actualizá la carpeta."}
 	}
-	return nil
+	return info, nil
 }
 
 // fetchPart baja y devuelve la cabecera MIME y el cuerpo de una parte. Si el

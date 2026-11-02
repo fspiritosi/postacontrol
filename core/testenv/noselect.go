@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -56,6 +57,24 @@ func (s *IMAP) SetMoveHook(fn func(src string)) {
 	s.moveHook = fn
 }
 
+// NoKeywords simula un servidor que no guarda keywords: desde ahora SELECT y
+// EXAMINE sacan \* de PERMANENTFLAGS y un STORE que incluya algún keyword (un
+// flag que no empieza con «\») responde NO.
+func (s *IMAP) NoKeywords() {
+	s.simMu.Lock()
+	defer s.simMu.Unlock()
+	s.noKeywords, s.rejectKeywords = true, true
+}
+
+// RejectKeywordStores hace que un STORE que incluya algún keyword responda NO,
+// aunque PERMANENTFLAGS siga anunciando \*: un rechazo que el cliente no
+// puede prever.
+func (s *IMAP) RejectKeywordStores() {
+	s.simMu.Lock()
+	defer s.simMu.Unlock()
+	s.rejectKeywords = true
+}
+
 func (s *IMAP) record(op string) {
 	s.simMu.Lock()
 	defer s.simMu.Unlock()
@@ -71,7 +90,8 @@ func (s *IMAP) isNoselect(name string) bool {
 var errNoselect = &imap.Error{Type: imap.StatusResponseTypeNo, Text: "Mailbox is \\Noselect"}
 
 // session envuelve la sesión de imapmemserver para simular los buzones
-// \Noselect y registrar comandos. Sin nada configurado se comporta igual.
+// \Noselect y los servidores sin keywords, y registrar comandos. Sin nada
+// configurado se comporta igual.
 type session struct {
 	imapserver.SessionIMAP4rev2
 	s        *IMAP
@@ -88,10 +108,31 @@ func (sess *session) Select(name string, options *imap.SelectOptions) (*imap.Sel
 		return nil, errNoselect
 	}
 	data, err := sess.SessionIMAP4rev2.Select(name, options)
-	if err == nil {
-		sess.selected = name
+	if err != nil {
+		return data, err
 	}
-	return data, err
+	sess.selected = name
+	sess.s.simMu.Lock()
+	noKeywords := sess.s.noKeywords
+	sess.s.simMu.Unlock()
+	if noKeywords {
+		data.PermanentFlags = slices.DeleteFunc(slices.Clone(data.PermanentFlags), func(f imap.Flag) bool {
+			return f == imap.FlagWildcard
+		})
+	}
+	return data, nil
+}
+
+var errNoKeywords = &imap.Error{Type: imap.StatusResponseTypeNo, Text: "Keywords are not supported"}
+
+func (sess *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, options *imap.StoreOptions) error {
+	sess.s.simMu.Lock()
+	reject := sess.s.rejectKeywords
+	sess.s.simMu.Unlock()
+	if reject && slices.ContainsFunc(flags.Flags, func(f imap.Flag) bool { return !strings.HasPrefix(string(f), `\`) }) {
+		return errNoKeywords
+	}
+	return sess.SessionIMAP4rev2.Store(w, numSet, flags, options)
 }
 
 func (sess *session) Status(name string, options *imap.StatusOptions) (*imap.StatusData, error) {

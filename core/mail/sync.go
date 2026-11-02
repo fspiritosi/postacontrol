@@ -171,7 +171,7 @@ func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
 		if err := selectChecked(conn, p.folder, checked, false); err != nil {
 			return err
 		}
-		unread, total, err := c.refreshFlags(ctx, conn, folderID, p.known[max(0, len(p.known)-flagsWindow):])
+		unread, total, err := c.refreshFlags(ctx, conn, f.AccountID, folderID, p.known[max(0, len(p.known)-flagsWindow):])
 		if err != nil {
 			return err
 		}
@@ -285,8 +285,10 @@ func (c *Core) prepareSync(ctx context.Context, conn *imapx.Conn, folderID int64
 }
 
 // refreshFlags trae los flags de uids, guarda solo los que cambiaron y
-// devuelve los contadores de la carpeta según la caché.
-func (c *Core) refreshFlags(ctx context.Context, conn *imapx.Conn, folderID int64, uids []uint32) (unread, total int, err error) {
+// devuelve los contadores de la carpeta según la caché. Las etiquetas también
+// salen de los keywords, salvo en las cuentas que las guardan solo acá: ahí
+// el servidor no las tiene y la caché manda.
+func (c *Core) refreshFlags(ctx context.Context, conn *imapx.Conn, accountID, folderID int64, uids []uint32) (unread, total int, err error) {
 	if err := c.ctxErr(ctx); err != nil {
 		return 0, 0, err
 	}
@@ -297,6 +299,16 @@ func (c *Core) refreshFlags(ctx context.Context, conn *imapx.Conn, folderID int6
 	cached, err := c.store.ListMessages(ctx, folderID, model.ListQuery{})
 	if err != nil {
 		return 0, 0, err
+	}
+	local, err := c.store.AccountLabelsLocal(ctx, accountID)
+	if err != nil {
+		return 0, 0, err
+	}
+	var kwMap map[string]int64
+	if !local {
+		if kwMap, err = c.store.LabelByKeyword(ctx); err != nil {
+			return 0, 0, err
+		}
 	}
 	for i := range cached {
 		m := &cached[i]
@@ -310,6 +322,14 @@ func (c *Core) refreshFlags(ctx context.Context, conn *imapx.Conn, folderID int6
 				return 0, 0, err
 			}
 			m.Seen = seen
+		}
+		if local {
+			continue
+		}
+		if labels := labelsOf(keywordsOf(flags), kwMap); !sameLabels(labels, m.Labels) {
+			if err := c.store.SetMessageLabels(ctx, m.ID, labels); err != nil {
+				return 0, 0, err
+			}
 		}
 	}
 	for _, m := range cached {
@@ -395,6 +415,7 @@ func headerRows(hs []imapx.RemoteHeader) []store.HeaderRow {
 		r.Seen = hasFlag(h.Flags, imap.FlagSeen)
 		r.Flagged = hasFlag(h.Flags, imap.FlagFlagged)
 		r.Answered = hasFlag(h.Flags, imap.FlagAnswered)
+		r.Keywords = keywordsOf(h.Flags)
 		if e := h.Envelope; e != nil {
 			r.Subject = e.Subject
 			r.MessageID = bracketMsgID(e.MessageID)
@@ -446,4 +467,36 @@ func hasFlag(flags []imap.Flag, want imap.Flag) bool {
 		}
 	}
 	return false
+}
+
+// keywordsOf devuelve los keywords de flags: los que no empiezan con «\».
+func keywordsOf(flags []imap.Flag) []string {
+	out := []string{}
+	for _, f := range flags {
+		if !strings.HasPrefix(string(f), `\`) {
+			out = append(out, string(f))
+		}
+	}
+	return out
+}
+
+// labelsOf traduce keywords a ids de etiquetas, ordenados y sin repetir. Los
+// keywords sin etiqueta local (también los $pc_… desconocidos) se ignoran.
+func labelsOf(keywords []string, kwMap map[string]int64) []int64 {
+	out := []int64{}
+	for _, k := range keywords {
+		if id, ok := kwMap[k]; ok {
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// sameLabels dice si a y b tienen las mismas etiquetas, sin importar el orden.
+func sameLabels(a, b []int64) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }

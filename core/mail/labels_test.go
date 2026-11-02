@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -297,4 +298,167 @@ func TestDeleteLabelLocalAccountSkipsServer(t *testing.T) {
 	c.wg.Wait()
 	assert.Equal(t, opsBefore, imap.Ops())
 	assert.Equal(t, sessBefore, imap.Sessions())
+}
+
+// labelsByUID devuelve las etiquetas de la caché de cada mensaje de la carpeta.
+func labelsByUID(t *testing.T, c *Core, folderID int64) map[uint32][]int64 {
+	t.Helper()
+	out := map[uint32][]int64{}
+	for _, m := range listAll(t, c, folderID) {
+		out[m.UID] = m.Labels
+	}
+	return out
+}
+
+func TestSetLabelWritesKeyword(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "m-1"), goimap.Flag("$label1"), goimap.Flag("$pc_ffffffff"))
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "m-2"), goimap.FlagSeen)
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	imap.Deliver(t, "Archivo", rawMail("Bea <bea@ej.com>", "a-1"))
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	archivoID := folderID(t, c, acc.ID, "Archivo")
+	require.NoError(t, c.SyncFolder(ctx, archivoID))
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	ids := []int64{}
+	for _, m := range append(listAll(t, c, inboxID), listAll(t, c, archivoID)...) {
+		ids = append(ids, m.ID)
+	}
+	require.Len(t, ids, 3)
+
+	n0 := len(n.matching(EventFolderUpdated))
+	require.NoError(t, c.SetLabel(ctx, ids, l.ID, true))
+	for _, mb := range []string{"INBOX", "Archivo"} {
+		for uid, fs := range serverKeywords(t, c, imap, mb) {
+			assert.Contains(t, fs, goimap.Flag(kw), "%s UID %d", mb, uid)
+		}
+	}
+	inbox := serverKeywords(t, c, imap, "INBOX")
+	assert.ElementsMatch(t, []goimap.Flag{"$label1", "$pc_ffffffff", goimap.Flag(kw)}, inbox[1],
+		"los keywords ajenos se quedan")
+	assert.Contains(t, inbox[2], goimap.FlagSeen, "los demás flags se quedan")
+	for _, fid := range []int64{inboxID, archivoID} {
+		for uid, ls := range labelsByUID(t, c, fid) {
+			assert.Equal(t, []int64{l.ID}, ls, "carpeta %d UID %d", fid, uid)
+		}
+	}
+	ev := n.matching(EventFolderUpdated)[n0:]
+	assert.ElementsMatch(t, []map[string]any{{"folderId": inboxID}, {"folderId": archivoID}}, ev)
+
+	require.NoError(t, c.SetLabel(ctx, ids, l.ID, false))
+	inbox = serverKeywords(t, c, imap, "INBOX")
+	assert.ElementsMatch(t, []goimap.Flag{"$label1", "$pc_ffffffff"}, inbox[1])
+	assert.Equal(t, []goimap.Flag{goimap.FlagSeen}, inbox[2])
+	for _, fs := range serverKeywords(t, c, imap, "Archivo") {
+		assert.NotContains(t, fs, goimap.Flag(kw))
+	}
+	for _, fid := range []int64{inboxID, archivoID} {
+		for uid, ls := range labelsByUID(t, c, fid) {
+			assert.Equal(t, []int64{}, ls, "carpeta %d UID %d", fid, uid)
+		}
+	}
+}
+
+func TestSetLabelUnknown(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	deliverN(t, imap, 1, "m")
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := listAll(t, c, inboxID)[0]
+	ue := requireUserError(t, c.SetLabel(context.Background(), []int64{m.ID}, 9999, true), "notfound")
+	assert.Equal(t, "Esa etiqueta ya no existe.", ue.Msg)
+}
+
+func TestSetLabelNoKeywordsServer(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	deliverN(t, imap, 2, "m")
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	ms := listAll(t, c, inboxID)
+	m1, m2 := bySubject(t, ms, "m-1"), bySubject(t, ms, "m-2")
+	imap.NoKeywords()
+
+	require.NoError(t, c.SetLabel(ctx, []int64{m1.ID}, l.ID, true))
+	assert.Equal(t, []int64{l.ID}, labelsByUID(t, c, inboxID)[m1.UID])
+	local, err := c.store.AccountLabelsLocal(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.True(t, local)
+	assert.Equal(t, []map[string]any{{"accountId": acc.ID, "email": testUser}}, n.matching(EventLabelsLocalOnly))
+
+	// La cuenta ya es local: ni conexión nueva ni SELECT.
+	opsBefore, sessBefore := imap.Ops(), imap.Sessions()
+	require.NoError(t, c.SetLabel(ctx, []int64{m2.ID}, l.ID, true))
+	assert.Equal(t, opsBefore, imap.Ops())
+	assert.Equal(t, sessBefore, imap.Sessions())
+	assert.Len(t, n.matching(EventLabelsLocalOnly), 1)
+	assert.Equal(t, []int64{l.ID}, labelsByUID(t, c, inboxID)[m2.UID])
+
+	// Un sync no las borra aunque el servidor no tenga los keywords.
+	require.NoError(t, c.SyncFolder(ctx, inboxID))
+	for uid, ls := range labelsByUID(t, c, inboxID) {
+		assert.Equal(t, []int64{l.ID}, ls, "UID %d", uid)
+	}
+	for uid, fs := range serverKeywords(t, c, imap, "INBOX") {
+		assert.False(t, hasPCKeyword(fs), "UID %d: %v", uid, fs)
+	}
+}
+
+func TestSetLabelServerRejects(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	deliverN(t, imap, 1, "m")
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	m := listAll(t, c, inboxID)[0]
+	// El servidor dice que acepta keywords pero rechaza el STORE.
+	imap.RejectKeywordStores()
+
+	requireUserError(t, c.SetLabel(ctx, []int64{m.ID}, l.ID, true), "server")
+	assert.Equal(t, []int64{}, labelsByUID(t, c, inboxID)[m.UID], "la caché queda como estaba")
+	local, err := c.store.AccountLabelsLocal(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.False(t, local)
+	assert.Empty(t, n.matching(EventLabelsLocalOnly))
+}
+
+// waitLabeledIn espera a que la carpeta tenga exactamente un mensaje y que ese
+// mensaje tenga las etiquetas want.
+func waitLabeledIn(t *testing.T, c *Core, folderID int64, want []int64) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		ms, err := c.ListMessages(context.Background(), folderID, model.ListQuery{})
+		return err == nil && len(ms) == 1 && slices.Equal(ms[0].Labels, want)
+	}, 10*time.Second, 10*time.Millisecond)
+}
+
+func TestMoveKeepsLabel(t *testing.T) {
+	for _, noKeywords := range []bool{false, true} {
+		t.Run(fmt.Sprintf("noKeywords=%v", noKeywords), func(t *testing.T) {
+			c, imap, smtp, _ := newTestCore(t)
+			ctx := context.Background()
+			deliverN(t, imap, 1, "m")
+			require.NoError(t, imap.User.Create("Archivo", nil))
+			acc, inboxID := setupSynced(t, imap, smtp, c)
+			archivoID := folderID(t, c, acc.ID, "Archivo")
+			l, err := c.CreateLabel(ctx, "Facturas", okColor)
+			require.NoError(t, err)
+			if noKeywords {
+				imap.NoKeywords()
+			}
+			m := listAll(t, c, inboxID)[0]
+			require.NoError(t, c.SetLabel(ctx, []int64{m.ID}, l.ID, true))
+
+			require.NoError(t, c.MoveMessages(ctx, []int64{m.ID}, archivoID))
+			waitLabeledIn(t, c, archivoID, []int64{l.ID})
+			local, err := c.store.AccountLabelsLocal(ctx, acc.ID)
+			require.NoError(t, err)
+			assert.Equal(t, noKeywords, local)
+		})
+	}
 }

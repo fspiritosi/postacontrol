@@ -679,3 +679,29 @@ func TestNewMail_NotForOtherFolders(t *testing.T) {
 	require.NoError(t, c.SyncFolder(context.Background(), variosID))
 	assert.Empty(t, newMailEvents(n))
 }
+
+func TestSyncPicksUpKeywordChanges(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "m-1"), goimap.Flag(kw), goimap.Flag("$pc_ffffffff"))
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "m-2"), goimap.Flag("$pc_ffffffff"))
+
+	// Mensajes nuevos: las etiquetas salen de los keywords de las cabeceras.
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	assert.Equal(t, map[uint32][]int64{1: {l.ID}, 2: {}}, labelsByUID(t, c, inboxID))
+
+	// Mensajes conocidos: otro cliente saca el keyword de uno y se lo pone al otro.
+	sess := imapAsOtherClient(t, imap)
+	require.NoError(t, sess.Store(nil, goimap.UIDSetNum(1), &goimap.StoreFlags{
+		Op: goimap.StoreFlagsDel, Silent: true, Flags: []goimap.Flag{goimap.Flag(kw)},
+	}, nil))
+	require.NoError(t, sess.Store(nil, goimap.UIDSetNum(2), &goimap.StoreFlags{
+		Op: goimap.StoreFlagsAdd, Silent: true, Flags: []goimap.Flag{goimap.Flag(kw)},
+	}, nil))
+	require.NoError(t, c.SyncFolder(ctx, inboxID))
+	assert.Equal(t, map[uint32][]int64{1: {}, 2: {l.ID}}, labelsByUID(t, c, inboxID))
+}

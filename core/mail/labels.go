@@ -254,3 +254,96 @@ func (c *Core) runLabelCleanups(ctx context.Context, accountID int64) {
 		}
 	}
 }
+
+// SetLabel pone (on) o saca la etiqueta de los mensajes, que tienen que ser de
+// una sola cuenta. En el servidor solo se toca el keyword de esta etiqueta. Si
+// el servidor no guarda keywords, la cuenta pasa a guardar las etiquetas solo
+// acá (se avisa una vez con EventLabelsLocalOnly) y desde entonces no se le
+// escribe más. La caché cambia recién cuando el servidor aceptó el STORE.
+func (c *Core) SetLabel(ctx context.Context, ids []int64, labelID int64, on bool) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	if err := c.ctxErr(ctx); err != nil {
+		return err
+	}
+	kw, err := c.store.LabelKeyword(ctx, labelID)
+	if errors.Is(err, store.ErrNotFound) {
+		return &UserError{Code: "notfound", Msg: msgLabelMissing}
+	}
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	refs, err := c.store.MessageRefs(ctx, ids)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	accountID, byFolder, err := groupByFolder(refs)
+	if err != nil {
+		return err
+	}
+	local, err := c.store.AccountLabelsLocal(ctx, accountID)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	for folderID, rs := range byFolder {
+		if !local {
+			if local, err = c.storeLabelKeyword(ctx, accountID, folderID, rs, kw, on); err != nil {
+				return err
+			}
+		}
+		msgIDs := make([]int64, len(rs))
+		for i, r := range rs {
+			msgIDs[i] = r.ID
+		}
+		if err := c.store.AddMessageLabel(ctx, msgIDs, labelID, on); err != nil {
+			return c.ctxOrUserError(ctx, err)
+		}
+		c.emit(EventFolderUpdated, map[string]any{"folderId": folderID})
+	}
+	return nil
+}
+
+// storeLabelKeyword pone o saca el keyword en los mensajes de una carpeta. Si
+// al abrirla para escritura el servidor no anuncia keywords, no manda el
+// STORE, marca la cuenta como local (avisando la primera vez) y devuelve
+// local en true.
+func (c *Core) storeLabelKeyword(ctx context.Context, accountID, folderID int64, rs []store.MessageRef,
+	kw string, on bool) (local bool, err error) {
+	f, last, err := c.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return false, c.ctxOrUserError(ctx, err)
+	}
+	uids := make([]uint32, len(rs))
+	for i, r := range rs {
+		uids[i] = r.UID
+	}
+	// Como en setFlag, escribir el mismo keyword dos veces es idempotente.
+	err = c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
+		info, err := selectInfoChecked(conn, f, last, true)
+		if err != nil {
+			return err
+		}
+		if local = !info.KeywordsOK; local {
+			return nil
+		}
+		return conn.StoreFlags(uids, on, goimap.Flag(kw))
+	})
+	if err != nil || !local {
+		return false, err
+	}
+	changed, err := c.store.SetAccountLabelsLocal(ctx, accountID)
+	if err != nil {
+		return false, c.ctxOrUserError(ctx, err)
+	}
+	if changed {
+		acc, err := c.store.GetAccount(ctx, accountID)
+		if err != nil {
+			return false, c.ctxOrUserError(ctx, err)
+		}
+		c.emit(EventLabelsLocalOnly, map[string]any{"accountId": accountID, "email": acc.Email})
+	}
+	return true, nil
+}

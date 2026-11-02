@@ -366,7 +366,8 @@ type MessageRef struct {
 	ID, AccountID, FolderID int64
 	UID                     uint32
 	Seen, Flagged, Answered bool
-	MessageID               string // el encabezado Message-ID ("" si no tiene)
+	MessageID               string  // el encabezado Message-ID ("" si no tiene)
+	Labels                  []int64 // ids de sus etiquetas, por posición; nunca nil
 }
 
 // MessageRefs devuelve las referencias de los ids, en el mismo orden. Si falta
@@ -376,9 +377,12 @@ func (s *Store) MessageRefs(ctx context.Context, ids []int64) ([]MessageRef, err
 	for _, id := range ids {
 		var r MessageRef
 		var seen, flagged, answered int
-		err := s.db.QueryRowContext(ctx, `SELECT m.id, f.account_id, m.folder_id, m.uid, m.seen, m.flagged, m.answered, m.message_id
+		var labels sql.NullString
+		err := s.db.QueryRowContext(ctx, `SELECT m.id, f.account_id, m.folder_id, m.uid, m.seen, m.flagged, m.answered, m.message_id,
+ (SELECT group_concat(l.position || ':' || l.id) FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+   WHERE ml.message_id = m.id)
  FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.id = ?`, id).
-			Scan(&r.ID, &r.AccountID, &r.FolderID, &r.UID, &seen, &flagged, &answered, &r.MessageID)
+			Scan(&r.ID, &r.AccountID, &r.FolderID, &r.UID, &seen, &flagged, &answered, &r.MessageID, &labels)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -386,6 +390,7 @@ func (s *Store) MessageRefs(ctx context.Context, ids []int64) ([]MessageRef, err
 			return nil, err
 		}
 		r.Seen, r.Flagged, r.Answered = seen != 0, flagged != 0, answered != 0
+		r.Labels = parseLabelIDs(labels.String)
 		out = append(out, r)
 	}
 	return out, nil

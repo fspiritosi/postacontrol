@@ -114,6 +114,10 @@ func folderDepth(f RemoteFolder) int {
 type SelectInfo struct {
 	UIDValidity, UIDNext uint32
 	NumMessages          uint32
+	// KeywordsOK: PERMANENTFLAGS trae \*, así que el servidor guarda keywords
+	// nuevos. Solo es confiable después de SelectRW: con EXAMINE muchos
+	// servidores no informan ningún flag permanente.
+	KeywordsOK bool
 }
 
 // Select abre la carpeta en solo lectura (EXAMINE).
@@ -129,7 +133,10 @@ func (c *Conn) selectMailbox(name string, readOnly bool) (SelectInfo, error) {
 		return SelectInfo{}, opErr(fmt.Sprintf("select %q", name), err)
 	}
 	c.rw = !readOnly
-	return SelectInfo{UIDValidity: d.UIDValidity, UIDNext: uint32(d.UIDNext), NumMessages: d.NumMessages}, nil
+	return SelectInfo{
+		UIDValidity: d.UIDValidity, UIDNext: uint32(d.UIDNext), NumMessages: d.NumMessages,
+		KeywordsOK: slices.Contains(d.PermanentFlags, imap.FlagWildcard),
+	}, nil
 }
 
 var roleByName = map[string]model.FolderRole{

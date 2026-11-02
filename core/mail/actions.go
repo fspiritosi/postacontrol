@@ -233,6 +233,26 @@ func (c *Core) runMoves(ctx context.Context, accountID int64, batches []moveBatc
 	return nil
 }
 
+// saveLabelCarry, en las cuentas que guardan las etiquetas solo acá, anota las
+// etiquetas de los mensajes que se mueven para ponérselas de nuevo cuando la
+// sincronización del destino los traiga (por Message-ID). En las demás cuentas
+// el keyword viaja con el mensaje en el servidor.
+func (c *Core) saveLabelCarry(ctx context.Context, accountID int64, refs []store.MessageRef) error {
+	local, err := c.store.AccountLabelsLocal(ctx, accountID)
+	if err != nil || !local {
+		return err
+	}
+	for _, r := range refs {
+		if r.MessageID == "" || len(r.Labels) == 0 {
+			continue
+		}
+		if err := c.store.SaveLabelCarry(ctx, accountID, r.MessageID, r.Labels); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // applyMove mueve o borra un lote en el servidor y recién después lo saca de
 // la caché. Si el servidor falla, la caché queda como estaba: la próxima
 // sincronización la pone al día con lo que sí haya pasado.
@@ -260,6 +280,11 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 	})
 	if err != nil {
 		return err
+	}
+	if b.dest != nil {
+		if err := c.saveLabelCarry(ctx, accountID, b.refs); err != nil {
+			return c.ctxOrUserError(ctx, err)
+		}
 	}
 	if err := c.store.DeleteMessages(ctx, ids); err != nil {
 		return c.ctxOrUserError(ctx, err)
