@@ -23,7 +23,7 @@
 | 563c219 | Enter/Tab no cambian una dirección completa por otra sugerencia |
 | fe51f18 | sin botón de contactos en Enviados |
 | 5c84ef1 | la lista de contactos no se vacía con cada tecla |
-| (este) | pasar el mouse no cambia una dirección completa por otra sugerencia |
+| c6cf1ca | pasar el mouse no cambia una dirección completa por otra sugerencia |
 
 ## Pre-flight
 
