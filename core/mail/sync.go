@@ -365,6 +365,7 @@ func (c *Core) backgroundPass(ctx context.Context) {
 			continue
 		}
 		c.uploadPendingDrafts(ctx, a.ID)
+		c.runLabelCleanups(ctx, a.ID)
 	}
 }
 

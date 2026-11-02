@@ -45,3 +45,21 @@ func (c *Conn) SearchHeader(name, value string) ([]uint32, error) {
 	slices.Sort(out)
 	return out, nil
 }
+
+// SearchKeyword busca en la carpeta ya abierta los mensajes que tienen el
+// keyword kw (UID SEARCH KEYWORD kw). Devuelve los UID en orden ascendente.
+// Quien llama hace antes el Select.
+func (c *Conn) SearchKeyword(kw string) ([]uint32, error) {
+	crit := &imap.SearchCriteria{Flag: []imap.Flag{imap.Flag(kw)}}
+	data, err := c.c.UIDSearch(crit, nil).Wait()
+	if err != nil {
+		return nil, opErr("UID SEARCH KEYWORD", err)
+	}
+	uids := data.AllUIDs()
+	out := make([]uint32, len(uids))
+	for i, u := range uids {
+		out[i] = uint32(u)
+	}
+	slices.Sort(out)
+	return out, nil
+}

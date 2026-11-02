@@ -14,6 +14,10 @@ const (
 	EventOutboxUpdated     = "mail:outbox-updated"     // data: nil
 	// EventContactsChanged: hubo un alta, un cambio o una baja en la libreta.
 	EventContactsChanged = "mail:contacts-changed" // data: nil
+	// EventLabelsChanged: hubo un alta, un cambio, un reordenamiento o una baja de etiquetas.
+	EventLabelsChanged = "mail:labels-changed" // data: nil
+	// EventLabelsLocalOnly: el servidor de la cuenta no guarda keywords; sus etiquetas quedan solo en esta PC.
+	EventLabelsLocalOnly = "mail:labels-local-only" // data: {"accountId": int64, "email": string}
 	// EventDraftsChanged: se guardó, subió o borró un borrador del redactor.
 	EventDraftsChanged = "mail:drafts-changed" // data: nil
 	// EventSendFinished: terminó un envío. message es el motivo si falló y
