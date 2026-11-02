@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -41,6 +42,8 @@ type Config struct {
 type Core struct {
 	cfg   Config
 	store *store.Store
+	// dataDir es la carpeta de datos (la de la base); ahí vive el fondo.
+	dataDir string
 
 	// Ciclo de vida: las goroutines propias (sincronización inicial y
 	// periódica) usan ctx y se registran en wg. Close cancela y espera.
@@ -134,7 +137,7 @@ func New(cfg Config) (*Core, error) {
 	// Adjuntos de redactores cancelados que nadie reclamó (mejor esfuerzo).
 	_ = st.PruneStagedAttachments(context.Background(), time.Now().Add(-24*time.Hour))
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
+	return &Core{cfg: cfg, store: st, dataDir: filepath.Dir(cfg.DBPath), ctx: ctx, cancel: cancel,
 		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{}, draftLocks: map[int64]*sync.Mutex{},
 		folderLocks: map[int64]*sync.Mutex{}, now: time.Now, authFailedAt: map[int64]time.Time{},
 		dialWatch: imapx.DialWatch, watchDebounce: watchDebounce,

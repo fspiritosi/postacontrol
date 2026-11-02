@@ -31,6 +31,20 @@ export function AddSenderToContacts(addr: model$0.Address): $CancellablePromise<
 }
 
 /**
+ * BackgroundImage devuelve el fondo como data URL, o "" si no hay.
+ */
+export function BackgroundImage(): $CancellablePromise<string> {
+    return $Call.ByID(1470781552);
+}
+
+/**
+ * ClearBackground quita la imagen de fondo.
+ */
+export function ClearBackground(): $CancellablePromise<void> {
+    return $Call.ByID(1852154412);
+}
+
+/**
  * ContactForEmail devuelve la ficha dueña del correo, o nil si nadie lo tiene.
  */
 export function ContactForEmail(email: string): $CancellablePromise<model$0.Contact | null> {
@@ -183,6 +197,14 @@ export function OpenExternal(link: string): $CancellablePromise<void> {
  */
 export function PickAttachments(): $CancellablePromise<model$0.StagedAttachment[] | null> {
     return $Call.ByID(100580540);
+}
+
+/**
+ * PickBackground abre el diálogo nativo para elegir la imagen de fondo. Devuelve
+ * false (sin error) si se cancela.
+ */
+export function PickBackground(): $CancellablePromise<boolean> {
+    return $Call.ByID(3783563578);
 }
 
 /**

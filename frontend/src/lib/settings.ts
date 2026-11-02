@@ -27,6 +27,7 @@ export async function saveSettings(
     disableNotifications: false,
     threadedList: false,
     readingPane: "",
+    background: "",
     ...current,
     ...patch,
   });

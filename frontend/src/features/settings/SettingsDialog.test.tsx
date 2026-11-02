@@ -46,7 +46,7 @@ describe("SettingsDialog", () => {
     const sw = await screen.findByRole("switch", { name: "Bandeja unificada" });
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     await user.click(sw);
-    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, threadedList: false, readingPane: "" }));
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, threadedList: false, readingPane: "", background: "" }));
   });
 
   it("el interruptor de notificaciones guarda disableNotifications", async () => {
@@ -57,7 +57,7 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, threadedList: false, readingPane: "" }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, threadedList: false, readingPane: "", background: "" }),
     );
   });
 
@@ -85,6 +85,7 @@ describe("SettingsDialog", () => {
     const user = userEvent.setup();
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: true,
+      background: "",
       disableNotifications: true,
       threadedList: true,
       readingPane: "",
@@ -97,6 +98,7 @@ describe("SettingsDialog", () => {
     await waitFor(() =>
       expect(svc.SetSettings).toHaveBeenCalledWith({
         unifiedInbox: true,
+        background: "",
         disableNotifications: true,
         threadedList: true,
         readingPane: "right",

@@ -338,6 +338,11 @@ export interface Settings {
      * Vacío (configuración vieja) se lee como "bottom".
      */
     "readingPane": string;
+
+    /**
+     * Background es el nombre del archivo de fondo dentro de la carpeta de datos; vacío = sin fondo.
+     */
+    "background": string;
 }
 
 /**

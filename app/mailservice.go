@@ -252,6 +252,34 @@ func (s *MailService) PickImage(ctx context.Context) (model.PickedImage, error) 
 	return s.core.LoadImage(ctx, path)
 }
 
+// PickBackground abre el diálogo nativo para elegir la imagen de fondo. Devuelve
+// false (sin error) si se cancela.
+func (s *MailService) PickBackground(ctx context.Context) (bool, error) {
+	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Elegir fondo").
+		AddFilter("Imágenes", "*.png;*.jpg;*.jpeg;*.gif;*.webp")
+	if w := s.app.Window.Current(); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	path, err := dlg.PromptForSingleSelection()
+	if err != nil {
+		return false, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if path == "" {
+		return false, nil
+	}
+	return true, s.core.SetBackground(ctx, path)
+}
+
+// ClearBackground quita la imagen de fondo.
+func (s *MailService) ClearBackground(ctx context.Context) error {
+	return s.core.ClearBackground(ctx)
+}
+
+// BackgroundImage devuelve el fondo como data URL, o "" si no hay.
+func (s *MailService) BackgroundImage(ctx context.Context) (string, error) {
+	return s.core.BackgroundImage(ctx)
+}
+
 // StagedInfo devuelve los datos de los adjuntos preparados ids.
 func (s *MailService) StagedInfo(ctx context.Context, ids []int64) ([]model.StagedAttachment, error) {
 	return s.core.StagedInfo(ctx, ids)

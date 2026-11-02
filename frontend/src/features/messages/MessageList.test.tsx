@@ -18,6 +18,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   GetSettings: vi.fn(() =>
     Promise.resolve({
       unifiedInbox: false,
+      background: "",
       disableNotifications: false,
       threadedList: false,
       readingPane: "",
@@ -159,6 +160,7 @@ describe("MessageList posición del panel", () => {
   const withPane = (readingPane: string) =>
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: false,
+      background: "",
       disableNotifications: false,
       threadedList: false,
       readingPane,
@@ -202,6 +204,7 @@ describe("MessageList conversaciones", () => {
   it("el interruptor guarda threadedList y muestra hilos", async () => {
     const settings = {
       unifiedInbox: true,
+      background: "",
       disableNotifications: true,
       threadedList: false,
       readingPane: "",
@@ -241,6 +244,7 @@ describe("MessageList conversaciones", () => {
   it("en vista unificada no aparece el interruptor", async () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: true,
+      background: "",
       disableNotifications: false,
       threadedList: true,
       readingPane: "",
@@ -550,6 +554,7 @@ describe("MessageList selección múltiple", () => {
   it("prender Conversaciones suelta la selección", async () => {
     const settings = {
       unifiedInbox: false,
+      background: "",
       disableNotifications: false,
       threadedList: false,
       readingPane: "",
@@ -605,6 +610,7 @@ describe("MessageList no leídos", () => {
     async (readingPane) => {
       vi.mocked(svc.GetSettings).mockResolvedValue({
         unifiedInbox: false,
+        background: "",
         disableNotifications: false,
         threadedList: false,
         readingPane,

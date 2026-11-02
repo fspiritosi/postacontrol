@@ -38,3 +38,17 @@ func TestSetSettings_ReadingPaneInvalid(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "right", got.ReadingPane)
 }
+
+func TestSetSettings_KeepsBackground(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	require.NoError(t, c.SetBackground(ctx, writePNG(t, "a.png", 8)))
+	before, err := c.GetSettings(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, before.Background)
+	require.NoError(t, c.SetSettings(ctx, model.Settings{ReadingPane: "top"}))
+	got, err := c.GetSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before.Background, got.Background)
+	assert.Equal(t, "top", got.ReadingPane)
+}

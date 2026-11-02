@@ -302,4 +302,6 @@ type Settings struct {
 	// ReadingPane es dónde se muestra el correo abierto: "right", "bottom" o "top".
 	// Vacío (configuración vieja) se lee como "bottom".
 	ReadingPane string `json:"readingPane"`
+	// Background es el nombre del archivo de fondo dentro de la carpeta de datos; vacío = sin fondo.
+	Background string `json:"background"`
 }
