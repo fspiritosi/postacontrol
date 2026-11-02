@@ -389,12 +389,23 @@ describe("FolderSidebar", () => {
       expect(item("Subir").getAttribute("aria-disabled")).toBe("true");
     });
 
-    it("en una especial solo hay Subir y Bajar habilitados", async () => {
+    it("en una especial se deshabilitan Renombrar, Mover y Eliminar", async () => {
       renderSidebar([account]);
       await menuOf("Entrada");
-      for (const n of ["Nueva subcarpeta…", "Renombrar…", "Mover a…", "Eliminar…"])
+      for (const n of ["Renombrar…", "Mover a…", "Eliminar…"])
         expect(item(n).getAttribute("aria-disabled")).toBe("true");
-      expect(item("Bajar").getAttribute("aria-disabled")).toBeNull();
+      for (const n of ["Nueva subcarpeta…", "Bajar"])
+        expect(item(n).getAttribute("aria-disabled")).toBeNull();
+    });
+
+    it("Nueva subcarpeta… en Entrada crea dentro de la especial", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Entrada");
+      await user.click(item("Nueva subcarpeta…"));
+      await user.type(await screen.findByLabelText("Nombre"), "Varios");
+      await user.click(screen.getByRole("button", { name: "Crear" }));
+      await waitFor(() => expect(svc.CreateFolder).toHaveBeenCalledWith(7, 3, "Varios"));
     });
 
     it("Eliminar… muestra los conteos, elimina y avisa", async () => {

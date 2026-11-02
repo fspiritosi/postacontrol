@@ -158,7 +158,7 @@ function FolderRow({
         </div>
       );
   // Menú contextual: los padres sintetizados (id 0) no tienen. Una especial
-  // solo se puede reordenar.
+  // no se renombra, mueve ni elimina, pero sí admite subcarpetas y orden.
   const siblings = siblingsOf(actions.tree, node);
   const idx = siblings.findIndex((n) => n.name === node.name);
   const modifiable = canModify(node);
@@ -170,7 +170,7 @@ function FolderRow({
         <ContextMenu>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem disabled={node.role !== ""} onSelect={() => actions.onCreate(node)}>
+            <ContextMenuItem onSelect={() => actions.onCreate(node)}>
               Nueva subcarpeta…
             </ContextMenuItem>
             <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onRename(node)}>
