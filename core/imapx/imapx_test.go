@@ -133,7 +133,17 @@ func TestDetectRole_Table(t *testing.T) {
 		{"Archive", "/", nil, "archive"},
 		{"Archivo", "/", nil, "archive"},
 		{"Facturas", "/", nil, ""},
-		{"[Gmail]/Enviados", "/", nil, "sent"},
+		// Por nombre solo valen el primer nivel y los hijos directos de INBOX
+		// (el prefijo personal de Dovecot); más adentro, solo special-use.
+		{"[Gmail]/Enviados", "/", nil, ""},
+		{"inbox.Trash", ".", nil, "trash"},
+		{"INBOX.Sent", "/", nil, "sent"},
+		{"Clientes/Archivo", "/", nil, ""},
+		{"Clientes.Spam", ".", nil, ""},
+		{"Clientes.Archivo", "/", nil, ""},
+		{"INBOX.Clientes.Papelera", ".", nil, ""},
+		{"INBOX/Clientes/Borradores", "/", nil, ""},
+		{"Clientes/Archivo", "/", []imap.MailboxAttr{imap.MailboxAttrArchive}, "archive"},
 		{"[Gmail]/Mis cosas", "/", []imap.MailboxAttr{imap.MailboxAttrSent}, "sent"},
 		{"Lo que sea", "/", []imap.MailboxAttr{imap.MailboxAttrDrafts}, "drafts"},
 		{"Lo que sea", "/", []imap.MailboxAttr{imap.MailboxAttrTrash}, "trash"},
@@ -667,7 +677,7 @@ func TestWrites_EmptyUIDsAreNoOps(t *testing.T) {
 
 func TestListFolders_OneFolderPerRole(t *testing.T) {
 	s, tlsc := setup(t)
-	for _, name := range []string{"Trash", "Clientes", "Clientes/Papelera", "Proyectos", "Proyectos/Trash", "Proyectos/Sent"} {
+	for _, name := range []string{"Trash", "Clientes", "Clientes/Papelera", "Clientes/Archivo", "Proyectos", "Proyectos/Trash", "Proyectos/Sent"} {
 		require.NoError(t, s.User.Create(name, nil))
 	}
 	c := dial(t, s, tlsc)
@@ -683,6 +693,8 @@ func TestListFolders_OneFolderPerRole(t *testing.T) {
 	assert.Equal(t, model.FolderRole(""), by["Proyectos/Trash"].Role)
 	assert.Equal(t, model.FolderRole("sent"), by["Sent"].Role)
 	assert.Equal(t, model.FolderRole(""), by["Proyectos/Sent"].Role)
+	// No hay Archivo en la cuenta, pero una subcarpeta con ese nombre no lo es.
+	assert.Equal(t, model.FolderRole(""), by["Clientes/Archivo"].Role)
 }
 
 func TestUniqueRoles(t *testing.T) {

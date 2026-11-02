@@ -140,7 +140,11 @@ var roleByName = map[string]model.FolderRole{
 }
 
 // DetectRole decide el rol de una carpeta: primero por atributos special-use,
-// después INBOX, y por último por el último segmento del nombre.
+// después INBOX, y por último por el último segmento del nombre. El nombre
+// solo cuenta en el primer nivel o justo debajo de INBOX (el prefijo personal
+// de Dovecot, «INBOX.»): una subcarpeta que el usuario llamó "Archivo" o
+// "Spam" adentro de otra no es especial aunque la cuenta no tenga esa
+// carpeta. Más adentro, el rol sale solo de special-use.
 func DetectRole(name, delim string, attrs []imap.MailboxAttr) model.FolderRole {
 	if r := specialUseRole(attrs); r != "" {
 		return r
@@ -148,15 +152,22 @@ func DetectRole(name, delim string, attrs []imap.MailboxAttr) model.FolderRole {
 	if strings.EqualFold(name, "INBOX") {
 		return "inbox"
 	}
-	last := name
+	cut, sep := -1, 0
 	if delim != "" {
-		if i := strings.LastIndex(last, delim); i >= 0 {
-			last = last[i+len(delim):]
+		if i := strings.LastIndex(name, delim); i >= 0 {
+			cut, sep = i, len(delim)
 		}
 	}
 	// Algunos servidores usan "." aunque el delimitador reportado sea otro.
-	if i := strings.LastIndexAny(last, "./"); i >= 0 {
-		last = last[i+1:]
+	if i := strings.LastIndexAny(name, "./"); i > cut {
+		cut, sep = i, 1
+	}
+	last := name
+	if cut >= 0 {
+		if !strings.EqualFold(name[:cut], "INBOX") {
+			return ""
+		}
+		last = name[cut+sep:]
 	}
 	return roleByName[strings.ToLower(strings.TrimSpace(last))]
 }

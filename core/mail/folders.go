@@ -71,9 +71,9 @@ func (c *Core) CreateFolder(ctx context.Context, accountID, parentFolderID int64
 	if folderNameTaken(folders, full, 0) || (parentFolderID == 0 && strings.EqualFold(full, "INBOX")) {
 		return model.Folder{}, &UserError{Code: "duplicate", Msg: dupMsg(name)}
 	}
-	pos, err := c.store.NextFolderPosition(ctx, accountID)
+	pos, err := c.levelPosition(ctx, accountID, folders, full, delim, 0)
 	if err != nil {
-		return model.Folder{}, c.ctxOrUserError(ctx, err)
+		return model.Folder{}, err
 	}
 	if err := c.probe(ctx, accountID); err != nil {
 		return model.Folder{}, err
@@ -109,7 +109,7 @@ func (c *Core) CreateFolder(ctx context.Context, accountID, parentFolderID int64
 
 // RenameFolder cambia solo el último segmento del nombre de la carpeta.
 func (c *Core) RenameFolder(ctx context.Context, folderID int64, name string) (model.Folder, error) {
-	return c.relocateFolder(ctx, folderID, func(_ context.Context, f model.Folder, delim string, _ []model.Folder) (string, error) {
+	return c.relocateFolder(ctx, folderID, false, func(_ context.Context, f model.Folder, delim string, _ []model.Folder) (string, error) {
 		name, err := validFolderName(name, delim)
 		if err != nil {
 			return "", err
@@ -120,8 +120,9 @@ func (c *Core) RenameFolder(ctx context.Context, folderID int64, name string) (m
 
 // MoveFolder mueve la carpeta (con todo su subárbol) bajo otro padre de la
 // misma cuenta; 0 es el primer nivel. Conserva el último segmento del nombre.
+// Toma la posición del nivel de destino (ver levelPosition).
 func (c *Core) MoveFolder(ctx context.Context, folderID, newParentFolderID int64) (model.Folder, error) {
-	return c.relocateFolder(ctx, folderID, func(ctx context.Context, f model.Folder, delim string, folders []model.Folder) (string, error) {
+	return c.relocateFolder(ctx, folderID, true, func(ctx context.Context, f model.Folder, delim string, folders []model.Folder) (string, error) {
 		last := f.Name[len(parentOf(f.Name, delim)):]
 		if newParentFolderID == 0 {
 			var prefix string
@@ -150,8 +151,10 @@ func (c *Core) MoveFolder(ctx context.Context, folderID, newParentFolderID int64
 
 // relocateFolder es el cuerpo común de RenameFolder y MoveFolder: target arma
 // el nombre completo nuevo (y valida); acá se valida lo especial y los
-// duplicados, se renombra en el servidor y después en la caché.
-func (c *Core) relocateFolder(ctx context.Context, folderID int64,
+// duplicados, se renombra en el servidor y después en la caché. Con
+// reposition (al cambiar de nivel) la carpeta toma la posición del nivel
+// nuevo; si no, conserva la suya.
+func (c *Core) relocateFolder(ctx context.Context, folderID int64, reposition bool,
 	target func(ctx context.Context, f model.Folder, delim string, folders []model.Folder) (string, error)) (model.Folder, error) {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
@@ -184,6 +187,12 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64,
 	}
 	if folderNameTaken(folders, newName, f.ID) {
 		return model.Folder{}, &UserError{Code: "duplicate", Msg: dupMsg(newName[len(parentOf(newName, delim)):])}
+	}
+	pos := f.Position
+	if reposition {
+		if pos, err = c.levelPosition(ctx, f.AccountID, folders, newName, delim, f.ID); err != nil {
+			return model.Folder{}, err
+		}
 	}
 	// Nombres viejos del subárbol que tiene la caché: hay que re-suscribirlos.
 	var oldNames []string
@@ -266,6 +275,13 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64,
 	out, _, err := c.store.GetFolder(ctx, folderID)
 	if err != nil {
 		return model.Folder{}, c.ctxOrUserError(ctx, err)
+	}
+	if out.Position != pos {
+		if err := c.store.SetFolderPosition(ctx, out.ID, pos); err != nil {
+			return model.Folder{}, c.ctxOrUserError(ctx, err)
+		}
+		out.Position = pos
+		c.emit(EventFoldersUpdated, map[string]any{"accountId": f.AccountID})
 	}
 	return out, nil
 }
@@ -545,6 +561,33 @@ func (c *Core) SetFolderOrder(ctx context.Context, accountID int64, folderIDs []
 	}
 	c.emit(EventFoldersUpdated, map[string]any{"accountId": accountID})
 	return nil
+}
+
+// levelPosition es la posición de una carpeta que llega al nivel de name
+// (creada o movida): si alguna hermana ya tiene orden manual va al final
+// (MAX+1 de la cuenta); si no, 0 y se ordena como siempre. Las hermanas son
+// las que la barra lateral muestra en ese nivel: las del mismo padre sin rol
+// y, en el primer nivel, también las especiales, que se ven siempre ahí.
+// exceptID es la carpeta que se mueve (0 al crear).
+func (c *Core) levelPosition(ctx context.Context, accountID int64, folders []model.Folder, name, delim string, exceptID int64) (int, error) {
+	parent := parentOf(name, delim)
+	ordered := slices.ContainsFunc(folders, func(g model.Folder) bool {
+		if g.ID == exceptID || g.Position == 0 {
+			return false
+		}
+		if parent == "" {
+			return g.Role != "" || parentOf(g.Name, delim) == ""
+		}
+		return g.Role == "" && parentOf(g.Name, delim) == parent
+	})
+	if !ordered {
+		return 0, nil
+	}
+	pos, err := c.store.NextFolderPosition(ctx, accountID)
+	if err != nil {
+		return 0, c.ctxOrUserError(ctx, err)
+	}
+	return pos, nil
 }
 
 // probe valida la conexión con NOOP (con reintento) antes de una escritura

@@ -86,6 +86,22 @@ func (e *folderEnv) serverList(t *testing.T, subscribed bool) []string {
 	return out
 }
 
+// markSpecial deja en la caché la carpeta con ese rol, como si el servidor la
+// marcara con special-use (imapmemserver no lo informa). Un SyncAccount
+// posterior lo pisa.
+func (e *folderEnv) markSpecial(t *testing.T, name string, role model.FolderRole) {
+	t.Helper()
+	fs := e.folders(t)
+	found := false
+	for i := range fs {
+		if fs[i].Name == name {
+			fs[i].Role, found = role, true
+		}
+	}
+	require.True(t, found, name)
+	require.NoError(t, e.c.store.ReplaceFolders(context.Background(), e.acc.ID, fs))
+}
+
 func wantUserError(t *testing.T, err error, code, msg string) {
 	t.Helper()
 	var ue *UserError
@@ -122,6 +138,43 @@ func TestCreateFolder_PositionWhenAccountWasOrdered(t *testing.T) {
 	assert.Equal(t, 3, got.Position)
 }
 
+// La nueva va al final de su nivel: con posición solo si ese nivel ya se
+// reordenó; si no, 0 y se ordena alfabética como siempre. Las especiales que
+// cuelgan de INBOX se ven en la raíz, así que no cuentan como hermanas de las
+// subcarpetas de INBOX.
+func TestCreateFolder_PositionOnlyIfLevelOrdered(t *testing.T) {
+	e := newFolderEnv(t, "Clientes", "Clientes/Acme", "INBOX/Trash")
+	ctx := context.Background()
+	trash, _ := e.find(t, "INBOX/Trash")
+	require.Equal(t, model.FolderRole("trash"), trash.Role)
+	require.NoError(t, e.c.SetFolderOrder(ctx, e.acc.ID, []int64{e.id(t, "INBOX/Trash"), e.id(t, "INBOX"), e.id(t, "Sent")}))
+
+	f, err := e.c.CreateFolder(ctx, e.acc.ID, e.id(t, "Clientes"), "Beta")
+	require.NoError(t, err)
+	assert.Equal(t, 0, f.Position)
+	f, err = e.c.CreateFolder(ctx, e.acc.ID, e.id(t, "INBOX"), "Nueva")
+	require.NoError(t, err)
+	assert.Equal(t, 0, f.Position)
+	got, _ := e.find(t, "INBOX/Nueva")
+	assert.Equal(t, 0, got.Position)
+
+	// Ya ordenado ese nivel, la nueva va al final.
+	require.NoError(t, e.c.SetFolderOrder(ctx, e.acc.ID, []int64{e.id(t, "Clientes/Beta"), e.id(t, "Clientes/Acme")}))
+	f, err = e.c.CreateFolder(ctx, e.acc.ID, e.id(t, "Clientes"), "Zeta")
+	require.NoError(t, err)
+	assert.Equal(t, 4, f.Position)
+}
+
+// En la raíz cuentan también las especiales que la barra lateral muestra ahí.
+func TestCreateFolder_RootOrderedOnlyBySpecial(t *testing.T) {
+	e := newFolderEnv(t, "INBOX/Trash")
+	ctx := context.Background()
+	require.NoError(t, e.c.SetFolderOrder(ctx, e.acc.ID, []int64{e.id(t, "INBOX/Trash")}))
+	f, err := e.c.CreateFolder(ctx, e.acc.ID, 0, "Raiz")
+	require.NoError(t, err)
+	assert.Equal(t, 2, f.Position)
+}
+
 func TestCreateFolder_Subfolder(t *testing.T) {
 	e := newFolderEnv(t, "Clientes")
 	require.NoError(t, e.c.SyncAccount(context.Background(), e.acc.ID))
@@ -129,6 +182,28 @@ func TestCreateFolder_Subfolder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Clientes/Acme", f.Name)
 	assert.Contains(t, e.serverList(t, true), "Clientes/Acme")
+}
+
+// Una subcarpeta con nombre de especial ("Archivo") no toma el rol aunque la
+// cuenta no tenga Archivo, y su padre se sigue pudiendo cambiar.
+func TestCreateFolder_SpecialNameInsideIsPlain(t *testing.T) {
+	e := newFolderEnv(t, "Clientes")
+	ctx := context.Background()
+	require.NoError(t, e.c.SyncAccount(ctx, e.acc.ID))
+	f, err := e.c.CreateFolder(ctx, e.acc.ID, e.id(t, "Clientes"), "Archivo")
+	require.NoError(t, err)
+	assert.Equal(t, "Clientes/Archivo", f.Name)
+	assert.Equal(t, model.FolderRole(""), f.Role)
+	got, ok := e.find(t, "Clientes/Archivo")
+	require.True(t, ok)
+	assert.Equal(t, model.FolderRole(""), got.Role)
+
+	r, err := e.c.RenameFolder(ctx, e.id(t, "Clientes"), "Clientes2")
+	require.NoError(t, err)
+	assert.Equal(t, "Clientes2", r.Name)
+	_, err = e.c.RenameFolder(ctx, e.id(t, "Clientes2/Archivo"), "Viejo")
+	require.NoError(t, err)
+	assert.Contains(t, e.serverList(t, false), "Clientes2/Viejo")
 }
 
 func TestCreateFolder_Accents(t *testing.T) {
@@ -247,6 +322,28 @@ func TestMoveFolder_ToOtherParentAndTopLevel(t *testing.T) {
 	assert.NotContains(t, e.serverList(t, false), "Archivo viejo/Acme")
 }
 
+// La movida toma la posición del nivel de destino: 0 si nunca se reordenó, y
+// el final si sí; no se queda con la de su nivel viejo.
+func TestMoveFolder_PositionFollowsDestinationLevel(t *testing.T) {
+	e := newFolderEnv(t, "Clientes", "Clientes/Acme", "Otra", "Otra/X")
+	ctx := context.Background()
+	require.NoError(t, e.c.SetFolderOrder(ctx, e.acc.ID, []int64{e.id(t, "Otra"), e.id(t, "Clientes"), e.id(t, "INBOX"), e.id(t, "Sent")}))
+	aid := e.id(t, "Clientes/Acme")
+	require.NoError(t, e.c.SetFolderOrder(ctx, e.acc.ID, []int64{aid}))
+
+	f, err := e.c.MoveFolder(ctx, aid, e.id(t, "Otra"))
+	require.NoError(t, err)
+	assert.Equal(t, "Otra/Acme", f.Name)
+	assert.Equal(t, 0, f.Position)
+	got, _ := e.find(t, "Otra/Acme")
+	assert.Equal(t, 0, got.Position)
+
+	f, err = e.c.MoveFolder(ctx, aid, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "Acme", f.Name)
+	assert.Equal(t, 5, f.Position)
+}
+
 func TestMoveFolder_IntoItselfFails(t *testing.T) {
 	e := newFolderEnv(t, "Clientes", "Clientes/Acme", "Clientes/Acme/Sub")
 	require.NoError(t, e.c.SyncAccount(context.Background(), e.acc.ID))
@@ -265,6 +362,8 @@ func TestFolder_SpecialIsNotRenamedNorMoved(t *testing.T) {
 	e := newFolderEnv(t, "Padre", "Padre/Trash", "Otra")
 	require.NoError(t, e.c.SyncAccount(context.Background(), e.acc.ID))
 	ctx := context.Background()
+	// Más adentro del primer nivel el rol sale solo de special-use.
+	e.markSpecial(t, "Padre/Trash", "trash")
 	trash, ok := e.find(t, "Padre/Trash")
 	require.True(t, ok)
 	require.Equal(t, model.FolderRole("trash"), trash.Role)
@@ -427,6 +526,7 @@ func TestDeleteFolder_NoTrashEmpty(t *testing.T) {
 func TestDeleteFolder_SpecialRefused(t *testing.T) {
 	e := newFolderEnv(t, "Padre", "Padre/Trash")
 	ctx := context.Background()
+	e.markSpecial(t, "Padre/Trash", "trash")
 	trash, ok := e.find(t, "Padre/Trash")
 	require.True(t, ok)
 	require.Equal(t, model.FolderRole("trash"), trash.Role)
