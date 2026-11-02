@@ -7,27 +7,50 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListThreads: vi.fn(() => Promise.resolve([])),
 }));
 
-import type { MessageSummary, ThreadSummary } from "../../../bindings/postacontrol/core/model/models";
+import type {
+  MessageSummary,
+  ThreadSummary,
+} from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { NO_MARKS, type Marks } from "@/lib/selection";
 import { ThreadList } from "./ThreadList";
 
-function summary(id: number, over: Partial<MessageSummary> = {}): MessageSummary {
+function summary(
+  id: number,
+  over: Partial<MessageSummary> = {},
+): MessageSummary {
   return {
-    id, accountId: 7, folderId: 3, uid: id,
+    id,
+    accountId: 7,
+    folderId: 3,
+    uid: id,
     from: { name: `Remitente ${id}`, email: "x@y.z" },
-    subject: `Asunto ${id}`, snippet: "", date: "2026-10-30T10:00:00Z",
-    seen: true, flagged: false, answered: false, hasAttachments: false,
+    subject: `Asunto ${id}`,
+    snippet: "",
+    date: "2026-10-30T10:00:00Z",
+    seen: true,
+    flagged: false,
+    answered: false,
+    hasAttachments: false,
     ...over,
   };
 }
 
 const threads: ThreadSummary[] = [
   {
-    threadRoot: "<a@x>", latest: summary(1, { seen: false, flagged: true }),
-    count: 3, unread: 1, participants: ["Ana", "Beto"],
+    threadRoot: "<a@x>",
+    latest: summary(1, { seen: false, flagged: true }),
+    count: 3,
+    unread: 1,
+    participants: ["Ana", "Beto"],
   },
-  { threadRoot: "<b@x>", latest: summary(2), count: 1, unread: 0, participants: ["Carla"] },
+  {
+    threadRoot: "<b@x>",
+    latest: summary(2),
+    count: 1,
+    unread: 0,
+    participants: ["Carla"],
+  },
 ];
 
 describe("ThreadList", () => {
@@ -78,7 +101,10 @@ describe("ThreadList selección múltiple", () => {
           unreadOnly={false}
           syncing={false}
           selected={open}
-          onSelect={(r) => { setOpen(r); setMarked(NO_MARKS); }}
+          onSelect={(r) => {
+            setOpen(r);
+            setMarked(NO_MARKS);
+          }}
           marked={marked}
           onMark={setMarked}
         />
@@ -119,7 +145,10 @@ describe("ThreadList selección múltiple", () => {
     );
     const first = await screen.findByRole("button", { name: /Asunto 1/ });
     fireEvent.click(first);
-    const box = screen.getByRole("button", { name: /Asunto 2/ }).closest("li")!.querySelector("input")!;
+    const box = screen
+      .getByRole("button", { name: /Asunto 2/ })
+      .closest("li")!
+      .querySelector("input")!;
     fireEvent.click(box);
     expect(screen.getByTestId("count").textContent).toBe("2");
     expect(screen.getByTestId("open").textContent).toBe("<a@x>");

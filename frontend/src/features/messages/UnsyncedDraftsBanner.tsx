@@ -14,7 +14,11 @@ function pendingText(n: number): string {
 // Aviso arriba de la lista de Borradores: los borradores que solo están en esta
 // compu (sin conexión, sin carpeta Borradores, contraseña rechazada…). Con
 // accountId solo los de esa cuenta; con null (vista unificada), todos.
-export function UnsyncedDraftsBanner({ accountId }: { accountId: number | null }) {
+export function UnsyncedDraftsBanner({
+  accountId,
+}: {
+  accountId: number | null;
+}) {
   const pending = usePendingDrafts();
   const { openComposeDraft } = useComposer();
   const drafts = (pending.data ?? []).filter(
@@ -42,7 +46,10 @@ export function UnsyncedDraftsBanner({ accountId }: { accountId: number | null }
       <ul className="space-y-1">
         {drafts.map((d) => (
           <li key={d.id} className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate" title={d.uploadError || undefined}>
+            <span
+              className="min-w-0 truncate"
+              title={d.uploadError || undefined}
+            >
               {d.request.subject || "(Sin asunto)"}
             </span>
             <Button variant="outline" size="xs" onClick={() => void open(d)}>

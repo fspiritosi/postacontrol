@@ -42,7 +42,14 @@ import { useAllFolders } from "@/lib/queries";
 
 // Cómo terminó una acción: qué ids salieron bien, cuáles fallaron y si los
 // correos dejaron de estar donde se los miraba (movidos o borrados).
-export type BulkResult = { ok: number[]; failed: number[]; removed: boolean };
+export type BulkResult = {
+  ok: number[];
+  failed: number[];
+  removed: boolean;
+  // Se marcaron como no leídos: el lector abierto se cierra, porque volver a
+  // abrirlo (GetMessage) los marcaría leídos otra vez.
+  unread?: boolean;
+};
 
 type Props = {
   count: number;
@@ -69,7 +76,7 @@ export function SelectionBar({
   onClear,
 }: Props) {
   const queryClient = useQueryClient();
-  const { folders } = useAllFolders(accounts);
+  const { folders, pending: foldersPending } = useAllFolders(accounts);
   const [current, setCurrent] = useState<Target[] | null>(null);
   const [busy, setBusy] = useState(false);
   // Borrado que espera confirmación, con los correos que va a tocar.
@@ -80,7 +87,11 @@ export function SelectionBar({
     let live = true;
     targets().then(
       (t) => live && setCurrent(t),
-      () => live && setCurrent([]),
+      (e) => {
+        if (!live) return;
+        setCurrent([]);
+        toast.error(errorMessage(e));
+      },
     );
     return () => {
       live = false;
@@ -91,6 +102,12 @@ export function SelectionBar({
     folders.find((f) => f.id === t.folderId)?.role === "trash";
   const list = current ?? [];
   const ready = current != null && current.length > 0 && !busy;
+  // Borrar necesita saber en qué carpeta está cada correo: en la Papelera el
+  // borrado es definitivo y tiene que pedir confirmación.
+  const foldersKnown =
+    !foldersPending &&
+    list.every((t) => folders.some((f) => f.id === t.folderId));
+  const canRemove = ready && foldersKnown;
   const allFlagged = list.length > 0 && list.every((t) => t.flagged);
   const allTrash = list.length > 0 && list.every(inTrash);
   const accountIds = new Set(list.map((t) => t.accountId));
@@ -115,6 +132,7 @@ export function SelectionBar({
     fn: (accountId: number, ids: number[]) => Promise<void>,
     opts: {
       removed: boolean;
+      unread?: boolean;
       onOk?: (done: Target[]) => void;
       fixed?: Target[];
     },
@@ -134,7 +152,11 @@ export function SelectionBar({
   const finish = (
     all: Target[],
     failed: AccountFailure[],
-    opts: { removed: boolean; onOk?: (done: Target[]) => void },
+    opts: {
+      removed: boolean;
+      unread?: boolean;
+      onOk?: (done: Target[]) => void;
+    },
   ) => {
     const failedIds = new Set(failed.flatMap((f) => f.ids));
     const done = all.filter((t) => !failedIds.has(t.id));
@@ -148,11 +170,12 @@ export function SelectionBar({
       ok: done.map((t) => t.id),
       failed: [...failedIds],
       removed: opts.removed,
+      unread: opts.unread,
     });
   };
 
   const setSeen = (seen: boolean) =>
-    act((_a, ids) => svc.SetSeen(ids, seen), { removed: false });
+    act((_a, ids) => svc.SetSeen(ids, seen), { removed: false, unread: !seen });
   const setFlagged = () =>
     act((_a, ids) => svc.SetFlagged(ids, !allFlagged), { removed: false });
 
@@ -185,7 +208,18 @@ export function SelectionBar({
 
   // En la Papelera el borrado es definitivo: si hay algo ahí, se confirma.
   const askRemove = async () => {
-    const all = await targets();
+    setBusy(true);
+    let all: Target[];
+    try {
+      all = await targets();
+    } catch (e) {
+      toast.error(errorMessage(e));
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+    // Si cambió algo mientras tanto y ya no se sabe dónde está, no se borra.
+    if (all.some((t) => !folders.some((f) => f.id === t.folderId))) return;
     if (all.some(inTrash)) setConfirm(all);
     else void remove(all);
   };
@@ -246,7 +280,7 @@ export function SelectionBar({
       <Button
         variant="outline"
         size="sm"
-        disabled={!ready}
+        disabled={!canRemove}
         onClick={() => void askRemove()}
       >
         <Trash2Icon />

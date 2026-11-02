@@ -1,7 +1,13 @@
 import type { KeyboardEvent } from "react";
 import type { BulkResult } from "./SelectionBar";
 import type { ShellState } from "../layout/MailShell";
-import { markAll, NO_MARKS, rangeMark, toggleMark, type Marks } from "@/lib/selection";
+import {
+  markAll,
+  NO_MARKS,
+  rangeMark,
+  toggleMark,
+  type Marks,
+} from "@/lib/selection";
 
 export type ClickMods = { ctrl: boolean; shift: boolean };
 
@@ -61,7 +67,11 @@ export function useMarking<K>({
 // abierto se movió o se borró, se cierra el lector.
 export function finishFlat(state: ShellState, r: BulkResult) {
   state.setMarked({ keys: r.failed, anchor: null });
-  if (r.removed && state.messageId != null && r.ok.includes(state.messageId)) {
+  if (
+    (r.removed || r.unread) &&
+    state.messageId != null &&
+    r.ok.includes(state.messageId)
+  ) {
     state.selectMessage(null);
   }
 }

@@ -67,7 +67,9 @@ export function MessageRow({
       />
       <button
         type="button"
-        onClick={(e) => onSelect(m.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
+        onClick={(e) =>
+          onSelect(m.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })
+        }
         aria-current={selected ? "true" : undefined}
         className={cn(
           compact
@@ -92,18 +94,30 @@ export function MessageRow({
               {m.from.name || m.from.email}
             </span>
             <span className="min-w-0 flex-1 truncate text-sm">
-              <span className={cn(!m.seen && "font-medium")}>{m.subject || "(sin asunto)"}</span>
-              {m.snippet && <span className="text-muted-foreground"> — {m.snippet}</span>}
+              <span className={cn(!m.seen && "font-medium")}>
+                {m.subject || "(sin asunto)"}
+              </span>
+              {m.snippet && (
+                <span className="text-muted-foreground"> — {m.snippet}</span>
+              )}
             </span>
             {folderLabel && (
-              <span className="shrink-0 truncate text-xs text-muted-foreground/80" data-testid="folder-label">
+              <span
+                className="shrink-0 truncate text-xs text-muted-foreground/80"
+                data-testid="folder-label"
+              >
                 {folderLabel}
               </span>
             )}
             {m.hasAttachments && (
-              <PaperclipIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label="Tiene adjuntos" />
+              <PaperclipIcon
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-label="Tiene adjuntos"
+              />
             )}
-            <span className="shrink-0 text-xs text-muted-foreground">{relativeDate(m.date)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {relativeDate(m.date)}
+            </span>
             <span className="size-6 shrink-0" aria-hidden />
           </>
         ) : (
@@ -123,17 +137,29 @@ export function MessageRow({
                 {m.from.name || m.from.email}
               </span>
               {m.hasAttachments && (
-                <PaperclipIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label="Tiene adjuntos" />
+                <PaperclipIcon
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-label="Tiene adjuntos"
+                />
               )}
-              <span className="shrink-0 text-xs text-muted-foreground">{relativeDate(m.date)}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {relativeDate(m.date)}
+              </span>
               <span className="size-6 shrink-0" aria-hidden />
             </span>
-            <span className={cn("truncate pl-4 text-sm", !m.seen && "font-medium")}>
+            <span
+              className={cn("truncate pl-4 text-sm", !m.seen && "font-medium")}
+            >
               {m.subject || "(sin asunto)"}
             </span>
-            <span className="truncate pl-4 text-xs text-muted-foreground">{m.snippet}</span>
+            <span className="truncate pl-4 text-xs text-muted-foreground">
+              {m.snippet}
+            </span>
             {folderLabel && (
-              <span className="truncate pl-4 text-xs text-muted-foreground/80" data-testid="folder-label">
+              <span
+                className="truncate pl-4 text-xs text-muted-foreground/80"
+                data-testid="folder-label"
+              >
                 {folderLabel}
               </span>
             )}
@@ -153,7 +179,12 @@ export function MessageRow({
           compact ? "top-1/2 -translate-y-1/2" : "top-2",
         )}
       >
-        <StarIcon className={cn("size-3.5", m.flagged && "fill-yellow-400 text-yellow-500")} />
+        <StarIcon
+          className={cn(
+            "size-3.5",
+            m.flagged && "fill-yellow-400 text-yellow-500",
+          )}
+        />
       </button>
     </li>
   );

@@ -119,6 +119,7 @@ describe("SelectionBar", () => {
       ok: [1, 2],
       failed: [],
       removed: false,
+      unread: false,
     });
   });
 
@@ -175,8 +176,58 @@ describe("SelectionBar", () => {
 
   it("Mover a… no aparece si son de dos cuentas", async () => {
     renderBar([t(1, 7, 70), t(2, 8, 80)]);
-    await screen.findByRole("button", { name: "Marcar leído" });
+    // Con las carpetas cargadas (Eliminar habilitado) tampoco aparece.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Eliminar" })).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
     expect(screen.queryByRole("button", { name: "Mover a…" })).toBeNull();
+  });
+
+  it("Mover a… sí aparece con una sola cuenta (control)", async () => {
+    renderBar([t(1, 7, 70), t(2, 7, 70)]);
+    expect(
+      await screen.findByRole("button", { name: "Mover a…" }),
+    ).toBeTruthy();
+  });
+
+  it("Eliminar espera a conocer las carpetas", async () => {
+    vi.mocked(svc.ListFolders).mockImplementation(
+      (() => new Promise(() => {})) as never,
+    );
+    renderBar([t(1, 7, 72), t(2, 7, 72)], { folderId: 72 });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Marcar leído" }),
+      ).toHaveProperty("disabled", false),
+    );
+    expect(screen.getByRole("button", { name: "Eliminar" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(svc.DeleteMessages).not.toHaveBeenCalled();
+  });
+
+  it("Marcar no leído avisa unread para cerrar el lector", async () => {
+    const { onDone } = renderBar([t(1, 7, 70), t(2, 7, 70)]);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Marcar no leído" }),
+    );
+    await waitFor(() =>
+      expect(onDone).toHaveBeenCalledWith({
+        ok: [1, 2],
+        failed: [],
+        removed: false,
+        unread: true,
+      }),
+    );
+  });
+
+  it("si no se pueden cargar los marcados avisa con un toast", async () => {
+    renderBar([], { targets: () => Promise.reject(new Error("sin red")) });
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
   });
 
   it("Eliminar fuera de la Papelera no pregunta", async () => {
@@ -271,6 +322,7 @@ describe("SelectionBar", () => {
       ok: [1],
       failed: [2, 3],
       removed: false,
+      unread: true,
     });
   });
 

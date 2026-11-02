@@ -45,7 +45,8 @@ function ThreadRow({
   const compact = useReadingPane() !== "right";
   const m = t.latest;
   const unread = t.unread > 0;
-  const participants = (t.participants ?? []).join(", ") || m.from.name || m.from.email;
+  const participants =
+    (t.participants ?? []).join(", ") || m.from.name || m.from.email;
   return (
     <li
       className={cn("group relative", marked && "bg-primary/10")}
@@ -64,7 +65,12 @@ function ThreadRow({
       />
       <button
         type="button"
-        onClick={(e) => onSelect(t.threadRoot, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
+        onClick={(e) =>
+          onSelect(t.threadRoot, {
+            ctrl: e.ctrlKey || e.metaKey,
+            shift: e.shiftKey,
+          })
+        }
         aria-current={selected ? "true" : undefined}
         className={cn(
           compact
@@ -97,13 +103,22 @@ function ThreadRow({
               </span>
             )}
             <span className="min-w-0 flex-1 truncate text-sm">
-              <span className={cn(unread && "font-medium")}>{m.subject || "(sin asunto)"}</span>
-              {m.snippet && <span className="text-muted-foreground"> — {m.snippet}</span>}
+              <span className={cn(unread && "font-medium")}>
+                {m.subject || "(sin asunto)"}
+              </span>
+              {m.snippet && (
+                <span className="text-muted-foreground"> — {m.snippet}</span>
+              )}
             </span>
             {m.hasAttachments && (
-              <PaperclipIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label="Tiene adjuntos" />
+              <PaperclipIcon
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-label="Tiene adjuntos"
+              />
             )}
-            <span className="shrink-0 text-xs text-muted-foreground">{relativeDate(m.date)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {relativeDate(m.date)}
+            </span>
             {m.flagged && (
               <StarIcon
                 className="size-3.5 shrink-0 fill-yellow-400 text-yellow-500"
@@ -136,9 +151,14 @@ function ThreadRow({
                 </span>
               )}
               {m.hasAttachments && (
-                <PaperclipIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label="Tiene adjuntos" />
+                <PaperclipIcon
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-label="Tiene adjuntos"
+                />
               )}
-              <span className="shrink-0 text-xs text-muted-foreground">{relativeDate(m.date)}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {relativeDate(m.date)}
+              </span>
               {m.flagged && (
                 <StarIcon
                   className="size-3.5 shrink-0 fill-yellow-400 text-yellow-500"
@@ -146,10 +166,14 @@ function ThreadRow({
                 />
               )}
             </span>
-            <span className={cn("truncate pl-4 text-sm", unread && "font-medium")}>
+            <span
+              className={cn("truncate pl-4 text-sm", unread && "font-medium")}
+            >
               {m.subject || "(sin asunto)"}
             </span>
-            <span className="truncate pl-4 text-xs text-muted-foreground">{m.snippet}</span>
+            <span className="truncate pl-4 text-xs text-muted-foreground">
+              {m.snippet}
+            </span>
           </>
         )}
       </button>
@@ -177,12 +201,21 @@ export function ThreadList({
     onOpen: onSelect,
   });
   return (
-    <div className="flex-1 overflow-y-auto outline-none" tabIndex={-1} onKeyDown={marking.onKeyDown}>
+    <div
+      className="flex-1 overflow-y-auto outline-none"
+      tabIndex={-1}
+      onKeyDown={marking.onKeyDown}
+    >
       {threads.isError && (
-        <p className="p-4 text-sm text-destructive">{errorMessage(threads.error)}</p>
+        <p className="p-4 text-sm text-destructive">
+          {errorMessage(threads.error)}
+        </p>
       )}
       {!threads.isPending && !threads.isError && items.length === 0 && (
-        <p className="p-6 text-center text-sm text-muted-foreground" aria-live="polite">
+        <p
+          className="p-6 text-center text-sm text-muted-foreground"
+          aria-live="polite"
+        >
           {syncing ? "Sincronizando…" : "No hay correos en esta carpeta."}
         </p>
       )}

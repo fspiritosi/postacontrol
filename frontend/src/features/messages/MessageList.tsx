@@ -117,7 +117,7 @@ export function MessageList({
     const failedRoots = rootsOf(r.failed);
     state.setMarkedThreads({ keys: failedRoots, anchor: null });
     if (
-      r.removed &&
+      (r.removed || r.unread) &&
       state.threadRoot != null &&
       !failedRoots.includes(state.threadRoot) &&
       rootsOf(r.ok).includes(state.threadRoot)
