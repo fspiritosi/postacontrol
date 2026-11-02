@@ -38,6 +38,9 @@ func (c *Core) CreateFolder(ctx context.Context, accountID, parentFolderID int64
 	if err := c.ctxErr(ctx); err != nil {
 		return model.Folder{}, err
 	}
+	mu := c.folderListLock(accountID)
+	mu.Lock()
+	defer mu.Unlock()
 	folders, err := c.store.ListFolders(ctx, accountID)
 	if err != nil {
 		return model.Folder{}, c.ctxOrUserError(ctx, err)
@@ -90,7 +93,7 @@ func (c *Core) CreateFolder(ctx context.Context, accountID, parentFolderID int64
 	if err != nil {
 		return model.Folder{}, err
 	}
-	if _, err := c.refreshFolders(ctx, accountID); err != nil {
+	if _, err := c.refreshFoldersLocked(ctx, accountID); err != nil {
 		return model.Folder{}, err
 	}
 	created, err := c.folderByName(ctx, accountID, full)
@@ -161,6 +164,11 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64, reposition bo
 	if err := c.ctxErr(ctx); err != nil {
 		return model.Folder{}, err
 	}
+	unlock, err := c.lockFolderAccount(ctx, folderID)
+	if err != nil {
+		return model.Folder{}, err
+	}
+	defer unlock()
 	f, _, err := c.store.GetFolder(ctx, folderID)
 	if err != nil {
 		return model.Folder{}, c.ctxOrUserError(ctx, err)
@@ -247,7 +255,7 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64, reposition bo
 	if partial != nil {
 		slog.Warn("el renombrado quedó a medias", "carpeta", f.Name, "err", partial)
 		// Lo que quedó sin renombrar lo corrige el refresco desde el servidor.
-		_, _ = c.refreshFolders(ctx, f.AccountID)
+		_, _ = c.refreshFoldersLocked(ctx, f.AccountID)
 		return model.Folder{}, &UserError{Code: "server", Msg: msgPartialRename, Err: partial}
 	}
 	// Suscripción: nombres nuevos sí, viejos no. Si falla, solo se registra.
@@ -269,7 +277,7 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64, reposition bo
 	}); err != nil {
 		slog.Warn("no se pudo actualizar la suscripción", "carpeta", newName, "err", err)
 	}
-	if _, err := c.refreshFolders(ctx, f.AccountID); err != nil {
+	if _, err := c.refreshFoldersLocked(ctx, f.AccountID); err != nil {
 		return model.Folder{}, err
 	}
 	out, _, err := c.store.GetFolder(ctx, folderID)
@@ -284,6 +292,18 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64, reposition bo
 		c.emit(EventFoldersUpdated, map[string]any{"accountId": f.AccountID})
 	}
 	return out, nil
+}
+
+// mailboxTotal es conn.MailboxTotal, pero si el servidor no informa la
+// cantidad devuelve el error para el usuario (con el técnico adentro, para el
+// registro).
+func mailboxTotal(conn *imapx.Conn, name, delim string) (int, error) {
+	n, err := conn.MailboxTotal(name)
+	if errors.Is(err, imapx.ErrNoMessageCount) {
+		return 0, &UserError{Code: "server", Err: err,
+			Msg: "El servidor no informó cuántos correos tiene «" + name[len(parentOf(name, delim)):] + "»; no se borró nada."}
+	}
+	return n, err
 }
 
 // subtreeFolder es una carpeta del subárbol a eliminar, según el servidor, con
@@ -328,6 +348,11 @@ func (c *Core) DeleteFolderPreview(ctx context.Context, folderID int64) (model.F
 func (c *Core) DeleteFolder(ctx context.Context, folderID int64) (moved int, err error) {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
+	unlock, err := c.lockFolderAccount(ctx, folderID)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 	f, folders, delim, err := c.deletableFolder(ctx, folderID)
 	if err != nil {
 		return 0, err
@@ -356,7 +381,7 @@ func (c *Core) DeleteFolder(ctx context.Context, folderID int64) (moved int, err
 	// Al terminar, o al cortar, la caché sigue al servidor y la Papelera se
 	// pone al día, como en runMoves.
 	defer func() {
-		if _, err := c.refreshFolders(ctx, f.AccountID); err != nil {
+		if _, err := c.refreshFoldersLocked(ctx, f.AccountID); err != nil {
 			slog.Warn("no se pudo refrescar las carpetas después de eliminar", "carpeta", f.Name, "err", err)
 		}
 		if moved > 0 && trash != nil {
@@ -433,7 +458,7 @@ func (c *Core) emptyAndDelete(ctx context.Context, accountID int64, r imapx.Remo
 			if _, err := conn.Select("INBOX"); err != nil {
 				return err
 			}
-			total, err := conn.MailboxTotal(r.Name)
+			total, err := mailboxTotal(conn, r.Name, delim)
 			if err != nil {
 				return err
 			}
@@ -514,7 +539,7 @@ func (c *Core) serverSubtree(ctx context.Context, f model.Folder, delim string, 
 		for _, r := range remote {
 			n := subtreeFolder{RemoteFolder: r}
 			if r.Selectable {
-				if n.total, err = conn.MailboxTotal(r.Name); err != nil {
+				if n.total, err = mailboxTotal(conn, r.Name, delim); err != nil {
 					return err
 				}
 			}
@@ -547,6 +572,9 @@ func (c *Core) SetFolderOrder(ctx context.Context, accountID int64, folderIDs []
 	if err := c.ctxErr(ctx); err != nil {
 		return err
 	}
+	mu := c.folderListLock(accountID)
+	mu.Lock()
+	defer mu.Unlock()
 	folders, err := c.store.ListFolders(ctx, accountID)
 	if err != nil {
 		return c.ctxOrUserError(ctx, err)
@@ -561,6 +589,22 @@ func (c *Core) SetFolderOrder(ctx context.Context, accountID int64, folderIDs []
 	}
 	c.emit(EventFoldersUpdated, map[string]any{"accountId": accountID})
 	return nil
+}
+
+// lockFolderAccount toma el lock de la lista de carpetas de la cuenta de la
+// carpeta y devuelve cómo soltarlo. Quien lo llama vuelve a leer la carpeta
+// después: un refresco pudo cambiarla mientras esperaba.
+func (c *Core) lockFolderAccount(ctx context.Context, folderID int64) (func(), error) {
+	if err := c.ctxErr(ctx); err != nil {
+		return nil, err
+	}
+	f, _, err := c.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return nil, c.ctxOrUserError(ctx, err)
+	}
+	mu := c.folderListLock(f.AccountID)
+	mu.Lock()
+	return mu.Unlock, nil
 }
 
 // levelPosition es la posición de una carpeta que llega al nivel de name

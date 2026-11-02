@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -344,6 +345,47 @@ func TestMoveFolder_PositionFollowsDestinationLevel(t *testing.T) {
 	assert.Equal(t, 5, f.Position)
 }
 
+// Un refresco que listó antes de un renombrado no puede guardar después: se
+// llevaría la fila renombrada con sus correos y volvería a crear la vieja.
+func TestRefreshFolders_DoesNotOverwriteRename(t *testing.T) {
+	e := newFolderEnv(t, "Clientes")
+	ctx := context.Background()
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c1"))
+	require.NoError(t, e.c.SyncAccount(ctx, e.acc.ID))
+	cid := e.id(t, "Clientes")
+	require.NoError(t, e.c.SyncFolder(ctx, cid))
+	require.Len(t, listAll(t, e.c, cid), 1)
+
+	renamed := make(chan error, 1)
+	var fired atomic.Bool
+	e.c.afterFolderList = func(int64) {
+		if !fired.CompareAndSwap(false, true) {
+			return
+		}
+		go func() {
+			_, err := e.c.RenameFolder(ctx, cid, "Proyectos")
+			renamed <- err
+		}()
+		// Sin el lock el renombrado termina acá adentro, antes de que este
+		// refresco guarde su lista vieja; con el lock espera a que termine.
+		select {
+		case err := <-renamed:
+			renamed <- err
+		case <-time.After(time.Second):
+		}
+	}
+	_, err := e.c.refreshFolders(ctx, e.acc.ID)
+	require.NoError(t, err)
+	require.NoError(t, <-renamed)
+
+	p, ok := e.find(t, "Proyectos")
+	require.True(t, ok)
+	assert.Equal(t, cid, p.ID)
+	assert.Len(t, listAll(t, e.c, cid), 1)
+	_, ok = e.find(t, "Clientes")
+	assert.False(t, ok)
+}
+
 func TestMoveFolder_IntoItselfFails(t *testing.T) {
 	e := newFolderEnv(t, "Clientes", "Clientes/Acme", "Clientes/Acme/Sub")
 	require.NoError(t, e.c.SyncAccount(context.Background(), e.acc.ID))
@@ -634,10 +676,31 @@ func TestDeleteFolder_StatusWithoutCountDoesNotDelete(t *testing.T) {
 	})
 
 	_, err := e.c.DeleteFolder(context.Background(), e.id(t, "Clientes"))
-	require.Error(t, err)
+	wantUserError(t, err, "server", "El servidor no informó cuántos correos tiene «Clientes»; no se borró nada.")
 	assert.Contains(t, e.serverList(t, false), "Clientes")
 	assert.Equal(t, 1, e.serverTotal(t, "Clientes"))
 	assert.Equal(t, 1, e.serverTotal(t, "Trash"))
+}
+
+// Sin MESSAGES en STATUS el aviso no puede contar: error para el usuario, con
+// el técnico guardado adentro, y nada borrado.
+func TestDeleteFolderPreview_StatusWithoutCount(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Clientes", "Clientes/Acme")
+	ctx := context.Background()
+	require.NoError(t, e.c.SyncAccount(ctx, e.acc.ID))
+	e.imap.OmitStatusMessages("Clientes/Acme")
+	msg := "El servidor no informó cuántos correos tiene «Acme»; no se borró nada."
+	_, err := e.c.DeleteFolderPreview(ctx, e.id(t, "Clientes"))
+	wantUserError(t, err, "server", msg)
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	require.Error(t, ue.Err)
+	assert.Contains(t, ue.Err.Error(), "MESSAGES")
+	_, err = e.c.DeleteFolder(ctx, e.id(t, "Clientes"))
+	wantUserError(t, err, "server", msg)
+	all := e.serverList(t, false)
+	assert.Contains(t, all, "Clientes")
+	assert.Contains(t, all, "Clientes/Acme")
 }
 
 func TestDeleteFolder_NoselectThatBecameSelectableIsEmptied(t *testing.T) {

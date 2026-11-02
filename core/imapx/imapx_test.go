@@ -998,5 +998,5 @@ func TestMailboxTotal_WithoutCountIsAnError(t *testing.T) {
 	s.OmitStatusMessages("INBOX")
 	// Sin MESSAGES no se sabe si está vacía: no puede valer 0.
 	_, err := c.MailboxTotal("INBOX")
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, imapx.ErrNoMessageCount)
 }

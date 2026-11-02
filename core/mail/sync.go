@@ -54,8 +54,18 @@ func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 
 // refreshFolders hace LIST + STATUS, reemplaza las carpetas de la caché, pone
 // los contadores y avisa con EventFoldersUpdated. Devuelve el ID de INBOX (0
-// si no hay). No sincroniza ningún mensaje.
+// si no hay). No sincroniza ningún mensaje. Toma el lock de la lista de
+// carpetas de la cuenta.
 func (c *Core) refreshFolders(ctx context.Context, accountID int64) (int64, error) {
+	mu := c.folderListLock(accountID)
+	mu.Lock()
+	defer mu.Unlock()
+	return c.refreshFoldersLocked(ctx, accountID)
+}
+
+// refreshFoldersLocked es refreshFolders para quien ya tiene el lock de la
+// lista de carpetas de la cuenta.
+func (c *Core) refreshFoldersLocked(ctx context.Context, accountID int64) (int64, error) {
 	var remote []imapx.RemoteFolder
 	err := c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
 		var err error
@@ -64,6 +74,9 @@ func (c *Core) refreshFolders(ctx context.Context, accountID int64) (int64, erro
 	})
 	if err != nil {
 		return 0, err
+	}
+	if c.afterFolderList != nil {
+		c.afterFolderList(accountID)
 	}
 	if err := c.ctxErr(ctx); err != nil {
 		return 0, err

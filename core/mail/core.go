@@ -59,6 +59,9 @@ type Core struct {
 	// conexión y el UID después de abrir la carpeta y antes de pedir el
 	// mensaje (por ejemplo, para cortar la conexión con un UID dado).
 	beforeFetchBody func(conn *imapx.Conn, uid uint32)
+	// afterFolderList es un gancho solo para tests: refreshFolders lo llama
+	// después del LIST y antes de guardar la lista en la caché.
+	afterFolderList func(accountID int64)
 
 	poolMu sync.Mutex
 	pool   map[int64]*pooledConn // una conexión IMAP por cuenta
@@ -67,6 +70,14 @@ type Core struct {
 	// conexión se toma lote por lote, así que dos pasadas se intercalarían).
 	syncLocksMu sync.Mutex
 	syncLocks   map[int64]*sync.Mutex
+
+	// folderLocks serializa, por cuenta, el refresco de la lista de carpetas
+	// (del LIST hasta guardarla en la caché) con lo que la cambia: crear,
+	// renombrar, mover y eliminar carpetas, y guardar el orden manual. Sin
+	// esto, un refresco que listó antes de un renombrado podía guardar
+	// después y llevarse la fila renombrada con sus correos.
+	folderLocksMu sync.Mutex
+	folderLocks   map[int64]*sync.Mutex
 
 	// draftLocks serializa lo que toca en el servidor un mismo borrador
 	// (subir, descartar, limpiar después de enviar). beforeDraftAppend y
@@ -125,7 +136,7 @@ func New(cfg Config) (*Core, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{cfg: cfg, store: st, ctx: ctx, cancel: cancel,
 		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{}, draftLocks: map[int64]*sync.Mutex{},
-		now: time.Now, authFailedAt: map[int64]time.Time{},
+		folderLocks: map[int64]*sync.Mutex{}, now: time.Now, authFailedAt: map[int64]time.Time{},
 		dialWatch: imapx.DialWatch, watchDebounce: watchDebounce,
 		watchBackoff: slices.Clone(watchBackoff), watchers: map[int64]*watcher{},
 		indexPause: indexPause, indexIdle: indexIdle, indexBackoff: slices.Clone(indexBackoff)}, nil
@@ -201,6 +212,19 @@ func (c *Core) folderSyncLock(folderID int64) *sync.Mutex {
 	if mu == nil {
 		mu = &sync.Mutex{}
 		c.syncLocks[folderID] = mu
+	}
+	return mu
+}
+
+// folderListLock devuelve el lock de la lista de carpetas de la cuenta (ver
+// folderLocks). Quien lo tiene refresca con refreshFoldersLocked.
+func (c *Core) folderListLock(accountID int64) *sync.Mutex {
+	c.folderLocksMu.Lock()
+	defer c.folderLocksMu.Unlock()
+	mu := c.folderLocks[accountID]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		c.folderLocks[accountID] = mu
 	}
 	return mu
 }
