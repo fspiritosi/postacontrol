@@ -519,3 +519,52 @@ func TestDeleteFolder_NoselectWithChildren(t *testing.T) {
 	assert.GreaterOrEqual(t, slices.Index(ops, "DELETE Padre/Hijo"), 0)
 	assert.GreaterOrEqual(t, slices.Index(ops, "DELETE Padre/Otro"), 0)
 }
+
+func TestDeleteFolder_StatusWithoutCountDoesNotDelete(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Clientes")
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c0"))
+	// Después del primer MOVE llega otro correo y el servidor deja de
+	// informar MESSAGES: no se puede dar la carpeta por vacía.
+	e.imap.SetMoveHook(func(src string) {
+		if src == "Clientes" {
+			e.imap.SetMoveHook(nil)
+			e.imap.OmitStatusMessages("Clientes")
+			e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c1"))
+		}
+	})
+
+	_, err := e.c.DeleteFolder(context.Background(), e.id(t, "Clientes"))
+	require.Error(t, err)
+	assert.Contains(t, e.serverList(t, false), "Clientes")
+	assert.Equal(t, 1, e.serverTotal(t, "Clientes"))
+	assert.Equal(t, 1, e.serverTotal(t, "Trash"))
+}
+
+func TestDeleteFolder_NoselectThatBecameSelectableIsEmptied(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Padre/Hijo")
+	ctx := context.Background()
+	e.imap.AddNoselect("Padre")
+	e.imap.Deliver(t, "Padre/Hijo", rawMail("Bea <bea@ej.com>", "h1"))
+	require.NoError(t, e.c.SyncAccount(ctx, e.acc.ID))
+	padre, ok := e.find(t, "Padre")
+	require.True(t, ok)
+	require.False(t, padre.Selectable)
+	// Mientras se vacía el hijo, otro cliente crea "Padre" de verdad y le
+	// llega un correo.
+	e.imap.SetMoveHook(func(src string) {
+		if src == "Padre/Hijo" {
+			e.imap.SetMoveHook(nil)
+			e.imap.RemoveNoselect("Padre")
+			if err := e.imap.User.Create("Padre", nil); err != nil {
+				t.Errorf("crear Padre: %v", err)
+			}
+			e.imap.Deliver(t, "Padre", rawMail("Bea <bea@ej.com>", "p1"))
+		}
+	})
+
+	moved, err := e.c.DeleteFolder(ctx, padre.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, moved)
+	assert.Equal(t, 2, e.serverTotal(t, "Trash"), "el correo nuevo del padre va a la Papelera")
+	assert.NotContains(t, e.serverList(t, false), "Padre")
+}

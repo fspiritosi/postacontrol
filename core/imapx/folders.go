@@ -241,13 +241,16 @@ func (c *Conn) PersonalPrefix() (string, error) {
 }
 
 // MailboxTotal devuelve la cantidad de mensajes del buzón (STATUS (MESSAGES)).
+// Si la respuesta no trae MESSAGES (el servidor no lo informa, o go-imap la
+// descarta porque el nombre que devuelve no coincide exacto) es un error y no
+// 0: con esto se decide si una carpeta quedó vacía para borrarla.
 func (c *Conn) MailboxTotal(name string) (int, error) {
 	st, err := c.c.Status(name, &imap.StatusOptions{NumMessages: true}).Wait()
 	if err != nil {
 		return 0, opErr(fmt.Sprintf("STATUS %q", name), err)
 	}
 	if st.NumMessages == nil {
-		return 0, nil
+		return 0, fmt.Errorf("imapx: STATUS %q: el servidor no informó MESSAGES", name)
 	}
 	return int(*st.NumMessages), nil
 }

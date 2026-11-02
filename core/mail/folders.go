@@ -366,14 +366,34 @@ func (c *Core) DeleteFolder(ctx context.Context, folderID int64) (moved int, err
 
 // emptyAndDelete vacía una carpeta en el servidor mandando todo a la Papelera
 // (hasta maxEmptyPasses pasadas) y la borra recién cuando STATUS dice que
-// quedó vacía. Una \Noselect no puede tener correos: se borra sin abrirla.
+// quedó vacía. Una \Noselect no puede tener correos: si el servidor la sigue
+// informando así, se borra sin abrirla.
 // Devuelve cuántos correos movió, aunque después falle.
 func (c *Core) emptyAndDelete(ctx context.Context, accountID int64, r imapx.RemoteFolder, trash *model.Folder, delim string) (moved int, err error) {
 	if err := c.probe(ctx, accountID); err != nil {
 		return 0, err
 	}
 	err = c.withConnNoRetry(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
-		for pass := 1; r.Selectable; pass++ {
+		selectable := r.Selectable
+		if !selectable {
+			// Lo \Noselect salió del LIST del principio y entre tanto pudo
+			// pasar a ser una carpeta de verdad con correo (otro cliente la
+			// creó, o Sieve con fileinto :create): se vuelve a mirar en la
+			// misma sesión, justo antes de borrarla.
+			now, ok, err := conn.Lookup(r.Name)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				// Desapareció sola al borrar sus hijos (Dovecot): ya está.
+				if err := conn.Unsubscribe(r.Name); err != nil {
+					slog.Warn("no se pudo quitar la suscripción", "carpeta", r.Name, "err", err)
+				}
+				return nil
+			}
+			selectable = now.Selectable
+		}
+		for pass := 1; selectable; pass++ {
 			if _, err := conn.SelectRW(r.Name); err != nil {
 				return err
 			}
@@ -412,7 +432,7 @@ func (c *Core) emptyAndDelete(ctx context.Context, accountID int64, r imapx.Remo
 			// Una \Noselect que existía solo por sus hijos puede desaparecer
 			// sola al borrarlos (Dovecot): ya está.
 			var ierr *goimap.Error
-			if r.Selectable || !errors.As(err, &ierr) || ierr.Code != goimap.ResponseCodeNonExistent {
+			if selectable || !errors.As(err, &ierr) || ierr.Code != goimap.ResponseCodeNonExistent {
 				return err
 			}
 		}

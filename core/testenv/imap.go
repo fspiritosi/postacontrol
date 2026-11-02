@@ -40,6 +40,7 @@ type IMAP struct {
 	// Lo que imapmemserver no tiene y se simula en session (ver noselect.go).
 	simMu    sync.Mutex
 	noselect map[string]bool
+	noCount  map[string]bool
 	ops      []string
 	moveHook func(src string)
 }

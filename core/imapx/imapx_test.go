@@ -978,3 +978,13 @@ func TestLookup(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
+
+func TestMailboxTotal_WithoutCountIsAnError(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	s.Deliver(t, "INBOX", plainMsg("uno", ""))
+	s.OmitStatusMessages("INBOX")
+	// Sin MESSAGES no se sabe si está vacía: no puede valer 0.
+	_, err := c.MailboxTotal("INBOX")
+	assert.Error(t, err)
+}

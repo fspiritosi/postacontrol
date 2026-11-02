@@ -22,6 +22,24 @@ func (s *IMAP) AddNoselect(name string) {
 	s.noselect[name] = true
 }
 
+// RemoveNoselect saca el buzón \Noselect agregado con AddNoselect.
+func (s *IMAP) RemoveNoselect(name string) {
+	s.simMu.Lock()
+	defer s.simMu.Unlock()
+	delete(s.noselect, name)
+}
+
+// OmitStatusMessages hace que STATUS del buzón responda sin MESSAGES, como un
+// servidor que no lo informa.
+func (s *IMAP) OmitStatusMessages(name string) {
+	s.simMu.Lock()
+	defer s.simMu.Unlock()
+	if s.noCount == nil {
+		s.noCount = map[string]bool{}
+	}
+	s.noCount[name] = true
+}
+
 // Ops devuelve, en orden, los SELECT, EXAMINE y DELETE que recibió el
 // servidor, como "SELECT <buzón>".
 func (s *IMAP) Ops() []string {
@@ -79,6 +97,14 @@ func (sess *session) Select(name string, options *imap.SelectOptions) (*imap.Sel
 func (sess *session) Status(name string, options *imap.StatusOptions) (*imap.StatusData, error) {
 	if sess.s.isNoselect(name) {
 		return nil, errNoselect
+	}
+	sess.s.simMu.Lock()
+	omit := sess.s.noCount[name]
+	sess.s.simMu.Unlock()
+	if omit && options != nil {
+		// El servidor arma la respuesta con estas mismas opciones: sin
+		// MESSAGES, la respuesta no lo trae.
+		options.NumMessages = false
 	}
 	return sess.SessionIMAP4rev2.Status(name, options)
 }
