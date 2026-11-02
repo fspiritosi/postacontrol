@@ -70,15 +70,82 @@ export function buildFolderTree(folders: Folder[]): FolderNode[] {
 
   for (const f of folders) attach(nodes.get(f.name)!);
 
-  const sortRec = (list: FolderNode[]) => {
-    list.sort(byLabel);
-    list.forEach((n) => sortRec(n.children));
-  };
-  sortRec(roots);
   const rank = (n: FolderNode) => {
     const i = ROLE_ORDER.indexOf(n.role);
     return i === -1 ? ROLE_ORDER.length : i;
   };
-  // sort estable: primero por rango de rol, el resto conserva orden alfabético.
-  return roots.sort((a, b) => rank(a) - rank(b));
+  // Primero los que tienen posición manual (por posición); después los de
+  // posición 0 en el orden de siempre: en la raíz por rango de rol y alfabético.
+  const cmp = (isRoot: boolean) => (a: FolderNode, b: FolderNode) => {
+    if (a.position > 0 || b.position > 0) {
+      if (a.position === 0) return 1;
+      if (b.position === 0) return -1;
+      return a.position - b.position;
+    }
+    return (isRoot ? rank(a) - rank(b) : 0) || byLabel(a, b);
+  };
+  const sortRec = (list: FolderNode[], isRoot: boolean) => {
+    list.sort(cmp(isRoot));
+    list.forEach((n) => sortRec(n.children, false));
+  };
+  sortRec(roots, true);
+  return roots;
+}
+
+// El nodo o algún descendiente es una carpeta especial (tiene rol).
+export function isSpecialTree(node: FolderNode): boolean {
+  return node.role !== "" || node.children.some(isSpecialTree);
+}
+
+// Se puede renombrar, mover y eliminar: no es sintetizada ni contiene especiales.
+export function canModify(node: FolderNode): boolean {
+  return node.id !== 0 && !isSpecialTree(node);
+}
+
+// El árbol se reconstruye en cada render, así que los nodos se comparan por
+// nombre (único dentro de la cuenta) y no por identidad.
+const has = (list: FolderNode[], node: FolderNode) => list.some((n) => n.name === node.name);
+
+function parentList(tree: FolderNode[], node: FolderNode): FolderNode[] | null {
+  if (has(tree, node)) return tree;
+  for (const n of tree) {
+    const r = parentList(n.children, node);
+    if (r) return r;
+  }
+  return null;
+}
+
+// Los hermanos del nodo (incluido él), en el orden en que se ven.
+export function siblingsOf(tree: FolderNode[], node: FolderNode): FolderNode[] {
+  return parentList(tree, node) ?? [];
+}
+
+function parentOf(tree: FolderNode[], node: FolderNode): FolderNode | null {
+  for (const n of tree) {
+    if (has(n.children, node)) return n;
+    const r = parentOf(n.children, node);
+    if (r) return r;
+  }
+  return null;
+}
+
+// Padres posibles para mover el nodo: de la misma cuenta, seleccionables o no
+// pero reales (id != 0), sin él, sus descendientes ni su padre actual.
+export function moveTargets(tree: FolderNode[], node: FolderNode): FolderNode[] {
+  const parent = parentOf(tree, node);
+  const out: FolderNode[] = [];
+  const walk = (list: FolderNode[]) => {
+    for (const n of list) {
+      if (n.name === node.name) continue; // tampoco sus descendientes
+      if (n.id !== 0 && n.accountId === node.accountId && n.name !== parent?.name) out.push(n);
+      walk(n.children);
+    }
+  };
+  walk(tree);
+  return out;
+}
+
+// Está en el primer nivel del árbol.
+export function isRootLevel(tree: FolderNode[], node: FolderNode): boolean {
+  return has(tree, node);
 }

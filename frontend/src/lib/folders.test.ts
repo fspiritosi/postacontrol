@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Folder } from "../../bindings/postacontrol/core/model/models";
-import { buildFolderTree, folderLabel } from "./folders";
+import { buildFolderTree, canModify, folderLabel, isSpecialTree, moveTargets, siblingsOf } from "./folders";
 
 let nextId = 1;
 const f = (name: string, role = ""): Folder => ({
@@ -58,5 +58,74 @@ describe("folderLabel", () => {
     expect(folderLabel(f("INBOX.Sent", "sent"))).toBe("Enviados");
     expect(folderLabel(f("INBOX.Clientes.ACME"))).toBe("ACME");
     expect(folderLabel({ name: "Plano", delimiter: "", role: "" })).toBe("Plano");
+  });
+});
+
+describe("orden por position", () => {
+  const p = (name: string, position: number, role = ""): Folder => ({ ...f(name, role), position });
+
+  it("los de position > 0 van primero y los de 0 al final", () => {
+    const tree = buildFolderTree([p("INBOX", 0, "inbox"), p("A", 0), p("B", 2), p("C", 1)]);
+    expect(tree.map((n) => n.name)).toEqual(["C", "B", "INBOX", "A"]);
+  });
+
+  it("en la raíz sin posiciones queda el orden de siempre", () => {
+    const tree = buildFolderTree([f("Zeta"), f("Trash", "trash"), f("INBOX", "inbox"), f("Alfa")]);
+    expect(tree.map((n) => n.name)).toEqual(["INBOX", "Trash", "Alfa", "Zeta"]);
+  });
+
+  it("también ordena los hijos", () => {
+    const tree = buildFolderTree([f("P"), p("P.b", 1), p("P.a", 2), f("P.c")]);
+    expect(tree[0].children.map((n) => n.name)).toEqual(["P.b", "P.a", "P.c"]);
+  });
+});
+
+describe("isSpecialTree, canModify, siblingsOf y moveTargets", () => {
+  const tree = () =>
+    buildFolderTree([
+      f("INBOX", "inbox"),
+      f("Clientes"),
+      f("Clientes.Acme"),
+      f("Clientes.Acme.2025"),
+      f("Otra"),
+      f("Mixta"),
+      f("Mixta.Enviados", "sent"),
+      f("Sola.Hija"),
+    ]);
+  const find = (list: ReturnType<typeof tree>, name: string): ReturnType<typeof tree>[number] => {
+    for (const n of list) {
+      if (n.name === name) return n;
+      const r = n.children.length ? find(n.children, name) : undefined;
+      if (r) return r;
+    }
+    return undefined as never;
+  };
+
+  it("isSpecialTree mira al nodo y a sus descendientes", () => {
+    const t = tree();
+    expect(isSpecialTree(find(t, "INBOX"))).toBe(true);
+    expect(isSpecialTree(find(t, "Mixta"))).toBe(false);
+    expect(isSpecialTree(find(t, "Clientes"))).toBe(false);
+    expect(canModify(find(t, "Clientes"))).toBe(true);
+    expect(canModify(find(t, "INBOX"))).toBe(false);
+    expect(canModify(find(t, "Sola"))).toBe(false); // sintetizada, id 0
+  });
+
+  it("siblingsOf devuelve el nivel del nodo", () => {
+    const t = tree();
+    const acme = find(t, "Clientes.Acme");
+    expect(siblingsOf(t, acme).map((n) => n.name)).toEqual(["Clientes.Acme"]);
+    expect(siblingsOf(t, find(t, "Otra")).map((n) => n.name)).toContain("Clientes");
+  });
+
+  it("moveTargets excluye al nodo, sus descendientes, su padre y los sintetizados", () => {
+    const t = tree();
+    const names = moveTargets(t, find(t, "Clientes.Acme")).map((n) => n.name);
+    expect(names).not.toContain("Clientes.Acme");
+    expect(names).not.toContain("Clientes.Acme.2025");
+    expect(names).not.toContain("Clientes");
+    expect(names).not.toContain("Sola");
+    expect(names).toContain("Otra");
+    expect(moveTargets(t, find(t, "Clientes")).map((n) => n.name)).not.toContain("Clientes.Acme");
   });
 });

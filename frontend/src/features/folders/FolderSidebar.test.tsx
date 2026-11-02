@@ -1,11 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false })),
   ListFolders: vi.fn(() => Promise.resolve([])),
+  CreateFolder: vi.fn(() => Promise.resolve({})),
+  RenameFolder: vi.fn(() => Promise.resolve({})),
+  MoveFolder: vi.fn(() => Promise.resolve({})),
+  SetFolderOrder: vi.fn(() => Promise.resolve()),
+  DeleteFolderPreview: vi.fn(() => Promise.resolve({ total: 0, subfolders: [] })),
+  DeleteFolder: vi.fn(() => Promise.resolve(0)),
   MoveMessages: vi.fn(() => Promise.resolve()),
   ListLocalDrafts: vi.fn(() => Promise.resolve([])),
   RemoveAccount: vi.fn(() => Promise.resolve()),
@@ -288,6 +294,121 @@ describe("FolderSidebar", () => {
       // La carpeta que se está mirando tampoco es destino.
       const inboxRow = await screen.findByRole("button", { name: "Entrada" });
       expect(fireEvent.dragOver(inboxRow, { dataTransfer: drag(7, { ids: [1] }) })).toBe(true);
+    });
+  });
+
+  describe("gestión de carpetas", () => {
+    const folder = (id: number, name: string, position = 0) =>
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position }) as const;
+
+    beforeAll(() => {
+      // Radix pide estas APIs y jsdom no las trae.
+      Element.prototype.hasPointerCapture = () => false;
+      Element.prototype.setPointerCapture = () => {};
+      Element.prototype.releasePointerCapture = () => {};
+      Element.prototype.scrollIntoView = () => {};
+    });
+
+    beforeEach(() => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        inbox(3, 7, 0),
+        folder(10, "Clientes"),
+        folder(11, "Clientes/Acme"),
+        folder(12, "Zeta"),
+      ] as never);
+    });
+
+    const menuOf = async (name: string) => {
+      fireEvent.contextMenu(await screen.findByRole("button", { name }));
+      return screen.findByRole("menu");
+    };
+    const item = (name: string) => screen.getByRole("menuitem", { name });
+
+    it("Nueva carpeta… desde el menú de la cuenta crea en primer nivel", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await user.click(await screen.findByRole("button", { name: "Opciones de A" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Nueva carpeta…" }));
+      await user.type(await screen.findByLabelText("Nombre"), "Clientes");
+      await user.click(screen.getByRole("button", { name: "Crear" }));
+      await waitFor(() => expect(svc.CreateFolder).toHaveBeenCalledWith(7, 0, "Clientes"));
+      expect(toast.success).toHaveBeenCalledWith("Carpeta «Clientes» creada");
+    });
+
+    it("Nueva subcarpeta… usa el id del padre", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Clientes");
+      await user.click(item("Nueva subcarpeta…"));
+      expect(await screen.findByText("Nueva subcarpeta de «Clientes»")).toBeTruthy();
+      await user.type(screen.getByLabelText("Nombre"), "Beta");
+      await user.click(screen.getByRole("button", { name: "Crear" }));
+      await waitFor(() => expect(svc.CreateFolder).toHaveBeenCalledWith(7, 10, "Beta"));
+    });
+
+    it("Renombrar… viene con el nombre actual", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Zeta");
+      await user.click(item("Renombrar…"));
+      const input = (await screen.findByLabelText("Nombre")) as HTMLInputElement;
+      expect(input.value).toBe("Zeta");
+      await user.clear(input);
+      await user.type(input, "Omega");
+      await user.click(screen.getByRole("button", { name: "Renombrar" }));
+      await waitFor(() => expect(svc.RenameFolder).toHaveBeenCalledWith(12, "Omega"));
+    });
+
+    it("Mover a… ofrece Primer nivel y los destinos válidos", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Acme");
+      await user.click(item("Mover a…"));
+      expect(await screen.findByText("Mover «Acme»")).toBeTruthy();
+      const radios = screen.getAllByRole("radio");
+      const labels = radios.map((r) => r.closest("label")!.textContent);
+      expect(labels).toContain("Primer nivel");
+      expect(labels).toContain("Zeta");
+      expect(labels).not.toContain("Clientes"); // su padre actual
+      expect(labels).not.toContain("Acme");
+      await user.click(screen.getByLabelText("Zeta"));
+      await user.click(screen.getByRole("button", { name: "Mover" }));
+      await waitFor(() => expect(svc.MoveFolder).toHaveBeenCalledWith(11, 12));
+    });
+
+    it("Subir y Bajar guardan el orden de los hermanos; Subir está deshabilitado en el primero", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Zeta");
+      expect(item("Bajar").getAttribute("aria-disabled")).toBe("true");
+      await user.click(item("Subir"));
+      // Raíz: Entrada, Clientes, Zeta -> Zeta sube un lugar.
+      await waitFor(() => expect(svc.SetFolderOrder).toHaveBeenCalledWith(7, [3, 12, 10]));
+      await user.keyboard("{Escape}");
+      await menuOf("Entrada");
+      expect(item("Subir").getAttribute("aria-disabled")).toBe("true");
+    });
+
+    it("en una especial solo hay Subir y Bajar habilitados", async () => {
+      renderSidebar([account]);
+      await menuOf("Entrada");
+      for (const n of ["Nueva subcarpeta…", "Renombrar…", "Mover a…", "Eliminar…"])
+        expect(item(n).getAttribute("aria-disabled")).toBe("true");
+      expect(item("Bajar").getAttribute("aria-disabled")).toBeNull();
+    });
+
+    it("Eliminar… muestra los conteos, elimina y avisa", async () => {
+      vi.mocked(svc.DeleteFolderPreview).mockResolvedValue({ total: 48, subfolders: [{ name: "Acme", total: 7 }] });
+      vi.mocked(svc.DeleteFolder).mockResolvedValue(55);
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Clientes");
+      await user.click(item("Eliminar…"));
+      expect(await screen.findByText("¿Eliminar «Clientes»?")).toBeTruthy();
+      expect(await screen.findByText(/Los 55 correos van a la Papelera/)).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Eliminar" }));
+      await waitFor(() => expect(svc.DeleteFolder).toHaveBeenCalledWith(10));
+      expect(toast.success).toHaveBeenCalledWith("Carpeta eliminada; 55 correos a la Papelera");
     });
   });
 });

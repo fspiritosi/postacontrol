@@ -17,6 +17,13 @@ import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -35,11 +42,12 @@ import {
 import { dragAccount, hasMessageDrag, readMessageDrag } from "@/lib/dnd";
 import { errorMessage } from "@/lib/errors";
 import { toastSyncError } from "@/lib/events";
-import { buildFolderTree, type FolderNode } from "@/lib/folders";
+import { buildFolderTree, canModify, siblingsOf, type FolderNode } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
 import { dropMessages } from "../messages/dropMessages";
+import { DeleteDialog, MoveDialog, NameDialog, type NameMode } from "./FolderDialogs";
 
 export const ROLE_ICON: Record<string, ReactNode> = {
   inbox: <InboxIcon />,
@@ -50,16 +58,28 @@ export const ROLE_ICON: Record<string, ReactNode> = {
   trash: <Trash2Icon />,
 };
 
+// Lo que el menú contextual de una carpeta le pide a la sección de la cuenta.
+type FolderActions = {
+  tree: FolderNode[];
+  onCreate: (parent: FolderNode) => void;
+  onRename: (node: FolderNode) => void;
+  onMove: (node: FolderNode) => void;
+  onDelete: (node: FolderNode) => void;
+  onShift: (node: FolderNode, dir: -1 | 1) => void;
+};
+
 function FolderRow({
   node,
   depth,
   state,
   accountName,
+  actions,
 }: {
   node: FolderNode;
   depth: number;
   state: ShellState;
   accountName: string;
+  actions: FolderActions;
 }) {
   const queryClient = useQueryClient();
   const [over, setOver] = useState(false);
@@ -102,9 +122,8 @@ function FolderRow({
       nameOf: () => accountName,
     }).catch((err) => toast.error(errorMessage(err)));
   };
-  return (
-    <>
-      {node.selectable && node.id !== 0 ? (
+  const row =
+    node.selectable && node.id !== 0 ? (
         <button
           type="button"
           onClick={select}
@@ -137,6 +156,49 @@ function FolderRow({
           <FolderIcon className="size-4" />
           <span className="truncate">{node.label}</span>
         </div>
+      );
+  // Menú contextual: los padres sintetizados (id 0) no tienen. Una especial
+  // solo se puede reordenar.
+  const siblings = siblingsOf(actions.tree, node);
+  const idx = siblings.findIndex((n) => n.name === node.name);
+  const modifiable = canModify(node);
+  return (
+    <>
+      {node.id === 0 ? (
+        row
+      ) : (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem disabled={node.role !== ""} onSelect={() => actions.onCreate(node)}>
+              Nueva subcarpeta…
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onRename(node)}>
+              Renombrar…
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onMove(node)}>
+              Mover a…
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={idx <= 0} onSelect={() => actions.onShift(node, -1)}>
+              Subir
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={idx < 0 || idx >= siblings.length - 1}
+              onSelect={() => actions.onShift(node, 1)}
+            >
+              Bajar
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              variant="destructive"
+              disabled={!modifiable}
+              onSelect={() => actions.onDelete(node)}
+            >
+              Eliminar…
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       )}
       {node.children.map((c) => (
         <FolderRow
@@ -145,6 +207,7 @@ function FolderRow({
           depth={depth + 1}
           state={state}
           accountName={accountName}
+          actions={actions}
         />
       ))}
     </>
@@ -165,6 +228,9 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
   const folders = useFolders(account.id);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [nameMode, setNameMode] = useState<NameMode | null>(null);
+  const [moving, setMoving] = useState<FolderNode | null>(null);
+  const [deleting, setDeleting] = useState<FolderNode | null>(null);
 
   const list = folders.data ?? [];
   const tree = buildFolderTree(list);
@@ -182,6 +248,34 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     } catch (e) {
       toast.error(errorMessage(e));
     }
+  };
+
+  // Sube o baja una carpeta entre sus hermanos y guarda el orden completo.
+  const shift = async (node: FolderNode, dir: -1 | 1) => {
+    const sibs = siblingsOf(tree, node);
+    const i = sibs.findIndex((n) => n.name === node.name);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= sibs.length) return;
+    const next = [...sibs];
+    [next[i], next[j]] = [next[j], next[i]];
+    try {
+      await svc.SetFolderOrder(
+        account.id,
+        next.filter((n) => n.id !== 0).map((n) => n.id),
+      );
+      void queryClient.invalidateQueries({ queryKey: ["folders", account.id] });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  const actions: FolderActions = {
+    tree,
+    onCreate: (parent) => setNameMode({ kind: "create", accountId: account.id, parent }),
+    onRename: (node) => setNameMode({ kind: "rename", node }),
+    onMove: setMoving,
+    onDelete: setDeleting,
+    onShift: (node, dir) => void shift(node, dir),
   };
 
   const remove = async () => {
@@ -244,6 +338,9 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
                 Cambiar contraseña
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem onSelect={() => setNameMode({ kind: "create", accountId: account.id })}>
+              Nueva carpeta…
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => setConfirmOpen(true)}>
               Quitar cuenta
@@ -256,9 +353,20 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
           <p className="p-2 text-xs text-destructive">{errorMessage(folders.error)}</p>
         )}
         {tree.map((n) => (
-          <FolderRow key={n.name} node={n} depth={1} state={state} accountName={name} />
+          <FolderRow
+            key={n.name}
+            node={n}
+            depth={1}
+            state={state}
+            accountName={name}
+            actions={actions}
+          />
         ))}
       </CollapsibleContent>
+
+      {nameMode && <NameDialog mode={nameMode} onClose={() => setNameMode(null)} />}
+      {moving && <MoveDialog node={moving} tree={tree} onClose={() => setMoving(null)} />}
+      {deleting && <DeleteDialog node={deleting} onClose={() => setDeleting(null)} />}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
