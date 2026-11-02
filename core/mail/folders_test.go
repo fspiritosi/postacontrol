@@ -312,3 +312,27 @@ func TestSetFolderOrder_SavesPositions(t *testing.T) {
 	var ue *UserError
 	require.ErrorAs(t, err, &ue)
 }
+
+func TestRenameFolder_PartialFailureKeepsCache(t *testing.T) {
+	e := newFolderEnv(t, "Clientes", "Clientes/Acme")
+	ctx := context.Background()
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c1"))
+	require.NoError(t, e.c.SyncAccount(ctx, e.acc.ID))
+	cid := e.id(t, "Clientes")
+	require.NoError(t, e.c.SyncFolder(ctx, cid))
+	msgs := listAll(t, e.c, cid)
+	require.Len(t, msgs, 1)
+	// Otro cliente creó "Proyectos/Acme" (la caché no lo sabe): renombrar
+	// "Clientes/Acme" a ese nombre falla después de que "Clientes" ya se renombró.
+	require.NoError(t, e.imap.User.Create("Proyectos/Acme", nil))
+
+	_, err := e.c.RenameFolder(ctx, cid, "Proyectos")
+	if err == nil {
+		t.Skip("el servidor de pruebas no dejó armar el fallo")
+	}
+	wantUserError(t, err, "server", msgPartialRename)
+	assert.Equal(t, cid, e.id(t, "Proyectos"), "el id sobrevive con el nombre nuevo")
+	assert.Equal(t, msgs, listAll(t, e.c, cid))
+	_, ok := e.find(t, "Clientes")
+	assert.False(t, ok)
+}

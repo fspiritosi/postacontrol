@@ -917,6 +917,21 @@ func TestListUnder(t *testing.T) {
 	assert.True(t, got[0].Selectable)
 }
 
+func TestListUnder_WildcardInNameDoesNotOverMatch(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	for _, n := range []string{"100%", "100%/x", "1000", "1000/x", "100abc/x"} {
+		require.NoError(t, c.CreateMailbox(n))
+	}
+	got, err := c.ListUnder("100%", "/")
+	require.NoError(t, err)
+	names := []string{}
+	for _, g := range got {
+		names = append(names, g.Name)
+	}
+	assert.Equal(t, []string{"100%/x"}, names)
+}
+
 func TestPersonalPrefix(t *testing.T) {
 	s, tlsc := setup(t)
 	c := dial(t, s, tlsc)

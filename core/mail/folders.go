@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"slices"
@@ -11,11 +12,12 @@ import (
 )
 
 const (
-	msgNameEmpty    = "Escribí un nombre para la carpeta."
-	msgNameWildcard = "El nombre no puede llevar «*» ni «%»."
-	msgSpecial      = "Las carpetas especiales no se pueden cambiar."
-	msgIntoItself   = "No se puede mover una carpeta dentro de sí misma."
-	msgNoSubfolders = "Esta cuenta no admite subcarpetas."
+	msgNameEmpty     = "Escribí un nombre para la carpeta."
+	msgNameWildcard  = "El nombre no puede llevar «*» ni «%»."
+	msgSpecial       = "Las carpetas especiales no se pueden cambiar."
+	msgIntoItself    = "No se puede mover una carpeta dentro de sí misma."
+	msgPartialRename = "La carpeta se renombró, pero algunas subcarpetas no; revisalas."
+	msgNoSubfolders  = "Esta cuenta no admite subcarpetas."
 )
 
 // CreateFolder crea una carpeta en el servidor. parentFolderID 0 la deja en el
@@ -187,6 +189,10 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64,
 		return model.Folder{}, err
 	}
 	var renamed [][2]string // viejo, nuevo
+	// partial guarda el primer error posterior al RENAME de la carpeta misma:
+	// a partir de ahí el servidor ya cambió, así que la caché tiene que seguirlo
+	// igual (si no, el próximo SyncAccount borraría la fila con sus correos).
+	var partial error
 	err = c.withConnNoRetry(ctx, f.AccountID, func(_ context.Context, conn *imapx.Conn) error {
 		if err := conn.RenameMailbox(f.Name, newName); err != nil {
 			return err
@@ -199,7 +205,8 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64,
 		// que sí las renombra la lista vuelve vacía.
 		rest, err := conn.ListUnder(f.Name, delim)
 		if err != nil {
-			return err
+			partial = err
+			return nil
 		}
 		slices.SortStableFunc(rest, func(a, b imapx.RemoteFolder) int {
 			return strings.Count(a.Name, delim) - strings.Count(b.Name, delim)
@@ -207,7 +214,8 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64,
 		for _, r := range rest {
 			to := newName + delim + r.Name[len(f.Name+delim):]
 			if err := conn.RenameMailbox(r.Name, to); err != nil {
-				return err
+				partial = err
+				return nil
 			}
 			renamed = append(renamed, [2]string{r.Name, to})
 		}
@@ -217,7 +225,13 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64,
 		return model.Folder{}, err
 	}
 	if err := c.store.RenameFolderTree(ctx, f.AccountID, f.Name, newName, delim); err != nil {
-		return model.Folder{}, c.ctxOrUserError(ctx, err)
+		partial = cmp.Or(partial, err)
+	}
+	if partial != nil {
+		slog.Warn("el renombrado quedó a medias", "carpeta", f.Name, "err", partial)
+		// Lo que quedó sin renombrar lo corrige el refresco desde el servidor.
+		_, _ = c.refreshFolders(ctx, f.AccountID)
+		return model.Folder{}, &UserError{Code: "server", Msg: msgPartialRename, Err: partial}
 	}
 	// Suscripción: nombres nuevos sí, viejos no. Si falla, solo se registra.
 	for _, old := range oldNames {

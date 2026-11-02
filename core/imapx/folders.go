@@ -264,6 +264,11 @@ func (c *Conn) ListUnder(name, delim string) ([]RemoteFolder, error) {
 		if it.Mailbox == name || slices.Contains(it.Attrs, imap.MailboxAttrNonExistent) {
 			continue
 		}
+		// Si name trae «*» o «%», el patrón matchea de más: solo valen los que
+		// de verdad cuelgan de name.
+		if !strings.HasPrefix(it.Mailbox, name+delim) {
+			continue
+		}
 		d := ""
 		if it.Delim != 0 {
 			d = string(it.Delim)
