@@ -12,6 +12,7 @@ import { folderLabel } from "@/lib/folders";
 import { useAllFolders, useSearch } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { MessageRow } from "../messages/MessageRow";
+import { useFlatRowMenu } from "../messages/useFlatRowMenu";
 import { SelectionBar } from "../messages/SelectionBar";
 import { finishFlat, useMarking } from "../messages/useMarking";
 import type { SearchScope, SearchState, ShellState } from "../layout/MailShell";
@@ -71,6 +72,8 @@ export function SearchResults({ accounts, state, search }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [results.data, server, key, markedKeys],
   );
+
+  const rowMenu = useFlatRowMenu(state, barTargets);
 
   const colorOf = (accountId: number) =>
     accounts.find((a) => a.id === accountId)?.color;
@@ -184,16 +187,7 @@ export function SearchResults({ accounts, state, search }: Props) {
               onToggle={marking.toggle}
               folderLabel={labelOf(m.folderId)}
               dragOf={(row) => flatDrag(items, state.marked.keys, row)}
-              menuTargets={(row) =>
-                markedKeys.includes(row.id)
-                  ? barTargets()
-                  : Promise.resolve(loadedTargets([row], [row.id]))
-              }
-              onUnread={(row) => {
-                const ids = markedKeys.includes(row.id) ? markedKeys : [row.id];
-                if (state.messageId != null && ids.includes(state.messageId))
-                  state.selectMessage(null);
-              }}
+              {...rowMenu}
             />
           ))}
         </ul>

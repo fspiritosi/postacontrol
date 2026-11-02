@@ -18,6 +18,7 @@ import type { ShellState } from "../layout/MailShell";
 import { SearchBox } from "../search/SearchBox";
 import { SearchResults } from "../search/SearchResults";
 import { MessageRow } from "./MessageRow";
+import { useFlatRowMenu } from "./useFlatRowMenu";
 import { SelectionBar, type BulkResult } from "./SelectionBar";
 import { ThreadList } from "./ThreadList";
 import { UnsyncedDraftsBanner } from "./UnsyncedDraftsBanner";
@@ -109,6 +110,8 @@ export function MessageList({
     queryClient,
     unreadOnly,
   ]);
+
+  const rowMenu = useFlatRowMenu(state, barTargets);
 
   const barDone = (r: BulkResult) =>
     threadedMarks
@@ -285,16 +288,7 @@ export function MessageList({
                 anyMarked={marking.any}
                 onToggle={marking.toggle}
                 dragOf={(row) => flatDrag(items, state.marked.keys, row)}
-                menuTargets={(row) =>
-                  markedKeys.includes(row.id)
-                    ? barTargets()
-                    : Promise.resolve(loadedTargets([row], [row.id]))
-                }
-                onUnread={(row) => {
-                  const ids = markedKeys.includes(row.id) ? markedKeys : [row.id];
-                  if (state.messageId != null && ids.includes(state.messageId))
-                    state.selectMessage(null);
-                }}
+                {...rowMenu}
               />
             ))}
           </ul>

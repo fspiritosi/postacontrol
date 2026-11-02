@@ -15,6 +15,10 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListUnified: vi.fn(() => Promise.resolve([])),
   SyncFolder: vi.fn(() => new Promise(() => {})), // nunca termina
   SetFlagged: vi.fn(() => Promise.resolve()),
+  SetLabel: vi.fn(() => Promise.resolve()),
+  ListLabels: vi.fn(() =>
+    Promise.resolve([{ id: 11, name: "Clientes", color: "#dc2626", position: 0 }]),
+  ),
   GetSettings: vi.fn(() =>
     Promise.resolve({
       unifiedInbox: false,
@@ -656,5 +660,77 @@ describe("MessageList no leídos", () => {
     expect(screen.getByText("Remitente 3").className).toContain(
       "text-unread-foreground",
     );
+  });
+
+  describe("clic derecho", () => {
+    function renderMarked(marked: number[], messageId: number | null) {
+      vi.mocked(svc.ListMessages).mockResolvedValue([
+        summary(1, 7),
+        summary(2, 7),
+        summary(3, 7),
+      ] as never);
+      const setMarked = vi.fn();
+      const selectMessage = vi.fn();
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MessageList
+            accounts={accounts}
+            state={
+              {
+                view: { kind: "folder", folderId: 70 },
+                messageId,
+                selectView: vi.fn(),
+                selectMessage,
+                search: null,
+                setSearch: vi.fn(),
+                threadRoot: null,
+                selectThread: vi.fn(),
+                contactId: null,
+                selectContact: vi.fn(),
+                openContact: vi.fn(),
+                marked: { keys: marked, anchor: null },
+                markedThreads: { keys: [], anchor: null },
+                setMarked,
+                setMarkedThreads: vi.fn(),
+                clearMarks: vi.fn(),
+              } as ShellState
+            }
+          />
+        </QueryClientProvider>,
+      );
+      return { setMarked, selectMessage };
+    }
+
+    async function pickLabel(subject: string) {
+      fireEvent.contextMenu(await screen.findByText(subject));
+      const sub = await screen.findByRole("menuitem", { name: "Etiquetas" });
+      await waitFor(() =>
+        expect(
+          screen.getByRole("menuitem", { name: "Destacar" }).getAttribute("data-disabled"),
+        ).toBeNull(),
+      );
+      fireEvent.keyDown(sub, { key: "ArrowRight" });
+      fireEvent.click(await screen.findByRole("menuitem", { name: /Clientes/ }));
+    }
+
+    it("sobre una fila marcada actúa sobre todas las marcadas", async () => {
+      const { setMarked, selectMessage } = renderMarked([1, 2], 3);
+      await pickLabel("Asunto 1");
+      await waitFor(() =>
+        expect(svc.SetLabel).toHaveBeenCalledWith([1, 2], 11, true),
+      );
+      expect(setMarked).not.toHaveBeenCalled();
+      expect(selectMessage).not.toHaveBeenCalled();
+    });
+
+    it("sobre una fila sin marcar actúa solo sobre ella", async () => {
+      const { setMarked, selectMessage } = renderMarked([1, 2], 3);
+      await pickLabel("Asunto 3");
+      await waitFor(() =>
+        expect(svc.SetLabel).toHaveBeenCalledWith([3], 11, true),
+      );
+      expect(setMarked).not.toHaveBeenCalled();
+      expect(selectMessage).not.toHaveBeenCalled();
+    });
   });
 });

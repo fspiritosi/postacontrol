@@ -12,7 +12,7 @@ import { applyLabel } from "./applyLabel";
 // Foco donde se escribe: ahí los números son texto.
 function typing(el: Element | null): boolean {
   return !!el?.closest(
-    "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+    "input:not([type=checkbox], [type=radio]), textarea, select, [contenteditable]:not([contenteditable='false'])",
   );
 }
 
@@ -25,20 +25,27 @@ function overlayOpen(): boolean {
   );
 }
 
-// Los correos cargados en las listas planas y en la búsqueda, ya refrescados
-// tras cada cambio (el detalle `["message", id]` puede quedar viejo).
+// Los correos de las listas planas y la búsqueda que se están mirando. Solo
+// las consultas activas: las inactivas guardan copias viejas (otro filtro, otra
+// búsqueda) que no se refrescan. Cada id aparece una sola vez.
 function loadedSummaries(
   queryClient: ReturnType<typeof useQueryClient>,
 ): MessageSummary[] {
   const flat = queryClient
-    .getQueriesData<InfiniteData<MessageSummary[]>>({ queryKey: ["messages"] })
+    .getQueriesData<InfiniteData<MessageSummary[]>>({
+      queryKey: ["messages"],
+      type: "active",
+    })
     .flatMap(([, d]) => d?.pages.flat() ?? []);
   const found = queryClient
     .getQueriesData<InfiniteData<{ messages: MessageSummary[] }>>({
       queryKey: ["search"],
+      type: "active",
     })
     .flatMap(([, d]) => d?.pages.flatMap((p) => p.messages ?? []) ?? []);
-  return [...flat, ...found];
+  const byId = new Map<number, MessageSummary>();
+  for (const m of [...flat, ...found]) if (!byId.has(m.id)) byId.set(m.id, m);
+  return [...byId.values()];
 }
 
 // Teclas 1 a 9: ponen o sacan la etiqueta de esa posición en lo marcado, y si

@@ -1,4 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,22 +54,42 @@ function shell(over: Partial<ShellState> = {}): ShellState {
   } as ShellState;
 }
 
+// Una lista abierta en pantalla: la consulta tiene un observador (está activa).
+function Active({ qk, data }: { qk: unknown[]; data: unknown }) {
+  const qc = useQueryClient();
+  // Un refetch devuelve lo que haya en la caché, como haría el servidor.
+  useQuery({
+    queryKey: qk,
+    queryFn: () => qc.getQueryData(qk) ?? data,
+    staleTime: Infinity,
+  });
+  return null;
+}
+
 function Harness({ state }: { state: ShellState }) {
   useLabelKeys(state);
   return (
     <div>
       <input aria-label="caja" />
+      <input type="checkbox" aria-label="casilla" />
       <div contentEditable suppressContentEditableWarning data-testid="ce" />
     </div>
   );
 }
 
-function setup(state: ShellState, items: MessageSummary[]) {
+function setup(
+  state: ShellState,
+  items: MessageSummary[],
+  before?: (qc: QueryClient) => void,
+) {
   const qc = new QueryClient();
+  before?.(qc);
   qc.setQueryData(["labels"], LABELS);
-  qc.setQueryData(["messages", 3, false], { pages: [items], pageParams: [0] });
+  const list = { pages: [items], pageParams: [0] };
+  qc.setQueryData(["messages", 3, false], list);
   const view = render(
     <QueryClientProvider client={qc}>
+      <Active qk={["messages", 3, false]} data={list} />
       <Harness state={state} />
     </QueryClientProvider>,
   );
@@ -114,6 +139,42 @@ describe("useLabelKeys", () => {
       expect(svc.SetLabel).toHaveBeenCalledWith([1, 2], 11, true),
     );
     expect(svc.GetThread).toHaveBeenCalledWith(3, "<a@x>");
+  });
+
+  it("ignora copias viejas de consultas inactivas: pone y saca sin ids repetidos", async () => {
+    // El mismo correo en otra lista vieja (inactiva), con otra etiqueta: está
+    // primero en la caché, así que solo ignorarla evita el error.
+    const { qc } = setup(shell({ messageId: 1 }), [summary(1, [])], (c) =>
+      c.setQueryData(["messages", 3, true], {
+        pages: [[summary(1, [12]), summary(2, [])]],
+        pageParams: [0],
+      }),
+    );
+    vi.mocked(svc.SetLabel).mockImplementation((async (
+      ids: number[],
+      label: number,
+      on: boolean,
+    ) => {
+      qc.setQueryData(["messages", 3, false], {
+        pages: [ids.map((id) => summary(id, on ? [label] : []))],
+        pageParams: [0],
+      });
+    }) as never);
+    await userEvent.keyboard("2");
+    await waitFor(() => expect(svc.SetLabel).toHaveBeenCalledTimes(1));
+    await userEvent.keyboard("2");
+    await waitFor(() => expect(svc.SetLabel).toHaveBeenCalledTimes(2));
+    expect(svc.SetLabel).toHaveBeenNthCalledWith(1, [1], 12, true);
+    expect(svc.SetLabel).toHaveBeenNthCalledWith(2, [1], 12, false);
+  });
+
+  it("con foco en una casilla los números sí actúan", async () => {
+    const { getByLabelText } = setup(shell({ messageId: 1 }), [
+      summary(1, []),
+    ]);
+    getByLabelText("casilla").focus();
+    await userEvent.keyboard("1");
+    await waitFor(() => expect(svc.SetLabel).toHaveBeenCalledWith([1], 11, true));
   });
 
   it("no hace nada escribiendo, con modificadores, con diálogo o sin esa etiqueta", async () => {
