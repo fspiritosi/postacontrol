@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 
 	goimap "github.com/emersion/go-imap/v2"
@@ -284,7 +285,9 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 	if b.dest != nil {
 		// El MOVE ya pasó: si no se pudo anotar el carry, las etiquetas locales
 		// se pierden, pero la caché igual tiene que reflejar el movimiento.
-		_ = c.saveLabelCarry(ctx, accountID, b.refs)
+		if err := c.saveLabelCarry(ctx, accountID, b.refs); err != nil {
+			slog.Warn("no se pudieron guardar las etiquetas de los correos movidos", "carpeta", b.src.Name, "err", err)
+		}
 	}
 	if err := c.store.DeleteMessages(ctx, ids); err != nil {
 		return c.ctxOrUserError(ctx, err)

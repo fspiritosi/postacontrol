@@ -212,9 +212,10 @@ func (c *Core) DeleteLabel(ctx context.Context, id int64) error {
 
 // runLabelCleanups saca del servidor los keywords de etiquetas borradas que
 // quedaron pendientes en la cuenta: recorre sus carpetas seleccionables, busca
-// los mensajes con el keyword y se lo quita. Solo da el keyword por limpio si
-// todas las carpetas salieron bien; un error (de conexión o de otro tipo) lo
-// deja pendiente para la próxima pasada. Es idempotente.
+// los mensajes con el keyword y se lo quita. Una carpeta que falla por algo
+// que no es la conexión no frena a las demás. Solo da el keyword por limpio si
+// todas las carpetas salieron bien; cualquier error lo deja pendiente para la
+// próxima pasada. Es idempotente.
 func (c *Core) runLabelCleanups(ctx context.Context, accountID int64) {
 	kws, err := c.store.PendingLabelCleanups(ctx, accountID)
 	if err != nil || len(kws) == 0 {
@@ -228,31 +229,39 @@ func (c *Core) runLabelCleanups(ctx context.Context, accountID int64) {
 		if ctx.Err() != nil {
 			return
 		}
-		err := c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
+		var failed bool
+		err := c.withConn(ctx, accountID, func(ctx context.Context, conn *imapx.Conn) error {
+			failed = false // cada intento recorre todas las carpetas de nuevo
 			for _, f := range folders {
 				if !f.Selectable {
 					continue
 				}
-				if _, err := conn.SelectRW(f.Name); err != nil {
-					return err
-				}
-				uids, err := conn.SearchKeyword(kw)
-				if err != nil {
-					return err
-				}
-				if len(uids) == 0 {
-					continue
-				}
-				if err := conn.StoreFlags(uids, false, goimap.Flag(kw)); err != nil {
-					return err
+				if err := cleanFolderKeyword(conn, f.Name, kw); err != nil {
+					if errors.Is(err, imapx.ErrNetwork) || ctx.Err() != nil {
+						return err // la conexión se cayó: se corta acá
+					}
+					failed = true
 				}
 			}
 			return nil
 		})
-		if err == nil {
+		if err == nil && !failed {
 			_ = c.store.DoneLabelCleanup(ctx, accountID, kw)
 		}
 	}
+}
+
+// cleanFolderKeyword le quita el keyword a los mensajes de la carpeta que lo
+// tienen. El STORE toca solo ese keyword.
+func cleanFolderKeyword(conn *imapx.Conn, folder, kw string) error {
+	if _, err := conn.SelectRW(folder); err != nil {
+		return err
+	}
+	uids, err := conn.SearchKeyword(kw)
+	if err != nil || len(uids) == 0 {
+		return err
+	}
+	return conn.StoreFlags(uids, false, goimap.Flag(kw))
 }
 
 // SetLabel pone (on) o saca la etiqueta de los mensajes, que tienen que ser de
@@ -536,10 +545,35 @@ func (c *Core) refreshLabelFolder(ctx context.Context, f model.Folder, labelID i
 		}
 		changed = true
 	}
-	if changed {
-		if err := c.store.RecountFolder(ctx, f.ID); err != nil {
+	// Al revés: mensajes de la caché que en el servidor tienen el keyword y acá
+	// no la etiqueta (un SetLabel que le ganó al sync, o fuera de la ventana de
+	// flags que el sync revisa).
+	unlabeled := []uint32{}
+	for _, u := range remote {
+		if _, ok := labeled[u]; !ok && knownSet[u] {
+			unlabeled = append(unlabeled, u)
+		}
+	}
+	if len(unlabeled) > 0 {
+		ms, err := c.store.MessagesByUIDs(ctx, f.ID, unlabeled)
+		if err != nil {
 			return c.ctxOrUserError(ctx, err)
 		}
+		add := make([]int64, 0, len(ms))
+		for _, m := range ms {
+			add = append(add, m.ID)
+		}
+		if len(add) > 0 {
+			if err := c.store.AddMessageLabel(ctx, add, labelID, true); err != nil {
+				return c.ctxOrUserError(ctx, err)
+			}
+			changed = true
+		}
+	}
+	// No se recalculan los contadores: las etiquetas no los cambian y, en una
+	// carpeta que nunca se abrió, la caché tiene solo lo que bajó acá (los
+	// contadores buenos son los del STATUS).
+	if changed {
 		c.emit(EventFolderUpdated, map[string]any{"folderId": f.ID})
 	}
 	return nil

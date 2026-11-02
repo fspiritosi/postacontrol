@@ -685,3 +685,81 @@ func TestRefreshLabelDeadAccountDoesNotStopOthers(t *testing.T) {
 	assert.Equal(t, []string{"oculto-b"}, labeledSubjects(t, c, l.ID, 0))
 	assert.Equal(t, 1, len(n.matching(EventSyncError))-errsBefore, "la cuenta caída se intenta una sola vez")
 }
+
+func TestRefreshLabelKeepsCountsOfUnopenedFolder(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	acc, _ := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	imap.Deliver(t, "Archivo", rawMail("Bea <bea@ej.com>", "con"), goimap.Flag(kw), goimap.FlagSeen)
+	for i := range 5 {
+		imap.Deliver(t, "Archivo", rawMail("Bea <bea@ej.com>", fmt.Sprintf("sin-%d", i)))
+	}
+	// La carpeta nunca se abrió: los contadores vienen del STATUS.
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	archivoID := folderID(t, c, acc.ID, "Archivo")
+	f := folderByID(t, c, acc.ID, archivoID)
+	require.Equal(t, 6, f.Total)
+	require.Equal(t, 5, f.Unread)
+
+	require.NoError(t, c.RefreshLabel(ctx, l.ID, 0))
+	assert.Equal(t, []string{"con"}, labeledSubjects(t, c, l.ID, 0))
+	f = folderByID(t, c, acc.ID, archivoID)
+	assert.Equal(t, 6, f.Total, "las etiquetas no cambian los contadores")
+	assert.Equal(t, 5, f.Unread)
+}
+
+func TestRefreshLabelAddsMissingToCache(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "uno"))
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "dos"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	// Otro cliente (o un SetLabel que le ganó al sync) le pone el keyword a un
+	// mensaje que la caché ya tiene sin la etiqueta.
+	conn, err := imapx.Dial(ctx, imap.Settings, testUser, testPass, c.cfg.TLS)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	_, err = conn.SelectRW("INBOX")
+	require.NoError(t, err)
+	require.NoError(t, conn.StoreFlags([]uint32{2}, true, goimap.Flag(kw)))
+	assert.Empty(t, labeledSubjects(t, c, l.ID, 0))
+
+	n0 := len(n.matching(EventFolderUpdated))
+	require.NoError(t, c.RefreshLabel(ctx, l.ID, 0))
+	got := labelsByUID(t, c, inboxID)
+	assert.Equal(t, []int64{}, got[1])
+	assert.Equal(t, []int64{l.ID}, got[2])
+	assert.Contains(t, n.matching(EventFolderUpdated)[n0:], map[string]any{"folderId": inboxID})
+}
+
+func TestDeleteLabelCleanupSkipsFailingFolder(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	acc, _ := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	labeledServer(t, imap, kw)
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	// Archivo (la primera por nombre) sigue en la caché pero ya no está en el
+	// servidor: su SELECT falla sin que se caiga la conexión.
+	imap.DeleteMailbox(t, "Archivo")
+
+	require.NoError(t, c.DeleteLabel(ctx, l.ID))
+	c.wg.Wait()
+	requireNoPCKeywords(t, c, imap)
+	p, err := c.store.PendingLabelCleanups(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{kw}, p, "con una carpeta fallida la limpieza queda pendiente")
+}
