@@ -282,4 +282,7 @@ type Settings struct {
 	DisableNotifications bool `json:"disableNotifications"`
 	// ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
 	ThreadedList bool `json:"threadedList"`
+	// ReadingPane es dónde se muestra el correo abierto: "right", "bottom" o "top".
+	// Vacío (configuración vieja) se lee como "bottom".
+	ReadingPane string `json:"readingPane"`
 }

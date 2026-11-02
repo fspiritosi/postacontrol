@@ -11,9 +11,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
 import { useSettings } from "@/lib/queries";
+import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
 import { SignaturesSection } from "./SignaturesSection";
 
 type Props = { open: boolean; onOpenChange: (open: boolean) => void };
@@ -26,8 +34,15 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   // Se guarda al instante, sin botón Guardar.
   const setUnified = async (v: boolean) => {
     try {
-      await svc.SetSettings({ disableNotifications: false, threadedList: false, ...settings.data, unifiedInbox: v });
-      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      await saveSettings(queryClient, settings.data, { unifiedInbox: v });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  const setReadingPane = async (v: ReadingPane) => {
+    try {
+      await saveSettings(queryClient, settings.data, { readingPane: v });
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -40,8 +55,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
   const setNotifications = async (enabled: boolean) => {
     try {
-      await svc.SetSettings({ unifiedInbox: false, threadedList: false, ...settings.data, disableNotifications: !enabled });
-      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      await saveSettings(queryClient, settings.data, { disableNotifications: !enabled });
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -105,6 +119,26 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             disabled={startAtLogin.isPending}
             onCheckedChange={(v) => void setStartAtLogin(v)}
           />
+        </div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="reading-pane">Panel de lectura</Label>
+            <p className="text-sm text-muted-foreground">Dónde se muestra el correo abierto.</p>
+          </div>
+          <Select
+            value={readingPane(settings.data)}
+            disabled={settings.isPending}
+            onValueChange={(v) => void setReadingPane(v as ReadingPane)}
+          >
+            <SelectTrigger id="reading-pane" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="right">Derecha</SelectItem>
+              <SelectItem value="bottom">Abajo</SelectItem>
+              <SelectItem value="top">Arriba</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <SignaturesSection />
         <DialogFooter>

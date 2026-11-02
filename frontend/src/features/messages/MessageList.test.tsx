@@ -9,7 +9,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SyncFolder: vi.fn(() => new Promise(() => {})), // nunca termina
   SetFlagged: vi.fn(() => Promise.resolve()),
   GetSettings: vi.fn(() =>
-    Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false }),
+    Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false, readingPane: "" }),
   ),
   SetSettings: vi.fn(() => Promise.resolve()),
   ListThreads: vi.fn(() => Promise.resolve([])),
@@ -106,7 +106,7 @@ describe("MessageList conversaciones", () => {
   });
 
   it("el interruptor guarda threadedList y muestra hilos", async () => {
-    const settings = { unifiedInbox: true, disableNotifications: true, threadedList: false };
+    const settings = { unifiedInbox: true, disableNotifications: true, threadedList: false, readingPane: "" };
     vi.mocked(svc.GetSettings).mockResolvedValue(settings);
     vi.mocked(svc.ListThreads).mockResolvedValue([
       { threadRoot: "<r@x>", latest: summary(1, 7), count: 2, unread: 0, participants: ["Ana", "Beto"] },
@@ -125,7 +125,7 @@ describe("MessageList conversaciones", () => {
 
   it("en vista unificada no aparece el interruptor", async () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
-      unifiedInbox: true, disableNotifications: false, threadedList: true,
+      unifiedInbox: true, disableNotifications: false, threadedList: true, readingPane: "",
     });
     renderList({ kind: "unified", role: "inbox" });
     expect(await screen.findByText("No hay correos en esta vista.")).toBeTruthy();

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false })),
@@ -25,6 +25,14 @@ function renderDialog() {
   );
 }
 
+// Radix pide APIs de puntero que jsdom no trae.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.scrollIntoView = () => {};
+});
+
 describe("SettingsDialog", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -38,7 +46,7 @@ describe("SettingsDialog", () => {
     const sw = await screen.findByRole("switch", { name: "Bandeja unificada" });
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     await user.click(sw);
-    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, threadedList: false }));
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, threadedList: false, readingPane: "" }));
   });
 
   it("el interruptor de notificaciones guarda disableNotifications", async () => {
@@ -49,7 +57,7 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, threadedList: false }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, threadedList: false, readingPane: "" }),
     );
   });
 
@@ -71,5 +79,28 @@ describe("SettingsDialog", () => {
     await user.click(sw);
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("false"));
+  });
+
+  it("elegir Derecha guarda readingPane y conserva el resto", async () => {
+    const user = userEvent.setup();
+    vi.mocked(svc.GetSettings).mockResolvedValueOnce({
+      unifiedInbox: true,
+      disableNotifications: true,
+      threadedList: true,
+      readingPane: "",
+    });
+    renderDialog();
+    const trigger = await screen.findByRole("combobox", { name: "Panel de lectura" });
+    await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+    await user.click(trigger);
+    await user.click(await screen.findByRole("option", { name: "Derecha" }));
+    await waitFor(() =>
+      expect(svc.SetSettings).toHaveBeenCalledWith({
+        unifiedInbox: true,
+        disableNotifications: true,
+        threadedList: true,
+        readingPane: "right",
+      }),
+    );
   });
 });

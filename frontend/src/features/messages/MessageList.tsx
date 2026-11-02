@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
-import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -10,6 +9,7 @@ import { errorMessage } from "@/lib/errors";
 import { useFolderSyncing, useSyncProgress } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
 import { useAllFolders, useMessages, useSettings } from "@/lib/queries";
+import { saveSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { UNIFIED_LABEL } from "@/lib/view";
 import type { ShellState } from "../layout/MailShell";
@@ -59,14 +59,8 @@ export function MessageList({
   // Se guarda al instante, conservando el resto de la configuración.
   const setThreaded = async (v: boolean) => {
     try {
-      await svc.SetSettings({
-        unifiedInbox: false,
-        disableNotifications: false,
-        ...settings.data,
-        threadedList: v,
-      });
+      await saveSettings(queryClient, settings.data, { threadedList: v });
       if (!v) state.selectThread(null);
-      void queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (e) {
       toast.error(errorMessage(e));
     }

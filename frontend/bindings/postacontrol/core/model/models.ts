@@ -317,6 +317,12 @@ export interface Settings {
      * ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
      */
     "threadedList": boolean;
+
+    /**
+     * ReadingPane es dónde se muestra el correo abierto: "right", "bottom" o "top".
+     * Vacío (configuración vieja) se lee como "bottom".
+     */
+    "readingPane": string;
 }
 
 /**

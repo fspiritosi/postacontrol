@@ -18,3 +18,23 @@ func TestSetSettings_PersistsAndNotifies(t *testing.T) {
 	assert.True(t, got.UnifiedInbox)
 	assert.Contains(t, n.names(), EventSettingsChanged)
 }
+
+func TestSetSettings_ReadingPane(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	require.NoError(t, c.SetSettings(context.Background(), model.Settings{ReadingPane: "top"}))
+	got, err := c.GetSettings(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "top", got.ReadingPane)
+}
+
+func TestSetSettings_ReadingPaneInvalid(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	require.NoError(t, c.SetSettings(context.Background(), model.Settings{ReadingPane: "right"}))
+	err := c.SetSettings(context.Background(), model.Settings{ReadingPane: "left"})
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "invalid", ue.Code)
+	got, err := c.GetSettings(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "right", got.ReadingPane)
+}
