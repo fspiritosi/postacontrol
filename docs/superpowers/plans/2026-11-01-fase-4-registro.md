@@ -90,8 +90,6 @@ La revisión de los pares de tareas (lo que una produce y la otra consume) y de 
   - falta uno de `SuggestRecipients` rechazado;
   - `TestSend_FailureRecordsNoRecipients` es solo una guarda.
 
-## Pendiente
+## Aceptación
 
-- **Task 6:** la prueba manual de Fabricio con `task install:desktop`. Sumar estos chequeos:
-  - escribir completa una dirección que es parte de la de un contacto y apretar Enter: tiene que quedar la escrita;
-  - en el primer arranque con la base real, que la migración no demore.
+- **Task 6:** Fabricio la probó con la app instalada y la dio por buena el 2026-11-01, después del merge (8f50783).
