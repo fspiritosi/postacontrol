@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
-import { isRootLevel, moveTargets, type FolderNode } from "@/lib/folders";
+import { folderLabel, isRootLevel, moveTargets, type FolderNode } from "@/lib/folders";
 
 // Los cambios de carpetas también llegan por `mail:folders-updated`, pero
 // invalidamos acá para no depender del evento.
@@ -182,13 +182,13 @@ export function MoveDialog({
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 // null cuando no hay nada que avisar: carpeta vacía y sin subcarpetas.
-export function deleteDescription(info: FolderDeleteInfo): string | null {
+export function deleteDescription(info: FolderDeleteInfo, delimiter = ""): string | null {
   const subs = info.subfolders ?? [];
   const total = info.total + subs.reduce((n, s) => n + s.total, 0);
   if (total === 0 && subs.length === 0) return null;
   let head = `Tiene ${plural(info.total, "correo", "correos")}`;
   if (subs.length > 0) {
-    const list = subs.map((s) => `«${s.name}», con ${plural(s.total, "correo", "correos")}`).join("; ");
+    const list = subs.map((s) => `«${folderLabel({ name: s.name, delimiter, role: "" })}», con ${plural(s.total, "correo", "correos")}`).join("; ");
     head += ` y ${plural(subs.length, "subcarpeta", "subcarpetas")} (${list})`;
   }
   return `${head}. Los ${total} correos van a la Papelera y las carpetas se borran del servidor.`;
@@ -227,7 +227,7 @@ export function DeleteDialog({ node, onClose }: { node: FolderNode; onClose: () 
     }
   };
 
-  const description = info ? deleteDescription(info) : null;
+  const description = info ? deleteDescription(info, node.delimiter) : null;
   return (
     <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent>

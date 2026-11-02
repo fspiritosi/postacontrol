@@ -62,7 +62,7 @@ describe("DeleteDialog", () => {
   it("muestra Contando correos… y después el texto con los conteos del preview", async () => {
     vi.mocked(svc.DeleteFolderPreview).mockResolvedValue({
       total: 48,
-      subfolders: [{ name: "Acme", total: 7 }],
+      subfolders: [{ name: "Clientes/Acme", total: 7 }],
     });
     wrap(<DeleteDialog node={clientes} onClose={vi.fn()} />);
     expect(screen.getByText("Contando correos…")).toBeTruthy();
@@ -70,6 +70,19 @@ describe("DeleteDialog", () => {
     expect(
       await screen.findByText(
         "Tiene 48 correos y 1 subcarpeta («Acme», con 7 correos). Los 55 correos van a la Papelera y las carpetas se borran del servidor.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("muestra solo el último segmento del nombre de cada subcarpeta", async () => {
+    vi.mocked(svc.DeleteFolderPreview).mockResolvedValue({
+      total: 1,
+      subfolders: [{ name: "Clientes/Acme", total: 2 }, { name: "Clientes/Acme/2025", total: 3 }],
+    });
+    wrap(<DeleteDialog node={clientes} onClose={vi.fn()} />);
+    expect(
+      await screen.findByText(
+        "Tiene 1 correo y 2 subcarpetas («Acme», con 2 correos; «2025», con 3 correos). Los 6 correos van a la Papelera y las carpetas se borran del servidor.",
       ),
     ).toBeTruthy();
   });

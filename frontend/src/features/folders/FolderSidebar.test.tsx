@@ -389,6 +389,22 @@ describe("FolderSidebar", () => {
       expect(item("Subir").getAttribute("aria-disabled")).toBe("true");
     });
 
+    it("Subir y Bajar saltean los hermanos sintetizados", async () => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        folder(10, "Alfa"),
+        folder(11, "Sin/Hija"),
+        folder(12, "Zeta"),
+      ] as never);
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Zeta");
+      await user.click(item("Subir"));
+      await waitFor(() => expect(svc.SetFolderOrder).toHaveBeenCalledWith(7, [12, 10]));
+      await user.keyboard("{Escape}");
+      await menuOf("Alfa");
+      expect(item("Subir").getAttribute("aria-disabled")).toBe("true");
+    });
+
     it("en una especial se deshabilitan Renombrar, Mover y Eliminar", async () => {
       renderSidebar([account]);
       await menuOf("Entrada");

@@ -159,7 +159,8 @@ function FolderRow({
       );
   // Menú contextual: los padres sintetizados (id 0) no tienen. Una especial
   // no se renombra, mueve ni elimina, pero sí admite subcarpetas y orden.
-  const siblings = siblingsOf(actions.tree, node);
+  // Subir/Bajar se mueven entre hermanos reales (los sintetizados no se guardan).
+  const siblings = siblingsOf(actions.tree, node).filter((n) => n.id !== 0);
   const idx = siblings.findIndex((n) => n.name === node.name);
   const modifiable = canModify(node);
   return (
@@ -252,7 +253,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
 
   // Sube o baja una carpeta entre sus hermanos y guarda el orden completo.
   const shift = async (node: FolderNode, dir: -1 | 1) => {
-    const sibs = siblingsOf(tree, node);
+    const sibs = siblingsOf(tree, node).filter((n) => n.id !== 0);
     const i = sibs.findIndex((n) => n.name === node.name);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= sibs.length) return;
@@ -261,7 +262,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     try {
       await svc.SetFolderOrder(
         account.id,
-        next.filter((n) => n.id !== 0).map((n) => n.id),
+        next.map((n) => n.id),
       );
       void queryClient.invalidateQueries({ queryKey: ["folders", account.id] });
     } catch (e) {
