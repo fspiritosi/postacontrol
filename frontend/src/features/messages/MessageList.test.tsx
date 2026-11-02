@@ -20,6 +20,7 @@ vi.mock("../compose/ComposerContext", () => ({ useComposer: () => ({ openCompose
 import type { Account, MessageSummary } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import { relativeDate } from "@/lib/format";
 import { resetSyncStateForTests, syncFolder } from "@/lib/events";
 import type { View } from "@/lib/view";
 import { MessageList } from "./MessageList";
@@ -96,6 +97,39 @@ describe("MessageList", () => {
     fireEvent.click(star);
     expect(svc.SetFlagged).toHaveBeenCalledWith([1], true);
     expect(selectMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("MessageList posición del panel", () => {
+  beforeEach(() => resetSyncStateForTests());
+
+  const withPane = (readingPane: string) =>
+    vi.mocked(svc.GetSettings).mockResolvedValue({
+      unifiedInbox: false, disableNotifications: false, threadedList: false, readingPane,
+    });
+
+  it("con el lector abajo, las filas son de un renglón", async () => {
+    withPane("bottom");
+    vi.mocked(svc.ListUnified).mockResolvedValueOnce([summary(1, 7)]);
+    renderList({ kind: "unified", role: "inbox" });
+    const star = await screen.findByRole("button", { name: "Destacar" });
+    const li = star.closest("li")!;
+    await waitFor(() => expect(li.getAttribute("data-density")).toBe("compact"));
+    expect(li.textContent).toContain("Remitente 1");
+    expect(li.textContent).toContain("Asunto 1");
+    expect(li.textContent).toContain(relativeDate("2026-10-30T10:00:00Z"));
+    fireEvent.click(star);
+    expect(svc.SetFlagged).toHaveBeenCalledWith([1], true);
+  });
+
+  it("con el lector a la derecha, las filas son de tres renglones", async () => {
+    withPane("right");
+    vi.mocked(svc.ListUnified).mockResolvedValueOnce([summary(1, 7)]);
+    renderList({ kind: "unified", role: "inbox" });
+    const star = await screen.findByRole("button", { name: "Destacar" });
+    await waitFor(() =>
+      expect(star.closest("li")!.getAttribute("data-density")).toBe("comfortable"),
+    );
   });
 });
 

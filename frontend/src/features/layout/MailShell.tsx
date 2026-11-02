@@ -1,8 +1,9 @@
 import { MailIcon, PencilIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
 import { onOpenMessage, syncFolder, syncUnified } from "@/lib/events";
 import { useAllFolders, useSettings } from "@/lib/queries";
+import { useReadingPane, type ReadingPane } from "@/lib/settings";
 import { defaultView, loadView, saveView, viewAccount, viewIsValid, type View } from "@/lib/view";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -13,25 +14,43 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 
-const LAYOUT_KEY = "pc:layout";
-const DEFAULT_LAYOUT = { sidebar: 18, list: 30, reader: 52 };
+type Sizes = Record<string, number>;
+type Layouts = { outer: Sizes; inner: Sizes };
 
-function loadLayout(): Record<string, number> {
+// Los tamaños se guardan por posición del panel de lectura: la clave vieja
+// (pc:layout, de tres paneles en fila) ya no sirve y se ignora.
+const layoutKey = (pane: ReadingPane) => `pc:layout:${pane}`;
+
+function defaultLayouts(pane: ReadingPane): Layouts {
+  return {
+    outer: { sidebar: 18, main: 82 },
+    inner: pane === "right" ? { list: 36, reader: 64 } : { list: 40, reader: 60 },
+  };
+}
+
+const hasKeys = (l: unknown, keys: string[]): l is Sizes =>
+  typeof l === "object" && l != null && keys.every((k) => typeof (l as Sizes)[k] === "number");
+
+function loadLayouts(pane: ReadingPane): Layouts {
   try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
+    const raw = localStorage.getItem(layoutKey(pane));
     if (raw) {
-      const l = JSON.parse(raw) as Record<string, number>;
-      if (["sidebar", "list", "reader"].every((k) => typeof l[k] === "number")) return l;
+      const l = JSON.parse(raw) as Partial<Layouts>;
+      if (hasKeys(l.outer, ["sidebar", "main"]) && hasKeys(l.inner, ["list", "reader"])) {
+        return { outer: l.outer, inner: l.inner };
+      }
     }
   } catch {
     // sin almacenamiento o JSON inválido: se usan los tamaños por defecto
   }
-  return DEFAULT_LAYOUT;
+  return defaultLayouts(pane);
 }
 
-function saveLayout(layout: Record<string, number>) {
+// Guarda solo uno de los dos grupos y deja el otro como estaba.
+function saveLayout(pane: ReadingPane, group: keyof Layouts, sizes: Sizes) {
   try {
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+    const current = loadLayouts(pane);
+    localStorage.setItem(layoutKey(pane), JSON.stringify({ ...current, [group]: sizes }));
   } catch {
     // ignorar: guardar el layout es opcional
   }
@@ -99,7 +118,9 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [contactId, setContactId] = useState<number | null>(null);
   const { folders, pending } = useAllFolders(accounts);
   const settings = useSettings();
-  const [layout] = useState(loadLayout);
+  const pane = useReadingPane();
+  // Los tamaños arrancan según la posición; al cambiarla se leen los de la nueva.
+  const layout = useMemo(() => loadLayouts(pane), [pane]);
   const composer = useComposer();
   // La última vista elegida que ya se guardó y se mandó a sincronizar.
   const syncedRef = useRef<View | null>(null);
@@ -176,6 +197,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     [selectView],
   );
 
+  const vertical = pane !== "right";
   const view = !ready || valid ? chosen : null;
   const composeAccount = viewAccount(view, folders, accounts) ?? accounts[0];
 
@@ -198,10 +220,10 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
       {extras?.(state)}
       <ResizablePanelGroup
         orientation="horizontal"
-        defaultLayout={layout}
-        onLayoutChanged={saveLayout}
+        defaultLayout={layout.outer}
+        onLayoutChanged={(sizes) => saveLayout(pane, "outer", sizes)}
       >
-        <ResizablePanel id="sidebar" defaultSize={`${layout.sidebar}%`} minSize="14%" className="bg-sidebar">
+        <ResizablePanel id="sidebar" defaultSize={`${layout.outer.sidebar}%`} minSize="14%" className="bg-sidebar">
           <div className="flex h-full flex-col">
             <div className="p-2">
               <Button className="w-full" onClick={() => composer.openNew(composeAccount.id)}>
@@ -227,18 +249,48 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
           </div>
         </ResizablePanel>
         <ResizableHandle />
-        <ResizablePanel id="list" defaultSize={`${layout.list}%`} minSize="22%">
-          {list ? list(state) : <Placeholder>Elegí una carpeta</Placeholder>}
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel id="reader" defaultSize={`${layout.reader}%`} minSize="30%">
-          {reader ? (
-            reader(state)
-          ) : (
-            <Placeholder>
-              <MailIcon className="mr-2 size-4" /> Elegí un correo para leerlo
-            </Placeholder>
-          )}
+        <ResizablePanel id="main" defaultSize={`${layout.outer.main}%`} minSize="40%">
+          {/* key = posición: al cambiarla el grupo se vuelve a montar con sus tamaños. */}
+          <ResizablePanelGroup
+            key={pane}
+            orientation={vertical ? "vertical" : "horizontal"}
+            defaultLayout={layout.inner}
+            onLayoutChanged={(sizes) => saveLayout(pane, "inner", sizes)}
+          >
+            {pane === "top" ? (
+              <>
+                <ResizablePanel id="reader" defaultSize={`${layout.inner.reader}%`} minSize={vertical ? "20%" : "30%"}>
+              {reader ? (
+                reader(state)
+              ) : (
+                <Placeholder>
+                  <MailIcon className="mr-2 size-4" /> Elegí un correo para leerlo
+                </Placeholder>
+              )}
+            </ResizablePanel>
+                <ResizableHandle />
+                <ResizablePanel id="list" defaultSize={`${layout.inner.list}%`} minSize={vertical ? "20%" : "22%"}>
+              {list ? list(state) : <Placeholder>Elegí una carpeta</Placeholder>}
+            </ResizablePanel>
+              </>
+            ) : (
+              <>
+                <ResizablePanel id="list" defaultSize={`${layout.inner.list}%`} minSize={vertical ? "20%" : "22%"}>
+              {list ? list(state) : <Placeholder>Elegí una carpeta</Placeholder>}
+            </ResizablePanel>
+                <ResizableHandle />
+                <ResizablePanel id="reader" defaultSize={`${layout.inner.reader}%`} minSize={vertical ? "20%" : "30%"}>
+              {reader ? (
+                reader(state)
+              ) : (
+                <Placeholder>
+                  <MailIcon className="mr-2 size-4" /> Elegí un correo para leerlo
+                </Placeholder>
+              )}
+            </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

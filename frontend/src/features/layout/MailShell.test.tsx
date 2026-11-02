@@ -47,10 +47,10 @@ const FOLDERS: Record<number, Folder[]> = {
   5: [folder(51, 5, "inbox")],
 };
 
-function setup(saved: View | null, unifiedInbox: boolean) {
+function setup(saved: View | null, unifiedInbox: boolean, readingPane = "") {
   if (saved) localStorage.setItem("pc:view", JSON.stringify(saved));
   vi.mocked(svc.ListFolders).mockImplementation((id: number) => Promise.resolve(FOLDERS[id]) as never);
-  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, threadedList: false, readingPane: "" });
+  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, threadedList: false, readingPane });
   let current: ShellState | null = null;
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -60,6 +60,7 @@ function setup(saved: View | null, unifiedInbox: boolean) {
           current = s;
           return <p data-testid="view">{JSON.stringify(s.view)}</p>;
         }}
+        reader={() => <p>lector</p>}
       />
     </QueryClientProvider>,
   );
@@ -192,5 +193,38 @@ describe("MailShell contactos", () => {
     setup({ kind: "contacts" }, false);
     await waitFor(() => expect(shown()).toEqual({ kind: "contacts" }));
     expect(svc.SyncFolder).not.toHaveBeenCalled();
+  });
+});
+
+describe("MailShell posición del panel de lectura", () => {
+  afterEach(() => localStorage.clear());
+
+  const panel = (id: string) => document.querySelector(`[data-panel][id="${id}"]`);
+  // El grupo no rinde aria-orientation: la orientación se ve en su flex-direction.
+  const innerGroup = () => panel("list")!.parentElement as HTMLElement;
+
+  async function ready() {
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 21 }));
+  }
+
+  it("con el lector abajo, la lista va antes que el lector en un grupo vertical", async () => {
+    setup(null, false, "bottom");
+    await ready();
+    expect(innerGroup().style.flexDirection).toBe("column");
+    expect(panel("list")!.compareDocumentPosition(panel("reader")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("con el lector arriba, el lector va primero en un grupo vertical", async () => {
+    setup(null, false, "top");
+    await ready();
+    expect(innerGroup().style.flexDirection).toBe("column");
+    expect(panel("reader")!.compareDocumentPosition(panel("list")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("con el lector a la derecha, el grupo es horizontal", async () => {
+    setup(null, false, "right");
+    await ready();
+    expect(innerGroup().style.flexDirection).toBe("row");
+    expect(panel("list")!.compareDocumentPosition(panel("reader")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
