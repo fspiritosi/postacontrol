@@ -223,8 +223,8 @@ export function useMailEvents(queryClient: QueryClient): void {
         refreshSearchThrottled();
       }),
       Events.On("mail:settings-changed", () => {
+        // También cambia el fondo: useBackground va por el nombre guardado.
         void queryClient.invalidateQueries({ queryKey: ["settings"] });
-        void queryClient.invalidateQueries({ queryKey: ["background"] });
       }),
       Events.On("mail:sync-progress", (ev) => {
         const p = ev.data as SyncProgress;

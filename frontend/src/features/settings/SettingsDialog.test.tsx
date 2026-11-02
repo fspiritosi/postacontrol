@@ -114,6 +114,8 @@ describe("SettingsDialog", () => {
     renderDialog();
     await user.click(await screen.findByRole("button", { name: "Elegir imagen…" }));
     await waitFor(() => expect(svc.PickBackground).toHaveBeenCalled());
+    // Recarga la configuración, que trae el nombre del fondo nuevo.
+    await waitFor(() => expect(svc.GetSettings).toHaveBeenCalledTimes(2));
   });
 
   it("Quitar llama a ClearBackground y solo aparece con fondo puesto", async () => {
@@ -123,6 +125,13 @@ describe("SettingsDialog", () => {
   });
 
   it("con fondo muestra la miniatura y Quitar", async () => {
+    vi.mocked(svc.GetSettings).mockResolvedValueOnce({
+      unifiedInbox: false,
+      disableNotifications: false,
+      threadedList: false,
+      readingPane: "",
+      background: "background-1.png",
+    });
     vi.mocked(svc.BackgroundImage).mockResolvedValue("data:image/png;base64,AAAA");
     const user = userEvent.setup();
     renderDialog();

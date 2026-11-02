@@ -34,7 +34,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
   const pickBackground = async () => {
     try {
-      if (await svc.PickBackground()) await queryClient.invalidateQueries({ queryKey: ["background"] });
+      // El nombre nuevo del fondo llega con la configuración.
+      if (await svc.PickBackground()) await queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -42,7 +43,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   const clearBackground = async () => {
     try {
       await svc.ClearBackground();
-      await queryClient.invalidateQueries({ queryKey: ["background"] });
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (e) {
       toast.error(errorMessage(e));
     }

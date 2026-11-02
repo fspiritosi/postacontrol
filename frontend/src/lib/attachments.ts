@@ -3,23 +3,24 @@ import type { Attachment } from "../../bindings/postacontrol/core/model/models";
 export type ViewKind = "pdf" | "image";
 
 // Lo que el visor abre. SVG queda afuera a propósito: puede traer scripts.
-const BY_MIME: Record<string, ViewKind> = {
-  "application/pdf": "pdf",
-  "image/png": "image",
-  "image/jpeg": "image",
-  "image/gif": "image",
-  "image/webp": "image",
-};
+// Map y no objeto: un MIME como "constructor" no encuentra nada heredado.
+const BY_MIME = new Map<string, ViewKind>([
+  ["application/pdf", "pdf"],
+  ["image/png", "image"],
+  ["image/jpeg", "image"],
+  ["image/gif", "image"],
+  ["image/webp", "image"],
+]);
 
 // Extensión → MIME real, para cuando el correo manda un MIME genérico.
-const BY_EXT: Record<string, string> = {
-  pdf: "application/pdf",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-};
+const BY_EXT = new Map<string, string>([
+  ["pdf", "application/pdf"],
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["gif", "image/gif"],
+  ["webp", "image/webp"],
+]);
 
 // MIME que no dicen nada del contenido: ahí se decide por la extensión.
 const GENERIC = new Set(["", "application/octet-stream", "binary/octet-stream", "application/x-download", "application/force-download"]);
@@ -37,14 +38,14 @@ function extension(filename: string): string {
 // previsualiza. Un MIME específico manda; uno genérico cede a la extensión.
 export function viewMime(a: Pick<Attachment, "mimeType" | "filename">): string | null {
   const m = baseMime(a.mimeType);
-  if (m in BY_MIME) return m;
+  if (BY_MIME.has(m)) return m;
   if (!GENERIC.has(m)) return null;
-  return BY_EXT[extension(a.filename)] ?? null;
+  return BY_EXT.get(extension(a.filename)) ?? null;
 }
 
 export function viewKind(a: Pick<Attachment, "mimeType" | "filename">): ViewKind | null {
   const m = viewMime(a);
-  return m ? BY_MIME[m] : null;
+  return m ? (BY_MIME.get(m) ?? null) : null;
 }
 
 export function base64ToBytes(s: string): Uint8Array {

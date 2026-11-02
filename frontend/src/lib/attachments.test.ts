@@ -32,6 +32,13 @@ describe("viewKind", () => {
     expect(k("application/octet-stream", "dibujo.svg")).toBeNull();
   });
 
+  it("no confunde propiedades heredadas con tipos conocidos", () => {
+    expect(k("constructor")).toBeNull();
+    expect(k("toString")).toBeNull();
+    expect(k("application/octet-stream", "x.constructor")).toBeNull();
+    expect(k("application/octet-stream", "x.__proto__")).toBeNull();
+  });
+
   it("un MIME específico manda sobre la extensión", () => {
     expect(k("application/zip", "trampa.pdf")).toBeNull();
   });

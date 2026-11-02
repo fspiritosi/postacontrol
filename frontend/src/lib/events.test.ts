@@ -124,6 +124,9 @@ describe("useMailEvents", () => {
   it("recarga la configuración cuando cambia", () => {
     emit("mail:settings-changed", null);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });
+    // El fondo va por el nombre guardado en la configuración: no se relee
+    // por cualquier cambio.
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["background"] });
   });
 
   it("recarga la lista mientras llegan lotes, como mucho cada 500 ms", () => {

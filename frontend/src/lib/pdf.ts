@@ -16,7 +16,8 @@ export type PdfDoc = {
   // pedido o releaseCanvas la interrumpe, rechaza con un error de nombre
   // RENDER_CANCELLED.
   renderPage(n: number, canvas: HTMLCanvasElement, scale: number): Promise<{ width: number; height: number }>;
-  // Corta lo que se esté dibujando en la canvas y libera su memoria (0×0).
+  // Corta lo que se esté dibujando en la canvas y libera su memoria (0×0,
+  // también en CSS).
   releaseCanvas(canvas: HTMLCanvasElement): void;
   destroy(): void;
 };
@@ -119,6 +120,8 @@ export async function loadPdf(data: Uint8Array): Promise<PdfDoc> {
       running.get(canvas)?.cancel();
       canvas.width = 0;
       canvas.height = 0;
+      canvas.style.width = "";
+      canvas.style.height = "";
     },
     destroy() {
       void task.destroy();

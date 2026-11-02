@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/pdf", () => ({ loadPdf: vi.fn() }));
@@ -59,6 +59,60 @@ describe("PdfView", () => {
     const box = container.querySelector("canvas")!.parentElement!;
     expect(box.style.width).toBe("1000px");
     expect(box.style.height).toBe("1400px");
+    // Una canvas liberada no agranda el recuadro.
+    expect(box).toHaveClass("overflow-hidden");
+  });
+
+  // Geometría falsa: páginas de 500 × 700 · zoom apiladas desde 16, con 16 de
+  // separación. El scroller mide 400 de ancho y su contenido 500 · zoom + 32.
+  function stubLayout() {
+    const boxHeight = (el: HTMLElement) => parseFloat((el.firstChild as HTMLElement | null)?.style.height ?? "0");
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.dataset.page ? boxHeight(this) : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) {
+      const n = Number(this.dataset.page ?? 0);
+      return n ? 16 + (n - 1) * (boxHeight(this) + 16) : 0;
+    });
+  }
+
+  it("al cambiar el zoom se queda en la misma página y en el mismo punto", async () => {
+    fakeDoc(30);
+    stubLayout();
+    let zoom = 1;
+    const { container, rerender } = render(<PdfView data={bytes} zoom={zoom} />);
+    await waitFor(() => expect(container.querySelectorAll("canvas")).toHaveLength(30));
+    const scroller = container.firstChild as HTMLDivElement;
+    Object.defineProperty(scroller, "clientWidth", { get: () => 400 });
+    Object.defineProperty(scroller, "scrollWidth", { get: () => 500 * zoom + 32 });
+
+    // Mitad de la página 16 a 100% (alto 700 + 16 de separación), con el
+    // centro de la vista en el centro del contenido (532 / 2 = 266).
+    scroller.scrollTop = 16 + 15 * 716 + 350;
+    scroller.scrollLeft = 66;
+    fireEvent.scroll(scroller);
+
+    zoom = 2;
+    rerender(<PdfView data={bytes} zoom={zoom} />);
+    // A 200% la página mide 1400: mitad de la 16 = 16 + 15 · 1416 + 700.
+    expect(scroller.scrollTop).toBe(16 + 15 * 1416 + 700);
+    // Contenido de 1032: el centro (516) sigue en el centro de la vista.
+    expect(scroller.scrollLeft).toBe(516 - 200);
+
+    // Y de vuelta, sin moverse en el medio.
+    zoom = 0.5;
+    rerender(<PdfView data={bytes} zoom={zoom} />);
+    expect(scroller.scrollTop).toBe(16 + 15 * 366 + 175);
+  });
+
+  it("sin haberse movido, cambiar el zoom deja la vista arriba", async () => {
+    fakeDoc(3);
+    stubLayout();
+    const { container, rerender } = render(<PdfView data={bytes} zoom={1} />);
+    await waitFor(() => expect(container.querySelectorAll("canvas")).toHaveLength(3));
+    const scroller = container.firstChild as HTMLDivElement;
+    rerender(<PdfView data={bytes} zoom={2} />);
+    expect(scroller.scrollTop).toBe(0);
   });
 
   it("PDF que no abre muestra el error", async () => {

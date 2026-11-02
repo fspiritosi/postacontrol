@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, FileTextIcon, ImageIcon, PaperclipIcon, XIcon } from "lucide-react";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
-import type { Attachment } from "../../../bindings/postacontrol/core/model/models";
+import type { Attachment, AttachmentData } from "../../../bindings/postacontrol/core/model/models";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { base64ToBytes, viewKind, viewMime } from "@/lib/attachments";
 import { errorMessage } from "@/lib/errors";
@@ -65,13 +65,15 @@ export function AttachmentViewer({
   const key = `${messageId}:${current}`;
 
   // Lee los bytes del adjunto. El blob URL de una imagen nace acá y se revoca
-  // en la limpieza: al pasar a otro adjunto o al cerrar.
+  // en la limpieza: al pasar a otro adjunto o al cerrar. La limpieza también
+  // cancela la lectura si sigue en curso (la llamada de Wails es cancelable),
+  // así no se siguen bajando hasta 50 MB que ya nadie va a ver.
   useEffect(() => {
     if (!kind || !mime) return;
     let live = true;
     let url: string | null = null;
-    svc
-      .AttachmentData(messageId, current)
+    const call: Promise<AttachmentData> & { cancel?: () => unknown } = svc.AttachmentData(messageId, current);
+    call
       .then((d) => {
         if (!live) return;
         const bytes = base64ToBytes(d.data ?? "");
@@ -91,6 +93,7 @@ export function AttachmentViewer({
       });
     return () => {
       live = false;
+      void call.cancel?.();
       if (url) URL.revokeObjectURL(url);
     };
   }, [messageId, current, kind, mime, key]);

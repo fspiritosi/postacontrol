@@ -18,6 +18,9 @@ const FALLBACK_SIZE = { width: 612, height: 792 };
 
 type Size = { width: number; height: number };
 type State = { doc: PdfDoc; sizes: Size[] } | { failed: true } | null;
+// Punto de lectura: página (índice), fracción de su alto que quedó arriba de la
+// vista y centro horizontal de la vista como fracción del ancho del contenido.
+type Anchor = { page: number; y: number; x: number };
 
 // PdfView muestra las páginas del PDF una debajo de otra. `zoom` null es
 // "Ajustar": cada página se escala al ancho del contenedor. `onPageChange`
@@ -37,6 +40,8 @@ export function PdfView({
   const [near, setNear] = useState<ReadonlySet<number>>(() => new Set());
   const scroller = useRef<HTMLDivElement>(null);
   const pages = useRef<(HTMLDivElement | null)[]>([]);
+  // Se anota al desplazarse; vale para cualquier zoom porque es relativo.
+  const anchor = useRef<Anchor | null>(null);
   const notify = useRef(onPageChange);
   useLayoutEffect(() => {
     notify.current = onPageChange;
@@ -69,6 +74,7 @@ export function PdfView({
       live = false;
       doc?.destroy();
       setState(null);
+      anchor.current = null;
     };
   }, [data]);
 
@@ -147,6 +153,41 @@ export function PdfView({
     };
   }, [doc]);
 
+  // Al cambiar el zoom (o el ancho, con "Ajustar") cambian los altos de las
+  // páginas pero no scrollTop, que está en px: se vuelve al punto de lectura
+  // anotado antes de que se pinte.
+  const layoutKey = zoom === null ? `fit:${width}` : `zoom:${zoom}`;
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const a = anchor.current;
+    const p = a && pages.current[a.page];
+    if (!el || !a || !p) return;
+    el.scrollTop = p.offsetTop + a.y * p.offsetHeight;
+    el.scrollLeft = Math.max(0, a.x * el.scrollWidth - el.clientWidth / 2);
+  }, [layoutKey]);
+
+  const onScroll = () => {
+    const el = scroller.current;
+    const n = state && "sizes" in state ? state.sizes.length : 0;
+    if (!el || n === 0) return;
+    // Primera página que no quedó entera arriba de la vista (búsqueda binaria:
+    // las páginas van en orden).
+    const top = el.scrollTop;
+    let lo = 0;
+    let hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const p = pages.current[mid];
+      if (p && top >= p.offsetTop + p.offsetHeight) lo = mid + 1;
+      else hi = mid;
+    }
+    const p = pages.current[lo];
+    if (!p) return;
+    const y = p.offsetHeight > 0 ? Math.min(1, Math.max(0, (top - p.offsetTop) / p.offsetHeight)) : 0;
+    const x = el.scrollWidth > 0 ? (el.scrollLeft + el.clientWidth / 2) / el.scrollWidth : 0.5;
+    anchor.current = { page: lo, y, x };
+  };
+
   if (state && "failed" in state) {
     return (
       <div className="flex size-full items-center justify-center">
@@ -158,7 +199,7 @@ export function PdfView({
   const everyPage = typeof IntersectionObserver === "undefined";
 
   return (
-    <div ref={scroller} className="size-full overflow-auto">
+    <div ref={scroller} className="relative size-full overflow-auto" onScroll={onScroll}>
       {!state ? (
         <div className="flex size-full items-center justify-center">
           <p className="text-sm text-zinc-400">Cargando…</p>
@@ -243,7 +284,7 @@ function PdfPage({
   const s = scale ?? 1;
   return (
     <div
-      className="relative bg-white shadow-md"
+      className="relative overflow-hidden bg-white shadow-md"
       style={{ width: Math.floor(size.width * s), height: Math.floor(size.height * s) }}
     >
       <canvas ref={canvas} className="block" />

@@ -86,12 +86,16 @@ export function useSettings() {
   });
 }
 
-// Data URL del fondo del panel de lectura ("" si no hay). Cambia solo cuando
-// llega mail:settings-changed.
+// Data URL del fondo del panel de lectura (sin datos si no hay). La clave es
+// el archivo guardado en la configuración, que cambia de nombre con cada
+// fondo nuevo: la imagen (hasta 20 MB) se lee una vez por fondo, no cada vez
+// que cambia otra opción.
 export function useBackground() {
+  const file = useSettings().data?.background ?? "";
   return useQuery({
-    queryKey: ["background"],
+    queryKey: ["background", file],
     queryFn: () => svc.BackgroundImage(),
+    enabled: file !== "",
     staleTime: Infinity,
   });
 }

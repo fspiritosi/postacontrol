@@ -230,4 +230,23 @@ describe("AttachmentViewer", () => {
     unmount();
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:test-2"));
   });
+
+  it("cancela la lectura en curso al pasar a otro adjunto o al cerrar", async () => {
+    // Las llamadas de Wails devuelven una promesa cancelable.
+    const cancels: ReturnType<typeof vi.fn>[] = [];
+    vi.mocked(svc.AttachmentData).mockImplementation((() => {
+      const cancel = vi.fn();
+      cancels.push(cancel);
+      return Object.assign(new Promise<AttachmentData>(() => {}), { cancel });
+    }) as unknown as typeof svc.AttachmentData);
+    const list = [png(0), png(1, "plano.png")];
+    const { user, unmount } = setup(list);
+    expect(svc.AttachmentData).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: /plano\.png/ }));
+    expect(svc.AttachmentData).toHaveBeenCalledTimes(2);
+    expect(cancels[0]).toHaveBeenCalledTimes(1);
+    expect(cancels[1]).not.toHaveBeenCalled();
+    unmount();
+    expect(cancels[1]).toHaveBeenCalledTimes(1);
+  });
 });
