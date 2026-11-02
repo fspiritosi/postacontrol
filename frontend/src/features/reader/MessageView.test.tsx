@@ -160,4 +160,25 @@ describe("MessageView: etiquetas", () => {
     expect(viaje.querySelector('[data-testid="label-all"]')).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Administrar etiquetas…" })).toBeTruthy();
   });
+
+  it("después de la ✕ el correo abierto se vuelve a pedir y la pastilla se va", async () => {
+    const { user } = setup("inbox", [5]);
+    const x = await screen.findByRole("button", { name: "Quitar etiqueta Facturas" });
+    const msg = await vi.mocked(svc.GetMessage).mock.results[0].value;
+    vi.mocked(svc.GetMessage).mockResolvedValue({ ...msg, labels: [] });
+    await user.click(x);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Quitar etiqueta Facturas" })).toBeNull(),
+    );
+  });
+
+  it("una etiqueta puesta desde el menú aparece como pastilla", async () => {
+    const { user } = setup("inbox", []);
+    await user.click(await screen.findByRole("button", { name: "Etiquetas" }));
+    const msg = await vi.mocked(svc.GetMessage).mock.results[0].value;
+    vi.mocked(svc.GetMessage).mockResolvedValue({ ...msg, labels: [6] });
+    await user.click(await screen.findByRole("menuitem", { name: /Viaje/ }));
+    expect(svc.SetLabel).toHaveBeenCalledWith([1], 6, true);
+    expect(await screen.findByRole("button", { name: "Quitar etiqueta Viaje" })).toBeTruthy();
+  });
 });

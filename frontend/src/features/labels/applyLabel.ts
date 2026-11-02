@@ -40,5 +40,10 @@ export async function applyLabel(
   );
   for (const f of res.failed) toast.error(errorMessage(f.error));
   invalidateMailQueries(queryClient);
+  // El correo abierto tiene que mostrar las etiquetas nuevas: como en
+  // "Destacar", se vuelve a pedir solo si está a la vista (los demás quedan
+  // viejos y se piden al abrirlos, sin marcarlos leídos ahora).
+  for (const t of targets)
+    void queryClient.invalidateQueries({ queryKey: ["message", t.id] });
   return res;
 }

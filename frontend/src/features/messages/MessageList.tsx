@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { flatDrag } from "@/lib/dnd";
-import { loadedTargets, threadTargets, type Target } from "@/lib/bulk";
+import {
+  loadedTargets,
+  threadLabelTargets,
+  threadTargets,
+  type Target,
+} from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { useFolderSyncing, useSyncProgress } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
@@ -124,11 +129,8 @@ export function MessageList({
   const rootOf = useRef(new Map<number, string>());
   const markedKeys = state.marked.keys;
   const markedRoots = state.markedThreads.keys;
-  const barTargets = useCallback(async (): Promise<Target[]> => {
-    if (!threadedMarks || folderId == null) {
-      return loadedTargets(list.data?.pages.flat() ?? [], markedKeys);
-    }
-    // Solo las conversaciones que siguen cargadas en la lista.
+  // Las conversaciones marcadas que siguen cargadas en la lista.
+  const loadedRoots = useCallback(() => {
     const pages = queryClient.getQueryData<{ pages: ThreadSummary[][] }>([
       "threads",
       folderId,
@@ -137,7 +139,13 @@ export function MessageList({
     const loaded = new Set(
       (pages?.pages.flat() ?? []).map((t) => t.threadRoot),
     );
-    const roots = markedRoots.filter((r) => loaded.has(r));
+    return markedRoots.filter((r) => loaded.has(r));
+  }, [queryClient, folderId, unreadOnly, markedRoots]);
+  const barTargets = useCallback(async (): Promise<Target[]> => {
+    if (!threadedMarks || folderId == null) {
+      return loadedTargets(list.data?.pages.flat() ?? [], markedKeys);
+    }
+    const roots = loadedRoots();
     const per = await Promise.all(
       roots.map((r) => threadTargets(folderId, [r])),
     );
@@ -145,15 +153,12 @@ export function MessageList({
       per.flatMap((ts, i) => ts.map((t) => [t.id, roots[i]] as const)),
     );
     return per.flat();
-  }, [
-    threadedMarks,
-    folderId,
-    list.data,
-    markedKeys,
-    markedRoots,
-    queryClient,
-    unreadOnly,
-  ]);
+  }, [threadedMarks, folderId, list.data, markedKeys, loadedRoots]);
+  // Las etiquetas actúan sobre las conversaciones enteras, como las muestra la fila.
+  const barLabelTargets = useCallback(async (): Promise<Target[]> => {
+    if (!threadedMarks || folderId == null) return barTargets();
+    return threadLabelTargets(folderId, loadedRoots());
+  }, [threadedMarks, folderId, barTargets, loadedRoots]);
 
   const rowMenu = useFlatRowMenu(state, barTargets);
   const rowFolderLabel = (id: number) => {
@@ -273,6 +278,7 @@ export function MessageList({
           accounts={accounts}
           folderId={folderId}
           targets={barTargets}
+          labelTargets={barLabelTargets}
           onDone={barDone}
           onClear={state.clearMarks}
         />
@@ -294,6 +300,11 @@ export function MessageList({
             markedRoots.includes(root)
               ? barTargets()
               : threadTargets(folderId, [root])
+          }
+          labelMenuTargets={(root) =>
+            markedRoots.includes(root)
+              ? barLabelTargets()
+              : threadLabelTargets(folderId, [root])
           }
           onUnread={(root) => {
             // Volver a abrir el lector lo marcaría leído otra vez: se cierra.

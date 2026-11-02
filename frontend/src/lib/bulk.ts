@@ -63,17 +63,19 @@ export async function runPerAccount(
 }
 
 // Los mensajes de las conversaciones marcadas. GetThread trae también las
-// respuestas que viven en Enviados: solo se toca lo de la carpeta que se mira.
+// respuestas que viven en Enviados: solo se toca lo de la carpeta que se mira,
+// salvo con allFolders (ver threadLabelTargets).
 export async function threadTargets(
   folderId: number,
   roots: string[],
+  opts: { allFolders?: boolean } = {},
 ): Promise<Target[]> {
   const threads = await Promise.all(
     roots.map((r) => svc.GetThread(folderId, r)),
   );
   return threads
     .flatMap((msgs) => msgs ?? [])
-    .filter((m) => m.folderId === folderId)
+    .filter((m) => opts.allFolders || m.folderId === folderId)
     .map((m) => ({
       id: m.id,
       accountId: m.accountId,
@@ -82,6 +84,16 @@ export async function threadTargets(
       flagged: m.flagged,
       labels: m.labels ?? [],
     }));
+}
+
+// Para poner o sacar etiquetas: todos los mensajes de las conversaciones,
+// también los de Enviados, porque la fila muestra las etiquetas de todos. Son
+// de una sola cuenta y SetLabel acepta varias carpetas.
+export function threadLabelTargets(
+  folderId: number,
+  roots: string[],
+): Promise<Target[]> {
+  return threadTargets(folderId, roots, { allFolders: true });
 }
 
 // Mueve los correos a una carpeta (la barra y, después, soltar sobre una carpeta).

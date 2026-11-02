@@ -63,6 +63,9 @@ type Props = {
   // Los correos marcados que siguen cargados. Tiene que ser estable entre
   // renders mientras no cambien las marcas.
   targets: () => Promise<Target[]>;
+  // Sobre qué actúan las etiquetas, si no es lo mismo que `targets` (con
+  // conversaciones, todos sus mensajes). También tiene que ser estable.
+  labelTargets?: () => Promise<Target[]>;
   onDone: (r: BulkResult) => void;
   onClear: () => void;
 };
@@ -74,6 +77,7 @@ export function SelectionBar({
   accounts,
   folderId,
   targets,
+  labelTargets,
   onDone,
   onClear,
 }: Props) {
@@ -99,6 +103,20 @@ export function SelectionBar({
       live = false;
     };
   }, [targets]);
+
+  const [labelCurrent, setLabelCurrent] = useState<Target[] | null>(null);
+  useEffect(() => {
+    if (!labelTargets) return;
+    let live = true;
+    // Si falla, ya avisó `targets`, que pide lo mismo.
+    labelTargets().then(
+      (t) => live && setLabelCurrent(t),
+      () => live && setLabelCurrent([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [labelTargets]);
 
   const inTrash = (t: Target) =>
     folders.find((f) => f.id === t.folderId)?.role === "trash";
@@ -266,7 +284,10 @@ export function SelectionBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <LabelMenuItems kind="dropdown" targets={list} />
+          <LabelMenuItems
+            kind="dropdown"
+            targets={labelTargets ? (labelCurrent ?? []) : list}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
       {destinations.length > 0 && (

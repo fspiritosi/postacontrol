@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { MessageSummary } from "../../../bindings/postacontrol/core/model/models";
-import { loadedTargets, threadTargets, type Target } from "@/lib/bulk";
+import { loadedTargets, threadLabelTargets, type Target } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { useLabels } from "@/lib/queries";
 import type { ShellState } from "../layout/MailShell";
@@ -63,7 +63,7 @@ export function useLabelKeys(state: ShellState) {
     const resolve = async (s: ShellState): Promise<Target[]> => {
       const folderId = s.view?.kind === "folder" ? s.view.folderId : null;
       if (s.markedThreads.keys.length > 0 && folderId != null)
-        return threadTargets(folderId, s.markedThreads.keys);
+        return threadLabelTargets(folderId, s.markedThreads.keys);
       if (s.marked.keys.length > 0)
         return loadedTargets(loadedSummaries(queryClient), s.marked.keys);
       if (s.messageId != null) {
@@ -87,7 +87,7 @@ export function useLabelKeys(state: ShellState) {
         ];
       }
       if (s.threadRoot != null && folderId != null)
-        return threadTargets(folderId, [s.threadRoot]);
+        return threadLabelTargets(folderId, [s.threadRoot]);
       return [];
     };
 

@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListThreads: vi.fn(() => Promise.resolve([])),
   ListLabels: vi.fn(() => Promise.resolve([])),
+  GetThread: vi.fn(() => Promise.resolve([])),
+  SetLabel: vi.fn(() => Promise.resolve()),
 }));
 
 import type {
@@ -219,5 +221,66 @@ describe("ThreadList selección múltiple", () => {
     fireEvent.click(box);
     expect(screen.getByTestId("count").textContent).toBe("2");
     expect(screen.getByTestId("open").textContent).toBe("<a@x>");
+  });
+});
+
+describe("ThreadList clic derecho: etiquetas de toda la conversación", () => {
+  // La respuesta enviada (id 4) vive en Enviados (carpeta 9).
+  function renderThread(inboxLabels: number[], sentLabels: number[]) {
+    vi.mocked(svc.ListLabels).mockResolvedValue([
+      { id: 5, name: "Facturas enviadas", color: "#dc2626", position: 0 },
+    ]);
+    vi.mocked(svc.ListThreads).mockResolvedValue([
+      { ...threads[1], labels: [5] },
+    ]);
+    vi.mocked(svc.GetThread).mockResolvedValue([
+      summary(2, { labels: inboxLabels }),
+      summary(4, { folderId: 9, labels: sentLabels }),
+    ]);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ThreadList
+          folderId={3}
+          unreadOnly={false}
+          syncing={false}
+          selected={null}
+          onSelect={vi.fn()}
+          marked={NO_MARKS}
+          onMark={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  async function openLabels() {
+    fireEvent.contextMenu(await screen.findByText("Carla"));
+    const sub = await screen.findByRole("menuitem", { name: "Etiquetas" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("menuitem", { name: "Destacar" }).getAttribute("data-disabled"),
+      ).toBeNull(),
+    );
+    fireEvent.keyDown(sub, { key: "ArrowRight" });
+    return screen.findByRole("menuitem", { name: /Facturas enviadas/ });
+  }
+
+  it("con la etiqueta en todos (también en Enviados) la marca y la saca de todos", async () => {
+    renderThread([5], [5]);
+    const item = await openLabels();
+    await waitFor(() =>
+      expect(item.querySelector('[data-testid="label-all"]')).not.toBeNull(),
+    );
+    fireEvent.click(item);
+    await waitFor(() =>
+      expect(svc.SetLabel).toHaveBeenCalledWith([2, 4], 5, false),
+    );
+  });
+
+  it("con la etiqueta solo en el enviado muestra la marca intermedia", async () => {
+    renderThread([], [5]);
+    const item = await openLabels();
+    await waitFor(() =>
+      expect(item.querySelector('[data-testid="label-some"]')).not.toBeNull(),
+    );
   });
 });

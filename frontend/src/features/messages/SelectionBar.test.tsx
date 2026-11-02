@@ -22,7 +22,7 @@ import type {
   Folder,
 } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
-import { threadTargets, type Target } from "@/lib/bulk";
+import { threadLabelTargets, threadTargets, type Target } from "@/lib/bulk";
 import { SelectionBar } from "./SelectionBar";
 
 function account(id: number, displayName: string): Account {
@@ -303,6 +303,33 @@ describe("SelectionBar", () => {
     for (const [ids] of vi.mocked(svc.DeleteMessages).mock.calls)
       expect(ids).not.toContain(2);
     expect(vi.mocked(svc.DeleteMessages).mock.calls[0][0]).toContain(1);
+  });
+
+  it("con una conversación marcada, Etiquetas actúa también sobre lo de Enviados", async () => {
+    vi.mocked(svc.ListLabels).mockResolvedValue([
+      { id: 11, name: "Clientes", color: "#dc2626", position: 0 },
+    ] as never);
+    vi.mocked(svc.GetThread).mockResolvedValue([
+      { id: 1, accountId: 7, folderId: 70, seen: true, flagged: false, labels: [11] },
+      { id: 2, accountId: 7, folderId: 73, seen: true, flagged: false, labels: [11] },
+    ] as never);
+    renderBar([], {
+      threads: true,
+      count: 1,
+      targets: () => threadTargets(70, ["a"]),
+      labelTargets: () => threadLabelTargets(70, ["a"]),
+    });
+    const button = await screen.findByRole("button", { name: "Etiquetas" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    const item = await screen.findByRole("menuitem", { name: /Clientes/ });
+    await waitFor(() =>
+      expect(item.querySelector('[data-testid="label-all"]')).not.toBeNull(),
+    );
+    await userEvent.click(item);
+    await waitFor(() =>
+      expect(svc.SetLabel).toHaveBeenCalledWith([1, 2], 11, false),
+    );
   });
 
   it("falla parcial deja marcados los de esa cuenta", async () => {

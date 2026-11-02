@@ -141,6 +141,18 @@ describe("useLabelKeys", () => {
     expect(svc.GetThread).toHaveBeenCalledWith(3, "<a@x>");
   });
 
+  it("con una conversación abierta incluye la respuesta en Enviados", async () => {
+    vi.mocked(svc.GetThread).mockResolvedValue([
+      summary(1, [11]),
+      { ...summary(2, [11]), folderId: 9 },
+    ] as never);
+    setup(shell({ threadRoot: "<a@x>" }), []);
+    await userEvent.keyboard("1");
+    await waitFor(() =>
+      expect(svc.SetLabel).toHaveBeenCalledWith([1, 2], 11, false),
+    );
+  });
+
   it("ignora copias viejas de consultas inactivas: pone y saca sin ids repetidos", async () => {
     // El mismo correo en otra lista vieja (inactiva), con otra etiqueta: está
     // primero en la caché, así que solo ignorarla evita el error.

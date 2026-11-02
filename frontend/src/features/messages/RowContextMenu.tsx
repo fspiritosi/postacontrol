@@ -19,6 +19,9 @@ type Props = {
   // Sobre qué actúa el menú: lo marcado si la fila está marcada, o solo la fila.
   // Se pide al abrir el menú, así que refleja el estado de ese momento.
   targets: () => Promise<Target[]>;
+  // Sobre qué actúan las etiquetas, si no es lo mismo que `targets` (en una
+  // conversación, todos sus mensajes y no solo los de la carpeta).
+  labelTargets?: () => Promise<Target[]>;
   // Se marcaron como no leídos: quien lo usa cierra el lector si hace falta.
   onUnread?: () => void;
   children: ReactNode;
@@ -27,14 +30,23 @@ type Props = {
 // Clic derecho en una fila: etiquetas, leído/no leído y destacado. Mover y
 // borrar quedan en la barra de selección y en el lector, porque piden destino
 // o confirmación.
-export function RowContextMenu({ targets, onUnread, children }: Props) {
+export function RowContextMenu({
+  targets,
+  labelTargets,
+  onUnread,
+  children,
+}: Props) {
   const queryClient = useQueryClient();
   const [current, setCurrent] = useState<Target[]>([]);
+  const [labelCurrent, setLabelCurrent] = useState<Target[]>([]);
 
   const load = (open: boolean) => {
     if (!open) return;
     setCurrent([]);
+    setLabelCurrent([]);
     targets().then(setCurrent, (e) => toast.error(errorMessage(e)));
+    // Si falla, ya avisó `targets`, que pide lo mismo.
+    labelTargets?.().then(setLabelCurrent, () => {});
   };
 
   const allSeen = current.length > 0 && current.every((t) => t.seen);
@@ -63,7 +75,10 @@ export function RowContextMenu({ targets, onUnread, children }: Props) {
         <ContextMenuSub>
           <ContextMenuSubTrigger>Etiquetas</ContextMenuSubTrigger>
           <ContextMenuSubContent>
-            <LabelMenuItems kind="context" targets={current} />
+            <LabelMenuItems
+              kind="context"
+              targets={labelTargets ? labelCurrent : current}
+            />
           </ContextMenuSubContent>
         </ContextMenuSub>
         <ContextMenuItem
