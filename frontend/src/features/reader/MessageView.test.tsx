@@ -8,6 +8,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListFolders: vi.fn(),
   ContactForEmail: vi.fn(),
   AddSenderToContacts: vi.fn(),
+  ListLabels: vi.fn(),
+  SetLabel: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../compose/ComposerContext", () => ({ useComposer: () => ({ openFrom: vi.fn() }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -30,7 +32,7 @@ const account: Account = {
 const ana = { name: "Ana", email: "ana@x.y" };
 const contact: Contact = { id: 7, name: "Ana", emails: ["ana@x.y"], phones: [], company: "", notes: "" };
 
-function setup(role: string) {
+function setup(role: string, labels: number[] = []) {
   const folder: Folder = {
     id: 3, accountId: 7, name: "F", delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0,
   };
@@ -38,7 +40,7 @@ function setup(role: string) {
     id: 1, accountId: 7, folderId: 3, uid: 1, from: ana, subject: "Hola", snippet: "",
     date: "2026-10-20T10:00:00Z", seen: true, flagged: false, answered: false, hasAttachments: false,
     messageId: "", inReplyTo: "", references: null, to: null, cc: null, replyTo: null,
-    html: "", text: "Cuerpo", hasRemoteImages: false, attachments: null, labels: [],
+    html: "", text: "Cuerpo", hasRemoteImages: false, attachments: null, labels,
   };
   vi.mocked(svc.GetMessage).mockResolvedValue(msg);
   vi.mocked(svc.ListFolders).mockResolvedValue([folder]);
@@ -124,5 +126,38 @@ describe("MessageView: contactos", () => {
     const { client } = setup(role);
     await settled(client);
     expect(contactButtons()).toHaveLength(0);
+  });
+});
+
+describe("MessageView: etiquetas", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(svc.ContactForEmail).mockResolvedValue(null);
+    vi.mocked(svc.ListLabels).mockResolvedValue([
+      { id: 5, name: "Facturas", color: "#dc2626", position: 0 },
+      { id: 6, name: "Viaje", color: "#2563eb", position: 1 },
+    ]);
+  });
+
+  it("muestra la pastilla y la ✕ saca la etiqueta de este correo", async () => {
+    const { user } = setup("inbox", [5]);
+    await user.click(await screen.findByRole("button", { name: "Quitar etiqueta Facturas" }));
+    expect(svc.SetLabel).toHaveBeenCalledWith([1], 5, false);
+  });
+
+  it("sin etiquetas no hay pastillas", async () => {
+    setup("inbox", []);
+    await screen.findByText("Hola");
+    expect(screen.queryByRole("button", { name: /Quitar etiqueta/ })).toBeNull();
+  });
+
+  it("el botón Etiquetas abre el menú con la marca en la que tiene el correo", async () => {
+    const { user } = setup("inbox", [5]);
+    await user.click(await screen.findByRole("button", { name: "Etiquetas" }));
+    const facturas = await screen.findByRole("menuitem", { name: /Facturas/ });
+    expect(facturas.querySelector('[data-testid="label-all"]')).not.toBeNull();
+    const viaje = screen.getByRole("menuitem", { name: /Viaje/ });
+    expect(viaje.querySelector('[data-testid="label-all"]')).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Administrar etiquetas…" })).toBeTruthy();
   });
 });

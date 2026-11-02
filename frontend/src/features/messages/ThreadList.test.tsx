@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListThreads: vi.fn(() => Promise.resolve([])),
+  ListLabels: vi.fn(() => Promise.resolve([])),
 }));
 
 import type {
@@ -88,6 +89,35 @@ describe("ThreadList", () => {
 
     fireEvent.click(first);
     expect(selectThread).toHaveBeenCalledWith("<a@x>");
+  });
+});
+
+describe("ThreadList etiquetas", () => {
+  it("un hilo con dos etiquetas muestra la línea partida en dos", async () => {
+    vi.mocked(svc.ListLabels).mockResolvedValue([
+      { id: 1, name: "Facturas", color: "#dc2626", position: 0 },
+      { id: 2, name: "Viaje", color: "#2563eb", position: 1 },
+    ]);
+    vi.mocked(svc.ListThreads).mockResolvedValue([
+      { ...threads[0], labels: [1, 2] },
+      threads[1],
+    ]);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ThreadList
+          folderId={3}
+          unreadOnly={false}
+          syncing={false}
+          selected={null}
+          onSelect={vi.fn()}
+          marked={NO_MARKS}
+          onMark={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findAllByTestId("label-segment")).toHaveLength(2);
+    expect(screen.getAllByTestId("label-line")).toHaveLength(1);
+    expect(screen.getByText("Viaje")).toBeTruthy();
   });
 });
 

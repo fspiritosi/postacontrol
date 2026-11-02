@@ -78,6 +78,7 @@ const t = (
   folderId,
   seen: true,
   flagged: false,
+  labels: [],
   ...extra,
 });
 
@@ -284,8 +285,8 @@ describe("SelectionBar", () => {
 
   it("una conversación marcada no toca lo de Enviados", async () => {
     vi.mocked(svc.GetThread).mockResolvedValue([
-      { id: 1, accountId: 7, folderId: 70, seen: true, flagged: false },
-      { id: 2, accountId: 7, folderId: 73, seen: true, flagged: false },
+      { id: 1, accountId: 7, folderId: 70, seen: true, flagged: false, labels: [] },
+      { id: 2, accountId: 7, folderId: 73, seen: true, flagged: false, labels: [] },
     ] as never);
     renderBar([], {
       threads: true,

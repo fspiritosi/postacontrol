@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderInputIcon, MailIcon, PencilIcon, StarIcon, Trash2Icon } from "lucide-react";
+import { FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -23,6 +23,7 @@ import { invalidateMailQueries } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
+import { LabelMenuItems } from "../labels/LabelMenu";
 import { useComposer } from "../compose/ComposerContext";
 
 type Props = {
@@ -43,6 +44,15 @@ export function MessageActions({ message, selectMessage }: Props) {
   // En Borradores no se responde ni se reenvía: se sigue editando.
   const inDrafts = current?.role === "drafts";
   const targets = folders.filter((f) => f.selectable && f.id !== message.folderId);
+
+  const labelTarget = {
+    id: message.id,
+    accountId: message.accountId,
+    folderId: message.folderId,
+    seen: message.seen,
+    flagged: message.flagged,
+    labels: message.labels ?? [],
+  };
 
   const refresh = () => invalidateMailQueries(queryClient);
   const run = async (fn: () => Promise<void>, after?: () => void) => {
@@ -108,6 +118,17 @@ export function MessageActions({ message, selectMessage }: Props) {
       >
         <StarIcon className={message.flagged ? "fill-current" : undefined} />
       </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm">
+            <TagIcon />
+            Etiquetas
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <LabelMenuItems kind="dropdown" targets={[labelTarget]} />
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Button variant="outline" size="sm" onClick={() => void markUnread()}>
         <MailIcon />
         Marcar como no leído

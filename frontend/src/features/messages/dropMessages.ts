@@ -42,6 +42,7 @@ export async function dropMessages({
       folderId: drag.folderId ?? 0,
       seen: false,
       flagged: false,
+      labels: [],
     }));
     touchesMarks = (drag.ids ?? []).some((id) =>
       state.marked.keys.includes(id),

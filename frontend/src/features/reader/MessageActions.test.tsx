@@ -10,6 +10,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   MoveMessages: vi.fn(() => Promise.resolve()),
   DeleteMessages: vi.fn(() => Promise.resolve()),
   OpenDraftMessage: vi.fn(),
+  ListLabels: vi.fn(),
+  SetLabel: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const composer = vi.hoisted(() => ({ openComposeDraft: vi.fn(() => Promise.resolve()) }));

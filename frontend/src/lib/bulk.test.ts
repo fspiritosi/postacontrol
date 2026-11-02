@@ -17,6 +17,7 @@ const t = (
   folderId,
   seen: true,
   flagged: false,
+  labels: [],
 });
 
 describe("runPerAccount", () => {
@@ -45,12 +46,12 @@ describe("threadTargets", () => {
 
   it("descarta los mensajes de otra carpeta", async () => {
     vi.mocked(svc.GetThread).mockResolvedValue([
-      { id: 1, accountId: 7, folderId: 70, seen: false, flagged: true },
-      { id: 2, accountId: 7, folderId: 71, seen: true, flagged: false },
+      { id: 1, accountId: 7, folderId: 70, seen: false, flagged: true, labels: [] },
+      { id: 2, accountId: 7, folderId: 71, seen: true, flagged: false, labels: [] },
     ] as never);
     const res = await threadTargets(70, ["a"]);
     expect(res).toEqual([
-      { id: 1, accountId: 7, folderId: 70, seen: false, flagged: true },
+      { id: 1, accountId: 7, folderId: 70, seen: false, flagged: true, labels: [] },
     ]);
     expect(svc.GetThread).toHaveBeenCalledWith(70, "a");
   });

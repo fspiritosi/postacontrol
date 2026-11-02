@@ -8,6 +8,7 @@ import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
 import { useReadingPane } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { LabelChips, LabelLine } from "../labels/LabelStripe";
 import type { ClickMods } from "./useMarking";
 
 type Props = {
@@ -61,6 +62,7 @@ export function MessageRow({
       draggable={dragOf != null}
       onDragStart={dragOf && ((e) => startMessageDrag(e, dragOf(m)))}
     >
+      <LabelLine ids={m.labels} />
       <input
         type="checkbox"
         aria-label="Seleccionar"
@@ -103,6 +105,7 @@ export function MessageRow({
             >
               {m.from.name || m.from.email}
             </span>
+            <LabelChips ids={m.labels} max={2} />
             <span className="min-w-0 flex-1 truncate text-sm">
               <span className={cn(!m.seen && "font-medium")}>
                 {m.subject || "(sin asunto)"}
@@ -159,10 +162,16 @@ export function MessageRow({
               </span>
               <span className="size-6 shrink-0" aria-hidden />
             </span>
-            <span
-              className={cn("truncate pl-4 text-sm", !m.seen && "font-medium")}
-            >
-              {m.subject || "(sin asunto)"}
+            <span className="flex items-center gap-1.5 pl-4">
+              <span
+                className={cn(
+                  "min-w-0 truncate text-sm",
+                  !m.seen && "font-medium",
+                )}
+              >
+                {m.subject || "(sin asunto)"}
+              </span>
+              <LabelChips ids={m.labels} max={3} />
             </span>
             <span className="truncate pl-4 text-xs text-muted-foreground">
               {m.snippet}

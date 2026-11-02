@@ -8,6 +8,7 @@ import { useThreads } from "@/lib/queries";
 import type { Marks } from "@/lib/selection";
 import { useReadingPane } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { LabelChips, LabelLine } from "../labels/LabelStripe";
 import { useMarking, type ClickMods } from "./useMarking";
 
 type Props = {
@@ -58,6 +59,7 @@ function ThreadRow({
       draggable
       onDragStart={(e) => startMessageDrag(e, dragOf(t))}
     >
+      <LabelLine ids={t.labels} />
       <input
         type="checkbox"
         aria-label="Seleccionar"
@@ -111,6 +113,7 @@ function ThreadRow({
                 {t.count}
               </span>
             )}
+            <LabelChips ids={t.labels} max={2} />
             <span className="min-w-0 flex-1 truncate text-sm">
               <span className={cn(unread && "font-medium")}>
                 {m.subject || "(sin asunto)"}
@@ -177,10 +180,16 @@ function ThreadRow({
                 />
               )}
             </span>
-            <span
-              className={cn("truncate pl-4 text-sm", unread && "font-medium")}
-            >
-              {m.subject || "(sin asunto)"}
+            <span className="flex items-center gap-1.5 pl-4">
+              <span
+                className={cn(
+                  "min-w-0 truncate text-sm",
+                  unread && "font-medium",
+                )}
+              >
+                {m.subject || "(sin asunto)"}
+              </span>
+              <LabelChips ids={t.labels} max={3} />
             </span>
             <span className="truncate pl-4 text-xs text-muted-foreground">
               {m.snippet}

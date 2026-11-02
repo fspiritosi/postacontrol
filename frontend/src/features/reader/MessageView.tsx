@@ -1,16 +1,18 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ForwardIcon, ReplyAllIcon, ReplyIcon, UserIcon, UserPlusIcon } from "lucide-react";
+import { ForwardIcon, ReplyAllIcon, ReplyIcon, UserIcon, UserPlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account, Address, MessageDetail } from "../../../bindings/postacontrol/core/model/models";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { labelChipStyle, orderedLabels } from "@/lib/labels";
 import { contactDisplayName } from "@/lib/contacts";
 import { errorMessage, isStaleError } from "@/lib/errors";
 import { syncFolder, syncUnified } from "@/lib/events";
 import { fullDate, initials } from "@/lib/format";
-import { useAllFolders, useContactForEmail, useFolders, useMessage } from "@/lib/queries";
+import { useAllFolders, useContactForEmail, useFolders, useLabels, useMessage } from "@/lib/queries";
+import { applyLabel } from "../labels/applyLabel";
 import { useComposer } from "../compose/ComposerContext";
 import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
@@ -65,6 +67,42 @@ function SenderContactButton({
     >
       {existing ? <UserIcon /> : <UserPlusIcon />}
     </Button>
+  );
+}
+
+// Las etiquetas del correo abierto; la ✕ saca esa etiqueta de este correo solamente.
+function MessageLabels({ message }: { message: MessageDetail }) {
+  const queryClient = useQueryClient();
+  const labels = orderedLabels(message.labels ?? [], useLabels().data ?? []);
+  if (labels.length === 0) return null;
+  const target = {
+    id: message.id,
+    accountId: message.accountId,
+    folderId: message.folderId,
+    seen: message.seen,
+    flagged: message.flagged,
+    labels: message.labels ?? [],
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {labels.map((l) => (
+        <span
+          key={l.id}
+          className="inline-flex items-center gap-0.5 rounded border py-0.5 pr-0.5 pl-2 text-xs"
+          style={labelChipStyle(l.color)}
+        >
+          {l.name}
+          <button
+            type="button"
+            aria-label={`Quitar etiqueta ${l.name}`}
+            className="inline-flex size-4 items-center justify-center rounded hover:bg-foreground/10"
+            onClick={() => void applyLabel(queryClient, [target], l.id)}
+          >
+            <XIcon className="size-3" />
+          </button>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -152,6 +190,7 @@ function Body({
             {/* En un borrador o un enviado el remitente es uno mismo. */}
             {!inDrafts && role !== "sent" && <SenderContactButton from={message.from} openContact={openContact} />}
           </div>
+          <MessageLabels message={message} />
         </div>
 
         {message.hasRemoteImages && !allowRemote && (

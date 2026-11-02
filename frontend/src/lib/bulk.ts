@@ -31,6 +31,8 @@ export type Target = {
   folderId: number;
   seen: boolean;
   flagged: boolean;
+  // Ids de las etiquetas que ya tiene.
+  labels: number[];
 };
 
 export type AccountFailure = {
@@ -78,6 +80,7 @@ export async function threadTargets(
       folderId: m.folderId,
       seen: m.seen,
       flagged: m.flagged,
+      labels: m.labels ?? [],
     }));
 }
 
@@ -126,5 +129,6 @@ export function loadedTargets(
       folderId: m.folderId,
       seen: m.seen,
       flagged: m.flagged,
+      labels: m.labels ?? [],
     }));
 }
