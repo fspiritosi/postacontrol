@@ -55,6 +55,22 @@ export function DeleteDraft(id: number): $CancellablePromise<void> {
     return $Call.ByID(3632404791, id);
 }
 
+/**
+ * DeleteFolder elimina la carpeta y sus subcarpetas, mandando sus correos a la
+ * Papelera. Devuelve cuántos correos movió.
+ */
+export function DeleteFolder(folderID: number): $CancellablePromise<number> {
+    return $Call.ByID(353005632, folderID);
+}
+
+/**
+ * DeleteFolderPreview cuenta en el servidor los correos de la carpeta y de sus
+ * subcarpetas, para el aviso antes de eliminarla.
+ */
+export function DeleteFolderPreview(folderID: number): $CancellablePromise<model$0.FolderDeleteInfo> {
+    return $Call.ByID(4054868388, folderID);
+}
+
 export function DeleteLocalDraft(id: number): $CancellablePromise<void> {
     return $Call.ByID(1825177514, id);
 }

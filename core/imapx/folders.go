@@ -269,17 +269,38 @@ func (c *Conn) ListUnder(name, delim string) ([]RemoteFolder, error) {
 		if !strings.HasPrefix(it.Mailbox, name+delim) {
 			continue
 		}
-		d := ""
-		if it.Delim != 0 {
-			d = string(it.Delim)
-		}
-		out = append(out, RemoteFolder{
-			Name:       it.Mailbox,
-			Delimiter:  d,
-			Role:       DetectRole(it.Mailbox, d, it.Attrs),
-			SpecialUse: specialUseRole(it.Attrs) != "",
-			Selectable: !slices.Contains(it.Attrs, imap.MailboxAttrNoSelect),
-		})
+		out = append(out, listedFolder(it))
 	}
 	return out, nil
+}
+
+// Lookup busca un buzón por su nombre exacto (LIST "" name), sin STATUS. ok es
+// false si el servidor no lo lista.
+func (c *Conn) Lookup(name string) (f RemoteFolder, ok bool, err error) {
+	items, err := c.c.List("", name, nil).Collect()
+	if err != nil {
+		return RemoteFolder{}, false, opErr(fmt.Sprintf("LIST %q", name), err)
+	}
+	for _, it := range items {
+		// Con «*» o «%» en el nombre el patrón matchea de más.
+		if it.Mailbox == name && !slices.Contains(it.Attrs, imap.MailboxAttrNonExistent) {
+			return listedFolder(it), true, nil
+		}
+	}
+	return RemoteFolder{}, false, nil
+}
+
+// listedFolder arma la carpeta de una respuesta de LIST, sin contadores.
+func listedFolder(it *imap.ListData) RemoteFolder {
+	d := ""
+	if it.Delim != 0 {
+		d = string(it.Delim)
+	}
+	return RemoteFolder{
+		Name:       it.Mailbox,
+		Delimiter:  d,
+		Role:       DetectRole(it.Mailbox, d, it.Attrs),
+		SpecialUse: specialUseRole(it.Attrs) != "",
+		Selectable: !slices.Contains(it.Attrs, imap.MailboxAttrNoSelect),
+	}
 }

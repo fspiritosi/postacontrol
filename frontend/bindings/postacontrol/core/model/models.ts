@@ -129,6 +129,16 @@ export interface Folder {
 }
 
 /**
+ * FolderDeleteInfo es lo que se avisa antes de eliminar una carpeta, contado
+ * en el servidor. Total es solo el de la carpeta; el total general lo suma la
+ * UI.
+ */
+export interface FolderDeleteInfo {
+    "total": number;
+    "subfolders": SubfolderCount[] | null;
+}
+
+/**
  * "inbox","sent","drafts","trash","junk","archive",""
  */
 export type FolderRole = string;
@@ -348,6 +358,15 @@ export interface StagedAttachment {
     "filename": string;
     "mimeType": string;
     "size": number;
+}
+
+/**
+ * SubfolderCount es una subcarpeta que se elimina con su padre. Name es la
+ * ruta debajo del padre (por ejemplo "Acme" o "Acme/2025").
+ */
+export interface SubfolderCount {
+    "name": string;
+    "total": number;
 }
 
 /**

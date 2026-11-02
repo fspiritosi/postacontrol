@@ -947,3 +947,34 @@ func TestPersonalPrefix(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "", p)
 }
+
+func TestLookup(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	for _, n := range []string{"Clientes", "Clientes/Acme", "ClientesViejos", "100%", "1000"} {
+		require.NoError(t, c.CreateMailbox(n))
+	}
+	s.AddNoselect("Padre")
+
+	got, ok, err := c.Lookup("Clientes")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "Clientes", got.Name)
+	assert.Equal(t, "/", got.Delimiter)
+	assert.True(t, got.Selectable)
+
+	got, ok, err = c.Lookup("Padre")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.False(t, got.Selectable)
+
+	// Un comodín en el nombre no hace que matchee otra carpeta.
+	got, ok, err = c.Lookup("100%")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "100%", got.Name)
+
+	_, ok, err = c.Lookup("NoExiste")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}

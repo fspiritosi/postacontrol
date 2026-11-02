@@ -91,6 +91,21 @@ type Folder struct {
 	Position int `json:"position"`
 }
 
+// FolderDeleteInfo es lo que se avisa antes de eliminar una carpeta, contado
+// en el servidor. Total es solo el de la carpeta; el total general lo suma la
+// UI.
+type FolderDeleteInfo struct {
+	Total      int              `json:"total"`
+	Subfolders []SubfolderCount `json:"subfolders"`
+}
+
+// SubfolderCount es una subcarpeta que se elimina con su padre. Name es la
+// ruta debajo del padre (por ejemplo "Acme" o "Acme/2025").
+type SubfolderCount struct {
+	Name  string `json:"name"`
+	Total int    `json:"total"`
+}
+
 type MessageSummary struct {
 	ID             int64     `json:"id"`
 	AccountID      int64     `json:"accountId"`

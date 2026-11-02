@@ -2,7 +2,10 @@ package mail
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
+	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -335,4 +338,184 @@ func TestRenameFolder_PartialFailureKeepsCache(t *testing.T) {
 	assert.Equal(t, msgs, listAll(t, e.c, cid))
 	_, ok := e.find(t, "Clientes")
 	assert.False(t, ok)
+}
+
+// serverTotal cuenta los mensajes del buzón directo en el servidor de pruebas.
+func (e *folderEnv) serverTotal(t *testing.T, name string) int {
+	t.Helper()
+	st, err := e.imap.User.Status(name, &goimap.StatusOptions{NumMessages: true})
+	require.NoError(t, err)
+	return int(*st.NumMessages)
+}
+
+func TestDeleteFolderPreview_CountsFromServer(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Clientes", "Clientes/Acme", "Clientes/Acme/Viejo")
+	// Llegan después de sincronizar: la caché no los tiene.
+	for _, s := range []string{"c1", "c2", "c3"} {
+		e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", s))
+	}
+	e.imap.Deliver(t, "Clientes/Acme", rawMail("Bea <bea@ej.com>", "a1"))
+	cid := e.id(t, "Clientes")
+	require.Empty(t, listAll(t, e.c, cid))
+
+	info, err := e.c.DeleteFolderPreview(context.Background(), cid)
+	require.NoError(t, err)
+	assert.Equal(t, model.FolderDeleteInfo{Total: 3, Subfolders: []model.SubfolderCount{
+		{Name: "Acme", Total: 1}, {Name: "Acme/Viejo", Total: 0},
+	}}, info)
+
+	info, err = e.c.DeleteFolderPreview(context.Background(), e.id(t, "Clientes/Acme/Viejo"))
+	require.NoError(t, err)
+	assert.Equal(t, model.FolderDeleteInfo{Total: 0, Subfolders: []model.SubfolderCount{}}, info)
+}
+
+func TestDeleteFolder_Empty(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Vacía")
+	moved, err := e.c.DeleteFolder(context.Background(), e.id(t, "Vacía"))
+	require.NoError(t, err)
+	assert.Equal(t, 0, moved)
+	assert.NotContains(t, e.serverList(t, false), "Vacía")
+	_, ok := e.find(t, "Vacía")
+	assert.False(t, ok)
+}
+
+func TestDeleteFolder_MovesWhatIsNotCached(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Clientes", "Clientes/Acme")
+	ctx := context.Background()
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c1"))
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c2"))
+	e.imap.Deliver(t, "Clientes/Acme", rawMail("Bea <bea@ej.com>", "a1"))
+	cid := e.id(t, "Clientes")
+	require.Empty(t, listAll(t, e.c, cid), "la caché no tiene ninguno")
+	trashID := e.id(t, "Trash")
+
+	moved, err := e.c.DeleteFolder(ctx, cid)
+	require.NoError(t, err)
+	assert.Equal(t, 3, moved)
+	assert.Equal(t, 3, e.serverTotal(t, "Trash"))
+	all := e.serverList(t, false)
+	assert.NotContains(t, all, "Clientes")
+	assert.NotContains(t, all, "Clientes/Acme")
+	_, ok := e.find(t, "Clientes")
+	assert.False(t, ok)
+	_, ok = e.find(t, "Clientes/Acme")
+	assert.False(t, ok)
+	assert.Contains(t, e.n.matching(EventFolderUpdated), map[string]any{"folderId": trashID})
+	assert.Eventually(t, func() bool { return len(listAll(t, e.c, trashID)) == 3 },
+		5*time.Second, 20*time.Millisecond, "la Papelera se sincroniza en segundo plano")
+}
+
+func TestDeleteFolder_NoTrashWithMail(t *testing.T) {
+	e := newFolderEnv(t, "Clientes", "Clientes/Acme")
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c1"))
+	_, err := e.c.DeleteFolder(context.Background(), e.id(t, "Clientes"))
+	wantUserError(t, err, "no_trash", "Esta cuenta no tiene carpeta Papelera.")
+	all := e.serverList(t, false)
+	assert.Contains(t, all, "Clientes")
+	assert.Contains(t, all, "Clientes/Acme", "tampoco se borra la subcarpeta vacía")
+	assert.Equal(t, 1, e.serverTotal(t, "Clientes"))
+}
+
+func TestDeleteFolder_NoTrashEmpty(t *testing.T) {
+	e := newFolderEnv(t, "Clientes")
+	moved, err := e.c.DeleteFolder(context.Background(), e.id(t, "Clientes"))
+	require.NoError(t, err)
+	assert.Equal(t, 0, moved)
+	assert.NotContains(t, e.serverList(t, false), "Clientes")
+}
+
+func TestDeleteFolder_SpecialRefused(t *testing.T) {
+	e := newFolderEnv(t, "Padre", "Padre/Trash")
+	ctx := context.Background()
+	trash, ok := e.find(t, "Padre/Trash")
+	require.True(t, ok)
+	require.Equal(t, model.FolderRole("trash"), trash.Role)
+	for _, id := range []int64{e.id(t, "INBOX"), trash.ID, e.id(t, "Padre")} {
+		_, err := e.c.DeleteFolder(ctx, id)
+		wantUserError(t, err, "invalid", "Las carpetas especiales no se pueden cambiar.")
+		_, err = e.c.DeleteFolderPreview(ctx, id)
+		wantUserError(t, err, "invalid", "Las carpetas especiales no se pueden cambiar.")
+	}
+	all := e.serverList(t, false)
+	assert.Contains(t, all, "INBOX")
+	assert.Contains(t, all, "Padre")
+	assert.Contains(t, all, "Padre/Trash")
+}
+
+func TestDeleteFolder_FailureKeepsFolderAndAncestors(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Clientes", "Clientes/Acme")
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c1"))
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c2"))
+	e.imap.Deliver(t, "Clientes/Acme", rawMail("Bea <bea@ej.com>", "a1"))
+	cid := e.id(t, "Clientes")
+	// La caché todavía cree que la Papelera existe: el MOVE va a fallar.
+	e.imap.DeleteMailbox(t, "Trash")
+
+	_, err := e.c.DeleteFolder(context.Background(), cid)
+	require.Error(t, err)
+	all := e.serverList(t, false)
+	assert.Contains(t, all, "Clientes")
+	assert.Contains(t, all, "Clientes/Acme")
+	assert.Equal(t, 2, e.serverTotal(t, "Clientes"))
+	assert.Equal(t, 1, e.serverTotal(t, "Clientes/Acme"))
+	// La caché quedó al día con el servidor.
+	assert.Equal(t, cid, e.id(t, "Clientes"))
+	_, ok := e.find(t, "Trash")
+	assert.False(t, ok)
+}
+
+func TestDeleteFolder_StaleWhenMailKeepsArriving(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Clientes")
+	e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", "c0"))
+	n := 0
+	e.imap.SetMoveHook(func(src string) {
+		if src == "Clientes" {
+			n++
+			e.imap.Deliver(t, "Clientes", rawMail("Bea <bea@ej.com>", fmt.Sprintf("n%d", n)))
+		}
+	})
+
+	moved, err := e.c.DeleteFolder(context.Background(), e.id(t, "Clientes"))
+	wantUserError(t, err, "stale", "Llegaron correos nuevos a «Clientes» mientras se vaciaba; probá de nuevo.")
+	assert.Equal(t, 3, moved, "tres pasadas")
+	assert.Contains(t, e.serverList(t, false), "Clientes")
+	assert.Equal(t, 1, e.serverTotal(t, "Clientes"))
+	assert.Equal(t, 3, e.serverTotal(t, "Trash"))
+}
+
+func TestDeleteFolder_NoselectWithChildren(t *testing.T) {
+	e := newFolderEnv(t, "Trash", "Padre/Hijo", "Padre/Otro")
+	ctx := context.Background()
+	e.imap.AddNoselect("Padre")
+	e.imap.Deliver(t, "Padre/Hijo", rawMail("Bea <bea@ej.com>", "h1"))
+	require.NoError(t, e.c.SyncAccount(ctx, e.acc.ID))
+	padre, ok := e.find(t, "Padre")
+	require.True(t, ok)
+	require.False(t, padre.Selectable)
+
+	info, err := e.c.DeleteFolderPreview(ctx, padre.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.FolderDeleteInfo{Total: 0, Subfolders: []model.SubfolderCount{
+		{Name: "Hijo", Total: 1}, {Name: "Otro", Total: 0},
+	}}, info)
+
+	moved, err := e.c.DeleteFolder(ctx, padre.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, moved)
+	all := e.serverList(t, false)
+	for _, n := range []string{"Padre", "Padre/Hijo", "Padre/Otro"} {
+		assert.NotContains(t, all, n)
+		_, ok := e.find(t, n)
+		assert.False(t, ok, n)
+	}
+	assert.Equal(t, 1, e.serverTotal(t, "Trash"))
+	ops := e.imap.Ops()
+	assert.NotContains(t, ops, "SELECT Padre")
+	assert.NotContains(t, ops, "EXAMINE Padre")
+	last := slices.Index(ops, "DELETE Padre")
+	require.GreaterOrEqual(t, last, 0)
+	assert.Less(t, slices.Index(ops, "DELETE Padre/Hijo"), last)
+	assert.Less(t, slices.Index(ops, "DELETE Padre/Otro"), last)
+	assert.GreaterOrEqual(t, slices.Index(ops, "DELETE Padre/Hijo"), 0)
+	assert.GreaterOrEqual(t, slices.Index(ops, "DELETE Padre/Otro"), 0)
 }

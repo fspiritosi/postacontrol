@@ -155,6 +155,18 @@ func (s *MailService) MoveFolder(ctx context.Context, folderID, newParentFolderI
 	return s.core.MoveFolder(ctx, folderID, newParentFolderID)
 }
 
+// DeleteFolderPreview cuenta en el servidor los correos de la carpeta y de sus
+// subcarpetas, para el aviso antes de eliminarla.
+func (s *MailService) DeleteFolderPreview(ctx context.Context, folderID int64) (model.FolderDeleteInfo, error) {
+	return s.core.DeleteFolderPreview(ctx, folderID)
+}
+
+// DeleteFolder elimina la carpeta y sus subcarpetas, mandando sus correos a la
+// Papelera. Devuelve cuántos correos movió.
+func (s *MailService) DeleteFolder(ctx context.Context, folderID int64) (int, error) {
+	return s.core.DeleteFolder(ctx, folderID)
+}
+
 // SetFolderOrder guarda el orden manual de las carpetas de la cuenta.
 func (s *MailService) SetFolderOrder(ctx context.Context, accountID int64, folderIDs []int64) error {
 	return s.core.SetFolderOrder(ctx, accountID, folderIDs)

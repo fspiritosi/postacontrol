@@ -16,6 +16,7 @@ export type {
     Contact,
     Draft,
     Folder,
+    FolderDeleteInfo,
     FolderRole,
     ListQuery,
     LocalDraft,
@@ -30,6 +31,7 @@ export type {
     Settings,
     Signature,
     StagedAttachment,
+    SubfolderCount,
     Suggestion,
     ThreadSummary
 } from "./models.js";

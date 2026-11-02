@@ -36,6 +36,12 @@ type IMAP struct {
 	served chan struct{} // se cierra cuando Serve volvió
 
 	sessions atomic.Int64
+
+	// Lo que imapmemserver no tiene y se simula en session (ver noselect.go).
+	simMu    sync.Mutex
+	noselect map[string]bool
+	ops      []string
+	moveHook func(src string)
 }
 
 // Sessions devuelve cuántas conexiones aceptó el servidor desde que arrancó
@@ -94,7 +100,7 @@ func (s *IMAP) serve(ln net.Listener) {
 	srv := imapserver.New(&imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			s.sessions.Add(1)
-			return s.mem.NewSession(), nil, nil
+			return &session{SessionIMAP4rev2: s.mem.NewSession().(imapserver.SessionIMAP4rev2), s: s}, nil, nil
 		},
 		Caps: s.caps,
 		// El servidor no sabe que el listener ya es TLS, así que sin esto

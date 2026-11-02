@@ -3,12 +3,16 @@ package mail
 import (
 	"cmp"
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"strings"
 
+	goimap "github.com/emersion/go-imap/v2"
+
 	"postacontrol/core/imapx"
 	"postacontrol/core/model"
+	"postacontrol/core/store"
 )
 
 const (
@@ -19,6 +23,10 @@ const (
 	msgPartialRename = "La carpeta se renombró, pero algunas subcarpetas no; revisalas."
 	msgNoSubfolders  = "Esta cuenta no admite subcarpetas."
 )
+
+// maxEmptyPasses es cuántas veces se intenta vaciar una carpeta antes de
+// eliminarla: si sigue llegando correo, se corta con "stale".
+const maxEmptyPasses = 3
 
 // CreateFolder crea una carpeta en el servidor. parentFolderID 0 la deja en el
 // primer nivel (con el prefijo personal de NAMESPACE, si el servidor lo
@@ -262,6 +270,238 @@ func (c *Core) relocateFolder(ctx context.Context, folderID int64,
 	return out, nil
 }
 
+// subtreeFolder es una carpeta del subárbol a eliminar, según el servidor, con
+// su cantidad de mensajes (0 si es \Noselect).
+type subtreeFolder struct {
+	imapx.RemoteFolder
+	total int
+}
+
+// DeleteFolderPreview cuenta en el servidor (no en la caché) los correos de la
+// carpeta y de cada subcarpeta, para el aviso antes de eliminar. No escribe
+// nada.
+func (c *Core) DeleteFolderPreview(ctx context.Context, folderID int64) (model.FolderDeleteInfo, error) {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	f, folders, delim, err := c.deletableFolder(ctx, folderID)
+	if err != nil {
+		return model.FolderDeleteInfo{}, err
+	}
+	tree, err := c.serverSubtree(ctx, f, delim, folders)
+	if err != nil {
+		return model.FolderDeleteInfo{}, err
+	}
+	info := model.FolderDeleteInfo{Subfolders: []model.SubfolderCount{}}
+	for _, n := range tree {
+		if n.Name == f.Name {
+			info.Total = n.total
+			continue
+		}
+		info.Subfolders = append(info.Subfolders, model.SubfolderCount{Name: n.Name[len(f.Name+delim):], Total: n.total})
+	}
+	slices.SortFunc(info.Subfolders, func(a, b model.SubfolderCount) int { return strings.Compare(a.Name, b.Name) })
+	return info, nil
+}
+
+// DeleteFolder elimina la carpeta con todo su subárbol. Primero manda a la
+// Papelera todos los correos según el servidor (UID SEARCH ALL, también los
+// que la caché no tiene) y borra cada carpeta recién cuando STATUS dice que
+// quedó vacía, de la más profunda a la menos. Ante cualquier error corta ahí:
+// esa carpeta y sus padres quedan en el servidor; las más profundas que ya se
+// borraron tenían sus correos en la Papelera. Devuelve cuántos correos movió.
+func (c *Core) DeleteFolder(ctx context.Context, folderID int64) (moved int, err error) {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	f, folders, delim, err := c.deletableFolder(ctx, folderID)
+	if err != nil {
+		return 0, err
+	}
+	tree, err := c.serverSubtree(ctx, f, delim, folders)
+	if err != nil {
+		return 0, err
+	}
+	var trash *model.Folder
+	for i := range folders {
+		if folders[i].Role == "trash" && folders[i].Selectable {
+			trash = &folders[i]
+			break
+		}
+	}
+	// Sin Papelera no se toca nada si hay algún correo, ni las subcarpetas
+	// vacías.
+	if trash == nil && slices.ContainsFunc(tree, func(n subtreeFolder) bool { return n.total > 0 }) {
+		return 0, &UserError{Code: "no_trash", Msg: msgNoTrash}
+	}
+	// De la más profunda a la menos: un padre se borra recién sin hijos.
+	slices.SortStableFunc(tree, func(a, b subtreeFolder) int {
+		return cmp.Or(strings.Count(b.Name, delim)-strings.Count(a.Name, delim), strings.Compare(b.Name, a.Name))
+	})
+
+	// Al terminar, o al cortar, la caché sigue al servidor y la Papelera se
+	// pone al día, como en runMoves.
+	defer func() {
+		if _, err := c.refreshFolders(ctx, f.AccountID); err != nil {
+			slog.Warn("no se pudo refrescar las carpetas después de eliminar", "carpeta", f.Name, "err", err)
+		}
+		if moved > 0 && trash != nil {
+			trashID := trash.ID
+			c.emit(EventFolderUpdated, map[string]any{"folderId": trashID})
+			c.spawn(func(ctx context.Context) { _ = c.SyncFolder(ctx, trashID) })
+		}
+	}()
+	for _, n := range tree {
+		got, err := c.emptyAndDelete(ctx, f.AccountID, n.RemoteFolder, trash, delim)
+		moved += got
+		if err != nil {
+			return moved, err
+		}
+		if g, ok := cachedFolderByName(folders, n.Name); ok {
+			if err := c.store.DeleteFolderRow(ctx, g.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return moved, c.ctxOrUserError(ctx, err)
+			}
+		}
+	}
+	return moved, nil
+}
+
+// emptyAndDelete vacía una carpeta en el servidor mandando todo a la Papelera
+// (hasta maxEmptyPasses pasadas) y la borra recién cuando STATUS dice que
+// quedó vacía. Una \Noselect no puede tener correos: se borra sin abrirla.
+// Devuelve cuántos correos movió, aunque después falle.
+func (c *Core) emptyAndDelete(ctx context.Context, accountID int64, r imapx.RemoteFolder, trash *model.Folder, delim string) (moved int, err error) {
+	if err := c.probe(ctx, accountID); err != nil {
+		return 0, err
+	}
+	err = c.withConnNoRetry(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
+		for pass := 1; r.Selectable; pass++ {
+			if _, err := conn.SelectRW(r.Name); err != nil {
+				return err
+			}
+			uids, err := conn.AllUIDs()
+			if err != nil {
+				return err
+			}
+			if len(uids) > 0 {
+				if trash == nil {
+					return &UserError{Code: "no_trash", Msg: msgNoTrash}
+				}
+				if err := conn.Move(uids, trash.Name); err != nil {
+					return err
+				}
+				moved += len(uids)
+			}
+			// Se sale de la carpeta antes de contar y de borrarla: STATUS no
+			// debería usarse sobre la carpeta abierta (RFC 3501) y Dovecot
+			// corta la sesión si se borra la carpeta abierta. EXAMINE no
+			// cambia nada.
+			if _, err := conn.Select("INBOX"); err != nil {
+				return err
+			}
+			total, err := conn.MailboxTotal(r.Name)
+			if err != nil {
+				return err
+			}
+			if total == 0 {
+				break
+			}
+			if pass == maxEmptyPasses {
+				return &UserError{Code: "stale", Msg: staleMsg(r.Name[len(parentOf(r.Name, delim)):])}
+			}
+		}
+		if err := conn.DeleteMailbox(r.Name); err != nil {
+			// Una \Noselect que existía solo por sus hijos puede desaparecer
+			// sola al borrarlos (Dovecot): ya está.
+			var ierr *goimap.Error
+			if r.Selectable || !errors.As(err, &ierr) || ierr.Code != goimap.ResponseCodeNonExistent {
+				return err
+			}
+		}
+		if err := conn.Unsubscribe(r.Name); err != nil {
+			slog.Warn("no se pudo quitar la suscripción", "carpeta", r.Name, "err", err)
+		}
+		return nil
+	})
+	return moved, err
+}
+
+// deletableFolder busca la carpeta en la caché y rechaza la especial y la que
+// tiene una especial en su subárbol. Devuelve también las carpetas de la
+// cuenta y el delimitador.
+func (c *Core) deletableFolder(ctx context.Context, folderID int64) (model.Folder, []model.Folder, string, error) {
+	if err := c.ctxErr(ctx); err != nil {
+		return model.Folder{}, nil, "", err
+	}
+	f, _, err := c.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return model.Folder{}, nil, "", c.ctxOrUserError(ctx, err)
+	}
+	folders, err := c.store.ListFolders(ctx, f.AccountID)
+	if err != nil {
+		return model.Folder{}, nil, "", c.ctxOrUserError(ctx, err)
+	}
+	delim := f.Delimiter
+	if delim == "" {
+		if delim, err = c.accountDelimiter(ctx, f.AccountID, folders); err != nil {
+			return model.Folder{}, nil, "", err
+		}
+	}
+	if hasSpecial(folders, f.Name, delim) {
+		return model.Folder{}, nil, "", &UserError{Code: "invalid", Msg: msgSpecial}
+	}
+	return f, folders, delim, nil
+}
+
+// serverSubtree lista en el servidor la carpeta y lo que cuelga de ella, y
+// cuenta los mensajes de cada una con STATUS. Si el servidor no la tiene
+// devuelve not_found; si algo del subárbol es especial (según el servidor o
+// la caché), msgSpecial.
+func (c *Core) serverSubtree(ctx context.Context, f model.Folder, delim string, folders []model.Folder) ([]subtreeFolder, error) {
+	var tree []subtreeFolder
+	var found bool
+	err := c.withConn(ctx, f.AccountID, func(_ context.Context, conn *imapx.Conn) error {
+		tree = nil
+		self, ok, err := conn.Lookup(f.Name)
+		found = ok
+		if err != nil || !ok {
+			return err
+		}
+		remote := []imapx.RemoteFolder{self}
+		// Sin delimitador no hay subcarpetas (y el patrón de ListUnder
+		// agarraría todo lo que empiece igual).
+		if delim != "" {
+			under, err := conn.ListUnder(f.Name, delim)
+			if err != nil {
+				return err
+			}
+			remote = append(remote, under...)
+		}
+		for _, r := range remote {
+			n := subtreeFolder{RemoteFolder: r}
+			if r.Selectable {
+				if n.total, err = conn.MailboxTotal(r.Name); err != nil {
+					return err
+				}
+			}
+			tree = append(tree, n)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, &UserError{Code: "not_found", Msg: msgNotFound}
+	}
+	for _, n := range tree {
+		if n.SpecialUse || strings.EqualFold(n.Name, "INBOX") || slices.ContainsFunc(folders, func(g model.Folder) bool {
+			return g.Role != "" && g.Name == n.Name
+		}) {
+			return nil, &UserError{Code: "invalid", Msg: msgSpecial}
+		}
+	}
+	return tree, nil
+}
+
 // SetFolderOrder guarda el orden manual: la carpeta i queda con posición i+1.
 // Todas las carpetas tienen que ser de la cuenta. Las especiales también se
 // pueden reordenar.
@@ -352,9 +592,22 @@ func validFolderName(name, delim string) (string, error) {
 
 func dupMsg(name string) string { return "Ya hay una carpeta «" + name + "» ahí." }
 
+func staleMsg(name string) string {
+	return "Llegaron correos nuevos a «" + name + "» mientras se vaciaba; probá de nuevo."
+}
+
 func cachedFolder(folders []model.Folder, id int64) (model.Folder, bool) {
 	for _, f := range folders {
 		if f.ID == id {
+			return f, true
+		}
+	}
+	return model.Folder{}, false
+}
+
+func cachedFolderByName(folders []model.Folder, name string) (model.Folder, bool) {
+	for _, f := range folders {
+		if f.Name == name {
 			return f, true
 		}
 	}

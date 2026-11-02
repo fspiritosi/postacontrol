@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/emersion/go-imap/v2"
+	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/stretchr/testify/assert"
@@ -99,4 +100,50 @@ func TestIMAP_CloseAndRestartSameAddress(t *testing.T) {
 	require.NoError(t, err)
 	_ = conn.Close()
 	assert.Equal(t, uint32(1), imapCount(t, s, "INBOX"), "los datos sobreviven al reinicio")
+}
+
+func TestIMAP_NoselectAndOps(t *testing.T) {
+	tlsc := testenv.NewTLS(t)
+	s := testenv.StartIMAP(t, tlsc, "ana", "pw")
+	require.NoError(t, s.User.Create("Padre/Hijo", nil))
+	s.AddNoselect("Padre")
+
+	c, err := imapclient.DialTLS(s.Addr, &imapclient.Options{TLSConfig: tlsc.Client})
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	require.NoError(t, c.Login("ana", "pw").Wait())
+
+	items, err := c.List("", "Padre*", nil).Collect()
+	require.NoError(t, err)
+	attrs := map[string][]imap.MailboxAttr{}
+	for _, it := range items {
+		attrs[it.Mailbox] = it.Attrs
+	}
+	assert.Contains(t, attrs["Padre"], imap.MailboxAttrNoSelect)
+	assert.NotContains(t, attrs["Padre/Hijo"], imap.MailboxAttrNoSelect)
+
+	_, err = c.Select("Padre", nil).Wait()
+	assert.Error(t, err)
+	_, err = c.Status("Padre", &imap.StatusOptions{NumMessages: true}).Wait()
+	assert.Error(t, err)
+	_, err = c.Select("Padre/Hijo", &imap.SelectOptions{ReadOnly: true}).Wait()
+	require.NoError(t, err)
+
+	moved := []string{}
+	s.SetMoveHook(func(src string) { moved = append(moved, src) })
+	s.Deliver(t, "Padre/Hijo", []byte("Subject: x\r\n\r\nhola\r\n"))
+	_, err = c.Select("Padre/Hijo", nil).Wait()
+	require.NoError(t, err)
+	_, err = c.Move(imap.UIDSetNum(1), "INBOX").Wait()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Padre/Hijo"}, moved)
+
+	require.NoError(t, c.Delete("Padre/Hijo").Wait())
+	require.NoError(t, c.Delete("Padre").Wait())
+	items, err = c.List("", "Padre*", nil).Collect()
+	require.NoError(t, err)
+	assert.Empty(t, items)
+	assert.Equal(t, []string{
+		"SELECT Padre", "EXAMINE Padre/Hijo", "SELECT Padre/Hijo", "DELETE Padre/Hijo", "DELETE Padre",
+	}, s.Ops())
 }
