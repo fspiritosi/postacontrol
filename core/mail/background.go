@@ -25,7 +25,8 @@ var backgroundExt = map[string]string{
 }
 
 // SetBackground copia la imagen de srcPath a la carpeta de datos y la deja como
-// fondo. El archivo anterior se borra recién después de guardar la configuración.
+// fondo. Los archivos anteriores se borran recién después de guardar la
+// configuración.
 func (c *Core) SetBackground(ctx context.Context, srcPath string) error {
 	if err := c.setBackgroundLocked(ctx, srcPath); err != nil {
 		return err
@@ -66,16 +67,15 @@ func (c *Core) setBackgroundLocked(ctx context.Context, srcPath string) error {
 	if err := writeFileAtomic(dest, data, 0o600); err != nil {
 		return backgroundErr("No pudimos guardar el fondo.", err)
 	}
-	old, err := c.saveBackground(ctx, file)
-	if err != nil {
+	if err := c.saveBackground(ctx, file); err != nil {
 		_ = os.Remove(dest)
 		return err
 	}
-	c.removeBackgroundFile(old, file)
+	c.sweepBackgrounds(file)
 	return nil
 }
 
-// ClearBackground quita el fondo y borra su archivo.
+// ClearBackground quita el fondo y borra sus archivos.
 func (c *Core) ClearBackground(ctx context.Context) error {
 	if err := c.clearBackgroundLocked(ctx); err != nil {
 		return err
@@ -87,35 +87,37 @@ func (c *Core) ClearBackground(ctx context.Context) error {
 func (c *Core) clearBackgroundLocked(ctx context.Context) error {
 	c.settingsMu.Lock()
 	defer c.settingsMu.Unlock()
-	old, err := c.saveBackground(ctx, "")
-	if err != nil {
+	if err := c.saveBackground(ctx, ""); err != nil {
 		return err
 	}
-	c.removeBackgroundFile(old, "")
+	c.sweepBackgrounds("")
 	return nil
 }
 
-// saveBackground guarda file como fondo conservando el resto de la configuración
-// y devuelve el nombre anterior.
-func (c *Core) saveBackground(ctx context.Context, file string) (string, error) {
+// saveBackground guarda file como fondo conservando el resto de la configuración.
+func (c *Core) saveBackground(ctx context.Context, file string) error {
 	st, err := c.store.GetSettings(ctx)
 	if err != nil {
-		return "", c.ctxOrUserError(ctx, err)
+		return c.ctxOrUserError(ctx, err)
 	}
-	old := st.Background
 	st.Background = file
 	if err := c.store.SaveSettings(ctx, st); err != nil {
-		return "", c.ctxOrUserError(ctx, err)
+		return c.ctxOrUserError(ctx, err)
 	}
-	return old, nil
+	return nil
 }
 
-func (c *Core) removeBackgroundFile(old, keep string) {
-	// Solo nombres simples: nunca salir de la carpeta de datos.
-	if old == "" || old == keep || filepath.Base(old) != old {
-		return
+// sweepBackgrounds borra los background-* de la carpeta de datos que no son
+// keep: el fondo anterior y los que quedaron si la app se cortó entre escribir
+// uno nuevo y borrar el viejo. Se llama con settingsMu tomado, así no pisa un
+// SetBackground en curso.
+func (c *Core) sweepBackgrounds(keep string) {
+	files, _ := filepath.Glob(filepath.Join(c.dataDir, "background-*"))
+	for _, f := range files {
+		if filepath.Base(f) != keep {
+			_ = os.Remove(f)
+		}
 	}
-	_ = os.Remove(filepath.Join(c.dataDir, old))
 }
 
 // BackgroundImage devuelve el fondo como data URL, o "" si no hay fondo o su

@@ -125,3 +125,31 @@ func TestBackground_ConcurrentWithSetSettings(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(c.dataDir, "background-*"))
 	assert.Len(t, files, 1)
 }
+
+// Un fondo que quedó de una corrida cortada a mitad de camino no se acumula:
+// al elegir o quitar el fondo se borra todo background-* que no sea el actual.
+func TestBackground_SweepsOrphans(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	orphan := func(name string) string {
+		p := filepath.Join(c.dataDir, name)
+		require.NoError(t, os.WriteFile(p, pngSig, 0o600))
+		return p
+	}
+	other := orphan("otro.png")
+
+	a, b := orphan("background-1.png"), orphan("background-2.jpg")
+	require.NoError(t, c.SetBackground(ctx, writePNG(t, "a.png", 8)))
+	st, _ := c.GetSettings(ctx)
+	assert.NoFileExists(t, a)
+	assert.NoFileExists(t, b)
+	assert.FileExists(t, filepath.Join(c.dataDir, st.Background))
+	assert.FileExists(t, other)
+
+	d := orphan("background-3.webp")
+	require.NoError(t, c.ClearBackground(ctx))
+	assert.NoFileExists(t, d)
+	files, _ := filepath.Glob(filepath.Join(c.dataDir, "background-*"))
+	assert.Empty(t, files)
+	assert.FileExists(t, other)
+}

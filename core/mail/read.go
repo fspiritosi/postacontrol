@@ -284,8 +284,8 @@ const MaxPreviewBytes = 50 << 20
 const msgTooBig = "Es muy grande para verlo acá."
 
 // AttachmentData devuelve el contenido del adjunto index para mostrarlo en el
-// visor. Corta por Size antes de bajar nada (es el tamaño codificado
-// aproximado) y vuelve a chequear con el tamaño real ya decodificado.
+// visor. Corta por el tamaño estimado antes de bajar nada y vuelve a chequear
+// con el tamaño real ya decodificado.
 func (c *Core) AttachmentData(ctx context.Context, messageID int64, index int) (model.AttachmentData, error) {
 	d, err := c.GetMessage(ctx, messageID)
 	if err != nil {
@@ -294,7 +294,7 @@ func (c *Core) AttachmentData(ctx context.Context, messageID int64, index int) (
 	if index < 0 || index >= len(d.Attachments) {
 		return model.AttachmentData{}, &UserError{Code: "not_found", Msg: msgNotFound}
 	}
-	if d.Attachments[index].Size > MaxPreviewBytes {
+	if decodedEstimate(d.Attachments[index].Size) > MaxPreviewBytes {
 		return model.AttachmentData{}, &UserError{Code: "too_big", Msg: msgTooBig}
 	}
 	att, data, err := c.attachmentBytes(ctx, messageID, index)
@@ -305,6 +305,14 @@ func (c *Core) AttachmentData(ctx context.Context, messageID int64, index int) (
 		return model.AttachmentData{}, &UserError{Code: "too_big", Msg: msgTooBig}
 	}
 	return model.AttachmentData{Filename: att.Filename, MIMEType: att.MIMEType, Data: data}, nil
+}
+
+// decodedEstimate estima el tamaño decodificado de un adjunto a partir de su
+// Size, que es el de la parte en el servidor. No sabemos su codificación: se
+// supone base64 (decodificado ≈ 3/4), la usual en adjuntos. Si no lo era, el
+// chequeo posterior con los bytes reales lo corta igual.
+func decodedEstimate(size int64) int64 {
+	return size / 4 * 3
 }
 
 // attachmentBytes baja y decodifica un adjunto. Lo usa SaveAttachment y el

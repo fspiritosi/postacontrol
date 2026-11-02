@@ -286,7 +286,8 @@ func TestAttachmentData_TooBigSkipsFetch(t *testing.T) {
 	d, err := c.GetMessage(context.Background(), m.ID)
 	require.NoError(t, err)
 	require.Len(t, d.Attachments, 1)
-	d.Attachments[0].Size = MaxPreviewBytes + 1
+	// 80 MB codificados son unos 60 MB decodificados: no entra.
+	d.Attachments[0].Size = 80 << 20
 	require.NoError(t, c.store.SetBody(context.Background(), m.ID, store.BodyRow{
 		HTML: d.HTML, Text: d.Text, HasRemoteImages: d.HasRemoteImages, Attachments: d.Attachments,
 	}))
@@ -298,6 +299,27 @@ func TestAttachmentData_TooBigSkipsFetch(t *testing.T) {
 	require.ErrorAs(t, err, &ue)
 	assert.Equal(t, "too_big", ue.Code)
 	assert.Equal(t, "Es muy grande para verlo acá.", ue.Msg)
+}
+
+// Size es el tamaño en el servidor, en base64 (~4/3 del real): un adjunto de
+// 45 MB llega como ~60 MB y se tiene que poder ver.
+func TestAttachmentData_EncodedSizeOverCapStillFetches(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", attachmentMail("factura.pdf"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	m := firstMessage(t, c, inboxID)
+
+	d, err := c.GetMessage(context.Background(), m.ID)
+	require.NoError(t, err)
+	require.Len(t, d.Attachments, 1)
+	d.Attachments[0].Size = 60 << 20
+	require.NoError(t, c.store.SetBody(context.Background(), m.ID, store.BodyRow{
+		HTML: d.HTML, Text: d.Text, HasRemoteImages: d.HasRemoteImages, Attachments: d.Attachments,
+	}))
+
+	got, err := c.AttachmentData(context.Background(), m.ID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, pdfBytes, got.Data)
 }
 
 func TestAttachmentData_BadIndex(t *testing.T) {

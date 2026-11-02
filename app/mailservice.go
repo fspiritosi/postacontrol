@@ -239,11 +239,16 @@ func (s *MailService) PickAttachments(ctx context.Context) ([]model.StagedAttach
 	return s.core.StageFiles(ctx, paths)
 }
 
+// imagePatterns es el filtro de los diálogos de imagen. En Linux GTK compara
+// los patrones distinguiendo mayúsculas: van las dos formas. El núcleo valida
+// por el contenido, no por la extensión.
+const imagePatterns = "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.PNG;*.JPG;*.JPEG;*.GIF;*.WEBP"
+
 // PickImage abre el diálogo nativo para elegir una imagen a insertar en el
 // cuerpo. Devuelve un PickedImage vacío (sin error) si se cancela.
 func (s *MailService) PickImage(ctx context.Context) (model.PickedImage, error) {
 	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Insertar imagen").
-		AddFilter("Imágenes", "*.png;*.jpg;*.jpeg;*.gif;*.webp")
+		AddFilter("Imágenes", imagePatterns)
 	if w := s.app.Window.Current(); w != nil {
 		dlg.AttachToWindow(w)
 	}
@@ -261,7 +266,7 @@ func (s *MailService) PickImage(ctx context.Context) (model.PickedImage, error) 
 // false (sin error) si se cancela.
 func (s *MailService) PickBackground(ctx context.Context) (bool, error) {
 	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Elegir fondo").
-		AddFilter("Imágenes", "*.png;*.jpg;*.jpeg;*.gif;*.webp")
+		AddFilter("Imágenes", imagePatterns)
 	if w := s.app.Window.Current(); w != nil {
 		dlg.AttachToWindow(w)
 	}
