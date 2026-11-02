@@ -1,3 +1,4 @@
+import { Events, Window } from "@wailsio/runtime";
 import { PaperclipIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -47,6 +48,11 @@ const TITLES: Record<string, string> = {
   forward: "Reenviar",
 };
 
+// Lo que bloquea la salida de la app: un reintento de la Bandeja de salida no
+// se guarda solo.
+const OUTBOX_UNSENT_MESSAGE =
+  "Tenés cambios sin enviar en este correo de la Bandeja de salida. Envialo o descartá los cambios antes de salir.";
+
 const DRAFT_STATUS_TEXT: Record<DraftStatus, string> = {
   idle: "",
   saving: "Guardando…",
@@ -60,9 +66,11 @@ function isBlankHtml(html: string): boolean {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;|\u00a0/g, " ").trim() === "";
 }
 
-type Props = { init: ComposerInit; onClose: () => void };
+// windowId: la ventana propia del redactor. Con él escucha los pedidos de Go
+// (cerrar, guardar antes de salir) y sigue el asunto en el título.
+type Props = { init: ComposerInit; onClose: () => void; windowId?: number };
 
-export function Composer({ init, onClose }: Props) {
+export function Composer({ init, onClose, windowId }: Props) {
   const accounts = useAccounts();
   const [accountId, setAccountId] = useState(init.accountId);
   const [to, setTo] = useState(formatRecipients(init.to));
@@ -179,6 +187,8 @@ export function Composer({ init, onClose }: Props) {
     set(v);
   };
 
+  // El envío en curso: la salida de la app lo espera antes de responder.
+  const sendRef = useRef<Promise<number> | null>(null);
   // El correo entra a la bandeja de salida y se envía en segundo plano; el
   // resultado lo avisa useSendNotices. Solo los errores de validación dejan
   // el redactor abierto.
@@ -186,14 +196,22 @@ export function Composer({ init, onClose }: Props) {
     setSending(true);
     setError(null);
     const shownAt = Date.now();
-    try {
+    // Se arma antes del primer await para que compose:flush ya lo vea.
+    const queued = (async () => {
       // Un guardado en vuelo podría llegar después del envío (y recrear el
       // borrador): se cancelan los timers y se espera antes de encolar.
       await autosave.cancel();
       const { draftId: composeDraftId, messageId: draftMessageId } = autosave.current();
-      const id = await svc.QueueSend({ ...buildRequest(), composeDraftId, draftMessageId });
-      sendStarted(id);
+      return svc.QueueSend({ ...buildRequest(), composeDraftId, draftMessageId });
+    })();
+    sendRef.current = queued;
+    try {
+      const id = await queued;
+      // En su ventana, el aviso "Enviando…" lo muestran todas (también la principal).
+      if (windowId !== undefined) void svc.ComposeSendStarted(id);
+      else sendStarted(id);
     } catch (e) {
+      sendRef.current = null;
       setError(errorMessage(e));
       setSending(false);
       // Sigue abierto: vuelve a autoguardar lo que no se guardó.
@@ -232,7 +250,8 @@ export function Composer({ init, onClose }: Props) {
   };
 
   const requestClose = () => {
-    if (sending || closing) return;
+    // Con una confirmación abierta, otro pedido de cerrar (la ✕) no hace nada.
+    if (sending || closing || confirmDiscard || confirmDiscardDraft) return;
     if (autosaveOn) void closeSaving();
     else if (dirty) setConfirmDiscard(true);
     else onClose();
@@ -261,199 +280,260 @@ export function Composer({ init, onClose }: Props) {
   };
 
   const mode = init.reply?.mode ?? "new";
+  const title = TITLES[mode] ?? "Nuevo correo";
+
+  // Esc: primero cierra el menú "/" o las sugerencias; si no, cierra el
+  // redactor. Lo que ya manejó la tecla (una confirmación, un Select abierto,
+  // el propio menú) hace preventDefault y acá se ignora.
+  const onEscape = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+    if (confirmDiscard || confirmDiscardDraft) return;
+    const close = closeSlashRef.current ?? closeSuggestionsRef.current;
+    e.preventDefault();
+    if (close) close();
+    else requestClose();
+  });
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => onEscape(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  // Al salir de la app, Go pide guardar todo y espera la respuesta. Nada se
+  // descarta: un envío en curso se espera, lo autoguardado se guarda y un
+  // reintento de la Bandeja de salida con cambios bloquea la salida.
+  const onFlush = useEffectEvent(async () => {
+    if (windowId === undefined) return;
+    const reply = (ok: boolean, message = "") => void svc.ComposeFlushed(windowId, ok, message);
+    const pending = sendRef.current;
+    if (pending) {
+      try {
+        await pending;
+        reply(true);
+      } catch (e) {
+        reply(false, errorMessage(e));
+      }
+      return;
+    }
+    if (!dirty) return reply(true);
+    if (!autosaveOn) return reply(false, OUTBOX_UNSENT_MESSAGE);
+    try {
+      await autosave.flush();
+      reply(true);
+    } catch (e) {
+      reply(false, errorMessage(e));
+    }
+  });
+  const onCloseRequest = useEffectEvent(() => requestClose());
+  const onQuitBlocked = useEffectEvent((message: string) => setError(message));
+  useEffect(() => {
+    if (windowId === undefined) return;
+    const offs = [
+      Events.On("compose:close-request", () => onCloseRequest()),
+      Events.On("compose:flush", () => void onFlush()),
+      Events.On("compose:quit-blocked", (ev) => onQuitBlocked(String(ev.data ?? ""))),
+    ];
+    return () => offs.forEach((off) => off());
+  }, [windowId]);
+
+  // El título de la ventana es el asunto, o el del modo si no hay.
+  useEffect(() => {
+    if (windowId === undefined) return;
+    void Window.SetTitle(subject.trim() || title);
+  }, [windowId, subject, title]);
+
+  // Cuando el autoguardado crea el borrador, la ventana queda registrada con
+  // su clave: abrirlo de nuevo trae esta ventana adelante.
+  const keyedDraft = useRef(init.composeDraftId ?? 0);
+  useEffect(() => {
+    if (windowId === undefined || autosave.draftId === 0 || keyedDraft.current !== 0) return;
+    keyedDraft.current = autosave.draftId;
+    void svc.SetComposeKey(windowId, `draft:${autosave.draftId}`);
+  }, [windowId, autosave.draftId]);
 
   const signature = (signatures.data ?? []).find((s) => s.id === signatureId);
 
   return (
     <>
-      <Dialog open onOpenChange={(o) => !o && requestClose()}>
-        <DialogContent
-          id="compose-drop"
-          data-file-drop-target
-          className="group/compose flex h-[80vh] max-w-3xl flex-col gap-4 sm:max-w-3xl"
-          // Radix escucha Esc antes que el redactor: si el menú "/" o las sugerencias
-          // de destinatarios están abiertos, ese Esc es suyo.
-          onEscapeKeyDown={(e) => {
-            const close = closeSlashRef.current ?? closeSuggestionsRef.current;
-            if (close) {
-              e.preventDefault();
-              close();
-            }
-          }}
+      <main
+        id="compose-drop"
+        data-file-drop-target
+        aria-labelledby="compose-title"
+        className="group/compose relative flex h-screen flex-col gap-4 bg-background p-4"
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-2 z-10 hidden items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/90 text-sm font-medium group-[.file-drop-target-active]/compose:flex"
         >
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-10 hidden items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/90 text-sm font-medium group-[.file-drop-target-active]/compose:flex"
-          >
-            Soltá los archivos para adjuntarlos
-          </div>
-          <DialogHeader>
-            <DialogTitle>{TITLES[mode] ?? "Nuevo correo"}</DialogTitle>
-            <DialogDescription className="sr-only">Redactá y enviá un correo.</DialogDescription>
-          </DialogHeader>
+          Soltá los archivos para adjuntarlos
+        </div>
+        <header>
+          <h1 id="compose-title" className="text-lg leading-none font-semibold">
+            {title}
+          </h1>
+        </header>
 
-          <div className="flex-1 space-y-4 overflow-y-auto pr-1">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="compose-from" className="w-14 shrink-0 text-muted-foreground">
-                  De
-                </Label>
-                <Select
-                  value={String(accountId)}
-                  onValueChange={(v) => edit(setAccountId)(Number(v))}
-                >
-                  <SelectTrigger id="compose-from" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accountList.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {a.displayName ? `${a.displayName} <${a.email}>` : a.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <SignaturePicker
-                value={signatureId}
-                signatures={signatures.data ?? []}
-                onChange={(id) => {
-                  edit(setPicked)(id);
-                }}
-              />
-              <div className="flex items-start gap-2">
-                <div className="flex-1">
-                  <RecipientInput
-                    id="compose-to"
-                    label="Para"
-                    value={to}
-                    onChange={edit(setTo)}
-                    onSuggestionsChange={onSuggestionsChange}
-                  />
-                </div>
-                {!showCc && (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowCc(true)}>
-                    CC/CCO
-                  </Button>
-                )}
-              </div>
-              {showCc && (
-                <>
-                  <RecipientInput
-                    id="compose-cc"
-                    label="CC"
-                    value={cc}
-                    onChange={edit(setCc)}
-                    onSuggestionsChange={onSuggestionsChange}
-                  />
-                  <RecipientInput
-                    id="compose-bcc"
-                    label="CCO"
-                    value={bcc}
-                    onChange={edit(setBcc)}
-                    onSuggestionsChange={onSuggestionsChange}
-                  />
-                </>
-              )}
-              <div className="flex items-center gap-2">
-                <Label htmlFor="compose-subject" className="w-14 shrink-0 text-muted-foreground">
-                  Asunto
-                </Label>
-                <Input
-                  id="compose-subject"
-                  value={subject}
-                  onChange={(e) => edit(setSubject)(e.target.value)}
-                />
-              </div>
-              <AttachmentList items={attachmentItems} onRemove={removeAttachment} />
-              {invalid.length > 0 && (
-                <p className="text-xs text-destructive">Revisá estas direcciones: {invalid.join(", ")}</p>
-              )}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="compose-from" className="w-14 shrink-0 text-muted-foreground">
+                De
+              </Label>
+              <Select
+                value={String(accountId)}
+                onValueChange={(v) => edit(setAccountId)(Number(v))}
+              >
+                <SelectTrigger id="compose-from" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {accountList.map((a) => (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      {a.displayName ? `${a.displayName} <${a.email}>` : a.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-
-            <RichEditor
-              content={init.bodyHtml}
-              onError={setError}
-              onPickImage={(editor) => {
-                void svc
-                  .PickImage()
-                  .then(({ dataUrl, filename }) => {
-                    if (dataUrl) editor.chain().focus().setImage({ src: dataUrl, alt: filename }).run();
-                  })
-                  .catch((e) => setError(errorMessage(e)));
-              }}
-              onSlashMenuChange={(close) => {
-                closeSlashRef.current = close;
-              }}
-              onChange={(getHTML) => {
-                bodyRef.current = getHTML;
-                touch();
+            <SignaturePicker
+              value={signatureId}
+              signatures={signatures.data ?? []}
+              onChange={(id) => {
+                edit(setPicked)(id);
               }}
             />
-
-            {signature && (
-              <section aria-label="Vista previa de la firma">
-                <p className="text-xs font-medium text-muted-foreground">Firma</p>
-                <SafeHtmlFrame html={signature.html} text="" allowRemote={false} bare />
-              </section>
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <RecipientInput
+                  id="compose-to"
+                  label="Para"
+                  value={to}
+                  onChange={edit(setTo)}
+                  onSuggestionsChange={onSuggestionsChange}
+                />
+              </div>
+              {!showCc && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setShowCc(true)}>
+                  CC/CCO
+                </Button>
+              )}
+            </div>
+            {showCc && (
+              <>
+                <RecipientInput
+                  id="compose-cc"
+                  label="CC"
+                  value={cc}
+                  onChange={edit(setCc)}
+                  onSuggestionsChange={onSuggestionsChange}
+                />
+                <RecipientInput
+                  id="compose-bcc"
+                  label="CCO"
+                  value={bcc}
+                  onChange={edit(setBcc)}
+                  onSuggestionsChange={onSuggestionsChange}
+                />
+              </>
             )}
-
-            {init.quotedHtml && (
-              <section aria-label="Mensaje original">
-                <p className="text-xs font-medium text-muted-foreground">Mensaje original</p>
-                <SafeHtmlFrame html={init.quotedHtml} text="" allowRemote={false} bare />
-              </section>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="compose-subject" className="w-14 shrink-0 text-muted-foreground">
+                Asunto
+              </Label>
+              <Input
+                id="compose-subject"
+                value={subject}
+                onChange={(e) => edit(setSubject)(e.target.value)}
+              />
+            </div>
+            <AttachmentList items={attachmentItems} onRemove={removeAttachment} />
+            {invalid.length > 0 && (
+              <p className="text-xs text-destructive">Revisá estas direcciones: {invalid.join(", ")}</p>
             )}
           </div>
 
-          {tooBig && (
-            <p className="text-xs text-destructive">
-              Los adjuntos suman {formatSize(attachmentsTotal)}; el máximo es {formatSize(MAX_ATTACHMENTS_BYTES)}.
-            </p>
-          )}
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+          <RichEditor
+            content={init.bodyHtml}
+            onError={setError}
+            onPickImage={(editor) => {
+              void svc
+                .PickImage()
+                .then(({ dataUrl, filename }) => {
+                  if (dataUrl) editor.chain().focus().setImage({ src: dataUrl, alt: filename }).run();
+                })
+                .catch((e) => setError(errorMessage(e)));
+            }}
+            onSlashMenuChange={(close) => {
+              closeSlashRef.current = close;
+            }}
+            onChange={(getHTML) => {
+              bodyRef.current = getHTML;
+              touch();
+            }}
+          />
+
+          {signature && (
+            <section aria-label="Vista previa de la firma">
+              <p className="text-xs font-medium text-muted-foreground">Firma</p>
+              <SafeHtmlFrame html={signature.html} text="" allowRemote={false} bare />
+            </section>
           )}
 
-          <DialogFooter className="sm:justify-between">
-            <div className="flex items-center gap-1">
-              {autosaveOn && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Descartar"
-                  title="Descartar"
-                  onClick={requestDiscard}
-                  disabled={sending || closing}
-                >
-                  <Trash2Icon />
-                </Button>
-              )}
-              <Button type="button" variant="ghost" onClick={pickAttachments} disabled={sending}>
-                <PaperclipIcon /> Adjuntar
+          {init.quotedHtml && (
+            <section aria-label="Mensaje original">
+              <p className="text-xs font-medium text-muted-foreground">Mensaje original</p>
+              <SafeHtmlFrame html={init.quotedHtml} text="" allowRemote={false} bare />
+            </section>
+          )}
+        </div>
+
+        {tooBig && (
+          <p className="text-xs text-destructive">
+            Los adjuntos suman {formatSize(attachmentsTotal)}; el máximo es {formatSize(MAX_ATTACHMENTS_BYTES)}.
+          </p>
+        )}
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <footer className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            {autosaveOn && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Descartar"
+                title="Descartar"
+                onClick={requestDiscard}
+                disabled={sending || closing}
+              >
+                <Trash2Icon />
               </Button>
-              {autosaveOn && (
-                <span className="ml-2 text-xs text-muted-foreground" aria-live="polite">
-                  {DRAFT_STATUS_TEXT[autosave.status]}
-                </span>
-              )}
-            </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row">
-              {!autosaveOn && (
-                <Button type="button" variant="ghost" onClick={requestClose} disabled={sending}>
-                  Cancelar
-                </Button>
-              )}
-              <Button type="button" onClick={() => void send()} disabled={!canSend || closing}>
-                {sending ? "Enviando…" : "Enviar"}
+            )}
+            <Button type="button" variant="ghost" onClick={pickAttachments} disabled={sending}>
+              <PaperclipIcon /> Adjuntar
+            </Button>
+            {autosaveOn && (
+              <span className="ml-2 text-xs text-muted-foreground" aria-live="polite">
+                {DRAFT_STATUS_TEXT[autosave.status]}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {!autosaveOn && (
+              <Button type="button" variant="ghost" onClick={requestClose} disabled={sending}>
+                Cancelar
               </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            )}
+            <Button type="button" onClick={() => void send()} disabled={!canSend || closing}>
+              {sending ? "Enviando…" : "Enviar"}
+            </Button>
+          </div>
+        </footer>
+      </main>
 
       <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
         <DialogContent className="sm:max-w-sm" showCloseButton={false}>

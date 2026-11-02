@@ -24,19 +24,30 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   UploadDraft: vi.fn(),
   DeleteDraft: vi.fn(),
   SuggestRecipients: vi.fn(),
+  CloseComposeWindow: vi.fn(),
+  ComposeFlushed: vi.fn(),
+  ComposeSendStarted: vi.fn(),
+  SetComposeKey: vi.fn(),
 }));
 vi.mock("sonner", () => ({
   toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
-// Eventos de Wails que el test puede disparar a mano (files-staged).
-const wails = vi.hoisted(() => ({ handlers: new Map<string, (ev: { data: unknown }) => void>() }));
+// Eventos de Wails que el test puede disparar a mano (files-staged,
+// compose:flush…) y el título de la ventana.
+const wails = vi.hoisted(() => ({
+  handlers: new Map<string, (ev: { data: unknown }) => void>(),
+  setTitle: (() => {}) as (title: string) => void,
+}));
 vi.mock("@wailsio/runtime", () => ({
   Events: {
     On: (name: string, cb: (ev: { data: unknown }) => void) => {
       wails.handlers.set(name, cb);
-      return () => wails.handlers.delete(name);
+      return () => {
+        if (wails.handlers.get(name) === cb) wails.handlers.delete(name);
+      };
     },
   },
+  Window: { SetTitle: (t: string) => wails.setTitle(t) },
 }));
 
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -228,7 +239,7 @@ describe("Composer", () => {
     expect(req.subject).toBe("Re: Hola");
     expect(req.draftId).toBeUndefined();
     expect(toast.loading).toHaveBeenCalledWith("Enviando correo…", { id: "send-12" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), {
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument(), {
       timeout: 2000,
     });
   });
@@ -241,7 +252,7 @@ describe("Composer", () => {
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     expect(await screen.findByText("Agregá al menos un destinatario.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeInTheDocument();
     expect(toast.loading).not.toHaveBeenCalled();
   });
 
@@ -283,7 +294,7 @@ describe("Composer", () => {
     await screen.findByRole("listbox");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    expect(screen.getByRole("dialog", { name: "Nuevo correo" })).toBeInTheDocument();
+    expect(screen.getByRole("main", { name: "Nuevo correo" })).toBeInTheDocument();
     expect(screen.queryByText("¿Descartar este correo?")).toBeNull();
   });
 
@@ -295,7 +306,7 @@ describe("Composer", () => {
     await screen.findByRole("listbox");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    expect(screen.getByRole("dialog", { name: "Nuevo correo" })).toBeInTheDocument();
+    expect(screen.getByRole("main", { name: "Nuevo correo" })).toBeInTheDocument();
     expect(screen.getByLabelText("Para")).toHaveValue("jua");
   });
 
@@ -498,7 +509,7 @@ describe("Composer: borradores", () => {
     await user.click(screen.getByText("nuevo"));
     await user.type(await screen.findByLabelText("Asunto"), "algo");
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
     expect(svc.SaveDraft).toHaveBeenCalledTimes(1);
     const [id, req] = vi.mocked(svc.SaveDraft).mock.calls[0];
     expect(id).toBe(0);
@@ -516,7 +527,7 @@ describe("Composer: borradores", () => {
     await user.type(subject, "a");
     await user.clear(subject);
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
     expect(svc.SaveDraft).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
   });
@@ -532,7 +543,7 @@ describe("Composer: borradores", () => {
     const confirm = screen.getAllByRole("button", { name: "Descartar" }).slice(-1)[0];
     await user.click(confirm);
     await waitFor(() => expect(svc.DeleteDraft).toHaveBeenCalledWith(8));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
     expect(svc.SaveDraft).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
   });
@@ -552,7 +563,7 @@ describe("Composer: borradores", () => {
         "Borramos el borrador de esta compu, pero no pudimos borrarlo del servidor.",
       ),
     );
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
   });
 
   it("enviar lleva composeDraftId y draftMessageId", async () => {
@@ -566,7 +577,7 @@ describe("Composer: borradores", () => {
     expect(req.draftMessageId).toBe("<b8@ej.com>");
     expect(req.draftId).toBeUndefined();
     expect(req.subject).toBe("A medio escribir");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 2000 });
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument(), { timeout: 2000 });
     expect(svc.SaveDraft).not.toHaveBeenCalled();
   });
 
@@ -602,7 +613,7 @@ describe("Composer: borradores", () => {
     const req = vi.mocked(svc.QueueSend).mock.calls[0][0];
     expect(req.composeDraftId).toBe(21);
     expect(req.draftMessageId).toBe("<n21@ej.com>");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 2000 });
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument(), { timeout: 2000 });
     expect(svc.SaveDraft).toHaveBeenCalledTimes(1);
     expect(svc.UploadDraft).not.toHaveBeenCalled();
   });
@@ -711,5 +722,206 @@ describe("Composer: firma", () => {
     await act(() => qc.invalidateQueries({ queryKey: ["signatures"] }));
     await waitFor(() => expect(screen.getByLabelText("Firma")).toHaveTextContent("Sin firma"));
     expect(preview()).toBeNull();
+  });
+});
+
+describe("Composer: en su ventana", () => {
+  const WIN = 4;
+  const base: ComposerInit = {
+    accountId: 1, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
+    attachments: [], originalAttachments: [], skipOriginalAttachments: [], signatureId: 0,
+  };
+  // Un reintento de la Bandeja de salida: no autoguarda.
+  const outbox: ComposerInit = { ...base, to: [{ name: "", email: "z@x.com" }], subject: "Pendiente", draftId: 5 };
+  const withTo: ComposerInit = { ...base, to: [{ name: "", email: "a@b.com" }] };
+
+  const emit = (name: string, data?: unknown) => act(() => wails.handlers.get(name)?.({ data }));
+
+  function mount(init: ComposerInit) {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <Composer init={init} onClose={onClose} windowId={WIN} />
+      </QueryClientProvider>,
+    );
+    return { user, onClose };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wails.setTitle = vi.fn();
+    vi.mocked(svc.ListAccounts).mockResolvedValue([account] as never);
+    vi.mocked(svc.ListSignatures).mockResolvedValue([]);
+    vi.mocked(svc.SuggestRecipients).mockResolvedValue([]);
+    vi.mocked(svc.SaveDraft).mockResolvedValue({ ...composeDraft, id: 9, messageId: "<b9@ej.com>" } as never);
+    vi.mocked(svc.UploadDraft).mockResolvedValue({ ...composeDraft, id: 9, messageId: "<b9@ej.com>" } as never);
+    vi.mocked(svc.ComposeFlushed).mockResolvedValue();
+    vi.mocked(svc.ComposeSendStarted).mockResolvedValue();
+    vi.mocked(svc.SetComposeKey).mockResolvedValue();
+  });
+
+  it("el título de la ventana sigue al asunto", async () => {
+    const { user } = mount(base);
+    await waitFor(() => expect(wails.setTitle).toHaveBeenLastCalledWith("Nuevo correo"));
+    await user.type(screen.getByLabelText("Asunto"), "Hola");
+    await waitFor(() => expect(wails.setTitle).toHaveBeenLastCalledWith("Hola"));
+  });
+
+  describe("compose:close-request hace lo mismo que Esc", () => {
+    it("con autoguardado y cambios, guarda y cierra", async () => {
+      const { user, onClose } = mount(base);
+      await user.type(screen.getByLabelText("Asunto"), "algo");
+      emit("compose:close-request");
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(svc.SaveDraft).toHaveBeenCalledTimes(1);
+      expect(toast.success).toHaveBeenCalledWith("Guardado en Borradores.");
+    });
+
+    it("sin autoguardado y con cambios, pregunta", async () => {
+      const { user, onClose } = mount(outbox);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:close-request");
+      expect(await screen.findByText("¿Descartar este correo?")).toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("un segundo close-request con el diálogo abierto no abre otro ni cierra", async () => {
+      const { user, onClose } = mount(outbox);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:close-request");
+      await screen.findByText("¿Descartar este correo?");
+      emit("compose:close-request");
+      expect(screen.getAllByText("¿Descartar este correo?")).toHaveLength(1);
+      expect(onClose).not.toHaveBeenCalled();
+      // "Seguir editando" deja la ventana abierta.
+      await user.click(screen.getByRole("button", { name: "Seguir editando" }));
+      await waitFor(() => expect(screen.queryByText("¿Descartar este correo?")).toBeNull());
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Asunto")).toHaveValue("Pendiente más");
+    });
+  });
+
+  describe("compose:flush", () => {
+    it("sin tocar responde ok sin guardar", async () => {
+      mount(base);
+      await screen.findByLabelText("Asunto");
+      emit("compose:flush");
+      await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, true, ""));
+      expect(svc.SaveDraft).not.toHaveBeenCalled();
+    });
+
+    it("con autoguardado y cambios guarda y responde ok", async () => {
+      const { user, onClose } = mount(base);
+      await user.type(screen.getByLabelText("Asunto"), "algo");
+      emit("compose:flush");
+      await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, true, ""));
+      expect(svc.SaveDraft).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(svc.SaveDraft).mock.calls[0][1].subject).toBe("algo");
+      // Cerrar la ventana es cosa de la salida, no del redactor.
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("si no se pudo guardar responde con el error", async () => {
+      vi.mocked(svc.SaveDraft).mockRejectedValue(new Error("disco lleno"));
+      const { user } = mount(base);
+      await user.type(screen.getByLabelText("Asunto"), "algo");
+      emit("compose:flush");
+      await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, false, "disco lleno"));
+    });
+
+    it("un reintento de la Bandeja de salida con cambios bloquea la salida", async () => {
+      const { user } = mount(outbox);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:flush");
+      await waitFor(() =>
+        expect(svc.ComposeFlushed).toHaveBeenCalledWith(
+          WIN,
+          false,
+          "Tenés cambios sin enviar en este correo de la Bandeja de salida. Envialo o descartá los cambios antes de salir.",
+        ),
+      );
+      expect(svc.SaveDraft).not.toHaveBeenCalled();
+    });
+
+    it("con un envío en curso responde cuando terminó QueueSend", async () => {
+      let finish: (id: number) => void = () => {};
+      vi.mocked(svc.QueueSend).mockReturnValue(new Promise<number>((r) => (finish = r)) as never);
+      const { user } = mount(withTo);
+      await user.click(await screen.findByRole("button", { name: "Enviar" }));
+      await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+      emit("compose:flush");
+      await act(() => new Promise((r) => setTimeout(r, 50)));
+      expect(svc.ComposeFlushed).not.toHaveBeenCalled();
+      await act(async () => finish(99));
+      await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, true, ""));
+      expect(svc.SaveDraft).not.toHaveBeenCalled();
+    });
+
+    it("si el envío en curso falla responde con el error", async () => {
+      let fail: (e: Error) => void = () => {};
+      vi.mocked(svc.QueueSend).mockReturnValue(new Promise<number>((_, r) => (fail = r)) as never);
+      const { user } = mount(withTo);
+      await user.click(await screen.findByRole("button", { name: "Enviar" }));
+      await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+      emit("compose:flush");
+      await act(() => new Promise((r) => setTimeout(r, 50)));
+      expect(svc.ComposeFlushed).not.toHaveBeenCalled();
+      await act(async () => fail(new Error("Agregá al menos un destinatario.")));
+      await waitFor(() =>
+        expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, false, "Agregá al menos un destinatario."),
+      );
+    });
+  });
+
+  it("compose:quit-blocked muestra el mensaje", async () => {
+    mount(base);
+    await screen.findByLabelText("Asunto");
+    emit("compose:quit-blocked", "No pudimos guardar este borrador; la app sigue abierta. disco lleno");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos guardar este borrador; la app sigue abierta. disco lleno",
+    );
+  });
+
+  it("cuando el autoguardado crea el borrador registra la clave", async () => {
+    const { user } = mount(base);
+    await user.type(screen.getByLabelText("Asunto"), "algo");
+    emit("compose:flush");
+    await waitFor(() => expect(svc.SetComposeKey).toHaveBeenCalledWith(WIN, "draft:9"));
+    // Un segundo guardado del mismo borrador no la vuelve a registrar.
+    await user.type(screen.getByLabelText("Asunto"), " más");
+    emit("compose:flush");
+    await waitFor(() => expect(svc.SaveDraft).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledTimes(2));
+    expect(svc.SetComposeKey).toHaveBeenCalledTimes(1);
+  });
+
+  it("un borrador que ya tenía id no vuelve a registrar la clave", async () => {
+    const { user } = mount({ ...base, composeDraftId: 8, draftMessageId: "<b8@ej.com>" });
+    await user.type(screen.getByLabelText("Asunto"), "algo");
+    emit("compose:flush");
+    await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, true, ""));
+    expect(svc.SetComposeKey).not.toHaveBeenCalled();
+  });
+
+  it("enviar avisa a la principal", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(99);
+    const { user, onClose } = mount(withTo);
+    await user.click(await screen.findByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.ComposeSendStarted).toHaveBeenCalledWith(99));
+    expect(toast.loading).not.toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), { timeout: 2000 });
+  });
+
+  it("Esc con el diálogo de descartar abierto no cierra la ventana", async () => {
+    const { user, onClose } = mount(outbox);
+    await user.type(screen.getByLabelText("Asunto"), " más");
+    await user.keyboard("{Escape}");
+    await screen.findByText("¿Descartar este correo?");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText("¿Descartar este correo?")).toBeNull());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("main")).toBeInTheDocument();
   });
 });
