@@ -5,7 +5,7 @@ import { defaultView, loadView, saveView, viewIsValid } from "./view";
 function folder(p: Partial<Folder>): Folder {
   return {
     id: 1, accountId: 1, name: "INBOX", delimiter: "/", role: "inbox",
-    unread: 0, total: 0, selectable: true, ...p,
+    unread: 0, total: 0, selectable: true, position: 0, ...p,
   };
 }
 

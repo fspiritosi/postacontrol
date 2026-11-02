@@ -87,6 +87,8 @@ type Folder struct {
 	Unread     int        `json:"unread"`
 	Total      int        `json:"total"`
 	Selectable bool       `json:"selectable"`
+	// Position es el orden manual entre hermanos; 0 = sin posición.
+	Position int `json:"position"`
 }
 
 type MessageSummary struct {

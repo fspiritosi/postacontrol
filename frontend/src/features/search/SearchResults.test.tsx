@@ -33,8 +33,8 @@ const accounts: Account[] = [7].map((id) => ({
   defaultSignatureId: 0,
 }));
 const FOLDERS: Folder[] = [
-  { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true },
-  { id: 4, accountId: 7, name: "Facturas", delimiter: "/", role: "", unread: 0, total: 0, selectable: true },
+  { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true, position: 0 },
+  { id: 4, accountId: 7, name: "Facturas", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0 },
 ];
 
 function summary(id: number, folderId: number): MessageSummary {

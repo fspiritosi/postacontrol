@@ -50,10 +50,10 @@ const baseState: ShellState = {
 
 const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X", color: "#0f0" };
 const inbox = (id: number, accountId: number, unread: number) =>
-  ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true }) as const;
+  ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true, position: 0 }) as const;
 
 // Carpeta sin rol: no choca con la fila "Entrada" de Todas las cuentas.
-const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true } as const;
+const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0 } as const;
 
 function renderSidebar(accounts: Account[], state: ShellState = baseState) {
   return render(
@@ -181,8 +181,8 @@ describe("FolderSidebar", () => {
 
   it("al elegir una carpeta abre su vista y marca la activa", async () => {
     vi.mocked(svc.ListFolders).mockResolvedValueOnce([
-      { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true },
-      { id: 4, accountId: 7, name: "Sent", delimiter: "/", role: "sent", unread: 0, total: 0, selectable: true },
+      { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true, position: 0 },
+      { id: 4, accountId: 7, name: "Sent", delimiter: "/", role: "sent", unread: 0, total: 0, selectable: true, position: 0 },
     ]);
     const user = userEvent.setup();
     const selectView = vi.fn();

@@ -11,7 +11,7 @@ const f = (name: string, role = ""): Folder => ({
   role,
   unread: 0,
   total: 0,
-  selectable: true,
+  selectable: true, position: 0,
 });
 
 describe("buildFolderTree", () => {

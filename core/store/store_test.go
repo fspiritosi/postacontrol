@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -583,4 +584,137 @@ func TestMessagesByUIDs_NewestFirst(t *testing.T) {
 	none, err := s.MessagesByUIDs(ctx, f["INBOX"], nil)
 	require.NoError(t, err)
 	assert.Empty(t, none)
+}
+
+func seedTree(t *testing.T, s *Store) (int64, map[string]int64) {
+	t.Helper()
+	ctx := context.Background()
+	accID, err := s.InsertAccount(ctx, hostinger())
+	require.NoError(t, err)
+	var fs []model.Folder
+	for _, n := range []string{"INBOX", "Clientes", "Clientes/Acme", "ClientesViejos"} {
+		fs = append(fs, model.Folder{Name: n, Delimiter: "/", Selectable: true})
+	}
+	require.NoError(t, s.ReplaceFolders(ctx, accID, fs))
+	list, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	ids := map[string]int64{}
+	for _, f := range list {
+		ids[f.Name] = f.ID
+	}
+	return accID, ids
+}
+
+func TestRenameFolderTree(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, ids := seedTree(t, s)
+	acme := ids["Clientes/Acme"]
+	require.NoError(t, s.SetFolderSync(ctx, acme, FolderSync{UIDValidity: 7, UIDNext: 9}))
+	require.NoError(t, s.SetFolderPosition(ctx, acme, 3))
+	err := s.UpsertHeaders(ctx, acme, []HeaderRow{hdr(1, time.Now(), false)})
+	require.NoError(t, err)
+
+	require.NoError(t, s.RenameFolderTree(ctx, accID, "Clientes", "Proyectos", "/"))
+
+	list, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	got := map[string]model.Folder{}
+	for _, f := range list {
+		got[f.Name] = f
+	}
+	assert.Equal(t, ids["Clientes"], got["Proyectos"].ID)
+	assert.Equal(t, acme, got["Proyectos/Acme"].ID)
+	assert.Equal(t, 3, got["Proyectos/Acme"].Position)
+	assert.Equal(t, ids["ClientesViejos"], got["ClientesViejos"].ID)
+	assert.NotContains(t, got, "Clientes")
+	assert.NotContains(t, got, "Clientes/Acme")
+	_, fsync, err := s.GetFolder(ctx, acme)
+	require.NoError(t, err)
+	assert.Equal(t, FolderSync{UIDValidity: 7, UIDNext: 9}, fsync)
+	assert.Equal(t, []uint32{1}, uids(t, s, acme))
+}
+
+func TestFolderPositions(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, ids := seedTree(t, s)
+	other, otherIDs := seedTree2(t, s)
+	_ = other
+
+	n, err := s.NextFolderPosition(ctx, accID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+
+	require.NoError(t, s.SetFolderPositions(ctx, accID,
+		[]int64{ids["ClientesViejos"], ids["Clientes"], otherIDs["INBOX"]}))
+	list, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	pos := map[string]int{}
+	for _, f := range list {
+		pos[f.Name] = f.Position
+	}
+	assert.Equal(t, 1, pos["ClientesViejos"])
+	assert.Equal(t, 2, pos["Clientes"])
+	assert.Equal(t, 0, pos["INBOX"])
+	f, _, err := s.GetFolder(ctx, otherIDs["INBOX"])
+	require.NoError(t, err)
+	assert.Equal(t, 0, f.Position, "carpeta de otra cuenta ignorada")
+
+	n, err = s.NextFolderPosition(ctx, accID)
+	require.NoError(t, err)
+	assert.Equal(t, 3, n)
+
+	require.NoError(t, s.SetFolderPosition(ctx, ids["INBOX"], 4))
+	n, err = s.NextFolderPosition(ctx, accID)
+	require.NoError(t, err)
+	assert.Equal(t, 5, n)
+}
+
+func seedTree2(t *testing.T, s *Store) (int64, map[string]int64) {
+	t.Helper()
+	ctx := context.Background()
+	acc := hostinger()
+	acc.Email = "otra@ejemplo.com"
+	accID, err := s.InsertAccount(ctx, acc)
+	require.NoError(t, err)
+	require.NoError(t, s.ReplaceFolders(ctx, accID, []model.Folder{{Name: "INBOX", Delimiter: "/", Selectable: true}}))
+	list, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	return accID, map[string]int64{"INBOX": list[0].ID}
+}
+
+func TestDeleteFolderRow_CascadesMessages(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, ids := seedTree(t, s)
+	err := s.UpsertHeaders(ctx, ids["Clientes"], []HeaderRow{hdr(1, time.Now(), false)})
+	require.NoError(t, err)
+	require.NoError(t, s.DeleteFolderRow(ctx, ids["Clientes"]))
+	_, _, err = s.GetFolder(ctx, ids["Clientes"])
+	assert.ErrorIs(t, err, ErrNotFound)
+	var n int
+	require.NoError(t, s.db.QueryRow(`SELECT count(*) FROM messages WHERE folder_id = ?`, ids["Clientes"]).Scan(&n))
+	assert.Equal(t, 0, n)
+	assert.ErrorIs(t, s.DeleteFolderRow(ctx, ids["Clientes"]), ErrNotFound)
+}
+
+func TestMigrateV8_PositionDefaultsToZero(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	require.NoError(t, migrateTo(db, 7))
+	_, err = db.Exec(`INSERT INTO accounts (email, display_name, username, color, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, save_sent_copy) VALUES ('a@x.com','A','a@x.com','#fff','h',993,'tls','h',465,'tls',1)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO folders (account_id, name, delimiter, role, selectable) VALUES (1,'INBOX','/','inbox',1)`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	defer s.Close()
+	fs, err := s.ListFolders(context.Background(), 1)
+	require.NoError(t, err)
+	require.Len(t, fs, 1)
+	assert.Equal(t, 0, fs[0].Position)
 }

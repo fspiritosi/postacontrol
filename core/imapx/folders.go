@@ -179,3 +179,102 @@ func specialUseRole(attrs []imap.MailboxAttr) model.FolderRole {
 	}
 	return ""
 }
+
+// CreateMailbox crea un buzón (CREATE). El nombre ya viene completo, con el
+// prefijo y el delimitador de la cuenta.
+func (c *Conn) CreateMailbox(name string) error {
+	if err := c.c.Create(name, nil).Wait(); err != nil {
+		return opErr(fmt.Sprintf("CREATE %q", name), err)
+	}
+	return nil
+}
+
+// RenameMailbox renombra un buzón (RENAME). El servidor renombra también las
+// inferiores.
+func (c *Conn) RenameMailbox(oldName, newName string) error {
+	if err := c.c.Rename(oldName, newName, nil).Wait(); err != nil {
+		return opErr(fmt.Sprintf("RENAME %q", oldName), err)
+	}
+	return nil
+}
+
+// DeleteMailbox borra un buzón (DELETE).
+func (c *Conn) DeleteMailbox(name string) error {
+	if err := c.c.Delete(name).Wait(); err != nil {
+		return opErr(fmt.Sprintf("DELETE %q", name), err)
+	}
+	return nil
+}
+
+// Subscribe suscribe el buzón (SUBSCRIBE).
+func (c *Conn) Subscribe(name string) error {
+	if err := c.c.Subscribe(name).Wait(); err != nil {
+		return opErr(fmt.Sprintf("SUBSCRIBE %q", name), err)
+	}
+	return nil
+}
+
+// Unsubscribe quita la suscripción del buzón (UNSUBSCRIBE).
+func (c *Conn) Unsubscribe(name string) error {
+	if err := c.c.Unsubscribe(name).Wait(); err != nil {
+		return opErr(fmt.Sprintf("UNSUBSCRIBE %q", name), err)
+	}
+	return nil
+}
+
+// PersonalPrefix devuelve el prefijo del primer namespace personal
+// (NAMESPACE), por ejemplo "INBOX." en Dovecot. Sin la capacidad, o si el
+// servidor no informa ninguno, devuelve "" sin mandar nada.
+func (c *Conn) PersonalPrefix() (string, error) {
+	caps := c.c.Caps()
+	if !caps.Has(imap.CapNamespace) && !caps.Has(imap.CapIMAP4rev2) {
+		return "", nil
+	}
+	data, err := c.c.Namespace().Wait()
+	if err != nil {
+		return "", opErr("NAMESPACE", err)
+	}
+	if len(data.Personal) == 0 {
+		return "", nil
+	}
+	return data.Personal[0].Prefix, nil
+}
+
+// MailboxTotal devuelve la cantidad de mensajes del buzón (STATUS (MESSAGES)).
+func (c *Conn) MailboxTotal(name string) (int, error) {
+	st, err := c.c.Status(name, &imap.StatusOptions{NumMessages: true}).Wait()
+	if err != nil {
+		return 0, opErr(fmt.Sprintf("STATUS %q", name), err)
+	}
+	if st.NumMessages == nil {
+		return 0, nil
+	}
+	return int(*st.NumMessages), nil
+}
+
+// ListUnder lista los buzones que cuelgan de name (LIST "" "name<delim>*"), sin
+// STATUS y sin incluir a name. Los contadores quedan en cero.
+func (c *Conn) ListUnder(name, delim string) ([]RemoteFolder, error) {
+	items, err := c.c.List("", name+delim+"*", nil).Collect()
+	if err != nil {
+		return nil, opErr(fmt.Sprintf("LIST %q", name), err)
+	}
+	out := []RemoteFolder{}
+	for _, it := range items {
+		if it.Mailbox == name || slices.Contains(it.Attrs, imap.MailboxAttrNonExistent) {
+			continue
+		}
+		d := ""
+		if it.Delim != 0 {
+			d = string(it.Delim)
+		}
+		out = append(out, RemoteFolder{
+			Name:       it.Mailbox,
+			Delimiter:  d,
+			Role:       DetectRole(it.Mailbox, d, it.Attrs),
+			SpecialUse: specialUseRole(it.Attrs) != "",
+			Selectable: !slices.Contains(it.Attrs, imap.MailboxAttrNoSelect),
+		})
+	}
+	return out, nil
+}

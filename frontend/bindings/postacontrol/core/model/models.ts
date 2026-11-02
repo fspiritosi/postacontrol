@@ -121,6 +121,11 @@ export interface Folder {
     "unread": number;
     "total": number;
     "selectable": boolean;
+
+    /**
+     * Position es el orden manual entre hermanos; 0 = sin posición.
+     */
+    "position": number;
 }
 
 /**

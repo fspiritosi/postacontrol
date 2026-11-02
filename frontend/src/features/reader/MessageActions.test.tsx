@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { MessageActions } from "./MessageActions";
 
 function folder(id: number, name: string, role = "", selectable = true): Folder {
-  return { id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable };
+  return { id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable, position: 0 };
 }
 const folders = [
   folder(1, "INBOX", "inbox"),

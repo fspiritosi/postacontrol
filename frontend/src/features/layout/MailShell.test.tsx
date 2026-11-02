@@ -39,7 +39,7 @@ function account(id: number): Account {
 }
 
 function folder(id: number, accountId: number, role: string): Folder {
-  return { id, accountId, name: role, delimiter: "/", role, unread: 0, total: 0, selectable: true };
+  return { id, accountId, name: role, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0 };
 }
 
 const FOLDERS: Record<number, Folder[]> = {

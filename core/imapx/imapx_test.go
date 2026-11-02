@@ -847,3 +847,88 @@ func TestSearchText_FindsInBody(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, uids)
 }
+
+func folderNames(t *testing.T, c *imapx.Conn) map[string]imapx.RemoteFolder {
+	t.Helper()
+	fs, err := c.ListFolders()
+	require.NoError(t, err)
+	by := map[string]imapx.RemoteFolder{}
+	for _, f := range fs {
+		by[f.Name] = f
+	}
+	return by
+}
+
+func TestMailbox_CreateRenameDelete(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+
+	require.NoError(t, c.CreateMailbox("Facturación 2026"))
+	assert.Contains(t, folderNames(t, c), "Facturación 2026")
+
+	require.NoError(t, c.RenameMailbox("Facturación 2026", "Clientes"))
+	by := folderNames(t, c)
+	assert.Contains(t, by, "Clientes")
+	assert.NotContains(t, by, "Facturación 2026")
+
+	require.NoError(t, c.DeleteMailbox("Clientes"))
+	assert.NotContains(t, folderNames(t, c), "Clientes")
+
+	// imapmemserver no renombra las inferiores: acá solo se cubre la hoja.
+	assert.Error(t, c.DeleteMailbox("NoExiste"))
+}
+
+func TestMailbox_SubscribeUnsubscribe(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	require.NoError(t, c.CreateMailbox("Clientes"))
+	require.NoError(t, c.Subscribe("Clientes"))
+	require.NoError(t, c.Unsubscribe("Clientes"))
+	assert.Error(t, c.Subscribe("NoExiste"))
+}
+
+func TestMailboxTotal(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	s.Deliver(t, "INBOX", plainMsg("uno", ""))
+	s.Deliver(t, "INBOX", plainMsg("dos", ""))
+	n, err := c.MailboxTotal("INBOX")
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	_, err = c.MailboxTotal("NoExiste")
+	assert.Error(t, err)
+}
+
+func TestListUnder(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	require.NoError(t, c.CreateMailbox("Clientes"))
+	require.NoError(t, c.CreateMailbox("Clientes/Acme"))
+	require.NoError(t, c.CreateMailbox("ClientesViejos"))
+	by := folderNames(t, c)
+	delim := by["Clientes/Acme"].Delimiter
+	require.NotEmpty(t, delim)
+
+	got, err := c.ListUnder("Clientes", delim)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Clientes"+delim+"Acme", got[0].Name)
+	assert.Equal(t, delim, got[0].Delimiter)
+	assert.True(t, got[0].Selectable)
+}
+
+func TestPersonalPrefix(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	// imapmemserver informa NAMESPACE con prefijo vacío.
+	p, err := c.PersonalPrefix()
+	require.NoError(t, err)
+	assert.Equal(t, "", p)
+
+	// Sin la capacidad no se manda nada y el prefijo es "".
+	s2 := testenv.StartIMAPRev1(t, tlsc, user, pass)
+	c2 := dial(t, s2, tlsc)
+	p, err = c2.PersonalPrefix()
+	require.NoError(t, err)
+	assert.Equal(t, "", p)
+}

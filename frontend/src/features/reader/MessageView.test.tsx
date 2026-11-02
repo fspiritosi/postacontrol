@@ -32,7 +32,7 @@ const contact: Contact = { id: 7, name: "Ana", emails: ["ana@x.y"], phones: [], 
 
 function setup(role: string) {
   const folder: Folder = {
-    id: 3, accountId: 7, name: "F", delimiter: "/", role, unread: 0, total: 0, selectable: true,
+    id: 3, accountId: 7, name: "F", delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0,
   };
   const msg: MessageDetail = {
     id: 1, accountId: 7, folderId: 3, uid: 1, from: ana, subject: "Hola", snippet: "",

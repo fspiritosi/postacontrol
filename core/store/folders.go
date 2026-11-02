@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"postacontrol/core/model"
 )
@@ -11,7 +12,7 @@ import (
 // FolderSync es el estado de sincronización IMAP de una carpeta. Cero = nunca sincronizada.
 type FolderSync struct{ UIDValidity, UIDNext uint32 }
 
-const folderCols = `id, account_id, name, delimiter, role, unread, total, selectable, uid_validity, uid_next`
+const folderCols = `id, account_id, name, delimiter, role, unread, total, selectable, uid_validity, uid_next, position`
 
 func scanFolder(sc interface{ Scan(...any) error }) (model.Folder, FolderSync, error) {
 	var f model.Folder
@@ -19,7 +20,7 @@ func scanFolder(sc interface{ Scan(...any) error }) (model.Folder, FolderSync, e
 	var role string
 	var sel int
 	err := sc.Scan(&f.ID, &f.AccountID, &f.Name, &f.Delimiter, &role, &f.Unread, &f.Total, &sel,
-		&fs.UIDValidity, &fs.UIDNext)
+		&fs.UIDValidity, &fs.UIDNext, &f.Position)
 	f.Role = model.FolderRole(role)
 	f.Selectable = sel != 0
 	return f, fs, err
@@ -135,4 +136,89 @@ func (s *Store) ResetFolder(ctx context.Context, folderID int64) error {
 		return ErrNotFound
 	}
 	return tx.Commit()
+}
+
+// RenameFolderTree cambia el name de oldName y de todas las carpetas que
+// empiezan con oldName+delim, reemplazando ese prefijo, en una transacción.
+// Conserva ids, mensajes, uid_validity, uid_next y position. El prefijo exige
+// el delimitador: renombrar "Clientes" no toca "ClientesViejos".
+func (s *Store) RenameFolderTree(ctx context.Context, accountID int64, oldName, newName, delim string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, `SELECT id, name FROM folders WHERE account_id = ?`, accountID)
+	if err != nil {
+		return err
+	}
+	type ren struct {
+		id   int64
+		name string
+	}
+	var todo []ren
+	prefix := oldName + delim
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		switch {
+		case name == oldName:
+			todo = append(todo, ren{id, newName})
+		case delim != "" && strings.HasPrefix(name, prefix):
+			todo = append(todo, ren{id, newName + delim + name[len(prefix):]})
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, r := range todo {
+		if _, err := tx.ExecContext(ctx, `UPDATE folders SET name = ? WHERE id = ?`, r.name, r.id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SetFolderPositions fija position = índice+1 en el orden de ids. Las carpetas
+// que no son de la cuenta se ignoran.
+func (s *Store) SetFolderPositions(ctx context.Context, accountID int64, ids []int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for i, id := range ids {
+		if _, err := tx.ExecContext(ctx, `UPDATE folders SET position = ? WHERE id = ? AND account_id = ?`,
+			i+1, id, accountID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// NextFolderPosition devuelve MAX(position)+1 de la cuenta, o 0 si todas están
+// en 0 (nunca se reordenó).
+func (s *Store) NextFolderPosition(ctx context.Context, accountID int64) (int, error) {
+	var max int
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(position), 0) FROM folders WHERE account_id = ?`,
+		accountID).Scan(&max); err != nil {
+		return 0, err
+	}
+	if max == 0 {
+		return 0, nil
+	}
+	return max + 1, nil
+}
+
+func (s *Store) SetFolderPosition(ctx context.Context, folderID int64, pos int) error {
+	return s.execFolder(ctx, folderID, `UPDATE folders SET position = ? WHERE id = ?`, pos)
+}
+
+// DeleteFolderRow borra la fila de la carpeta; sus mensajes de la caché caen en cascada.
+func (s *Store) DeleteFolderRow(ctx context.Context, folderID int64) error {
+	return s.execFolder(ctx, folderID, `DELETE FROM folders WHERE id = ?`)
 }
