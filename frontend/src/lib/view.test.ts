@@ -25,6 +25,10 @@ describe("viewIsValid", () => {
   it("pasa para la bandeja de salida", () => {
     expect(viewIsValid({ kind: "outbox" }, [], false)).toBe(true);
   });
+
+  it("pasa para la libreta de contactos", () => {
+    expect(viewIsValid({ kind: "contacts" }, [], false)).toBe(true);
+  });
 });
 
 describe("defaultView", () => {
@@ -53,6 +57,11 @@ describe("loadView / saveView", () => {
   it("guarda y vuelve a leer la vista", () => {
     saveView({ kind: "unified", role: "flagged" });
     expect(loadView()).toEqual({ kind: "unified", role: "flagged" });
+  });
+
+  it("guarda y vuelve a leer la libreta de contactos", () => {
+    saveView({ kind: "contacts" });
+    expect(loadView()).toEqual({ kind: "contacts" });
   });
 
   it("no guarda la Bandeja de salida: al reabrir se vuelve a la vista anterior", () => {

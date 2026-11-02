@@ -18,6 +18,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SaveDraft: vi.fn(),
   UploadDraft: vi.fn(),
   DeleteDraft: vi.fn(),
+  SuggestRecipients: vi.fn(),
 }));
 vi.mock("sonner", () => ({
   toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -182,6 +183,7 @@ describe("Composer", () => {
     vi.mocked(svc.SaveDraft).mockResolvedValue({ ...composeDraft, id: 9, messageId: "<b9@ej.com>" } as never);
     vi.mocked(svc.UploadDraft).mockResolvedValue({ ...composeDraft, id: 9, messageId: "<b9@ej.com>" } as never);
     vi.mocked(svc.DeleteDraft).mockResolvedValue();
+    vi.mocked(svc.SuggestRecipients).mockResolvedValue([]);
     vi.mocked(svc.PrepareCompose).mockResolvedValue({
       accountId: 1,
       to: [{ name: "Ana", email: "ana@x.com" }],
@@ -196,7 +198,7 @@ describe("Composer", () => {
     vi.mocked(svc.QueueSend).mockResolvedValue(12);
     const user = setup();
     await user.click(screen.getByText("responder"));
-    expect(await screen.findByLabelText("Para")).toHaveValue("Ana <ana@x.com>");
+    expect(await screen.findByTitle("Ana <ana@x.com>")).toHaveTextContent("Ana");
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     expect(await screen.findByRole("button", { name: "Enviando…" })).toBeDisabled();
     const req = vi.mocked(svc.QueueSend).mock.calls[0][0];
@@ -262,6 +264,18 @@ describe("Composer", () => {
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
     expect(screen.getByRole("dialog", { name: "Nuevo correo" })).toBeInTheDocument();
     expect(screen.queryByText("¿Descartar este correo?")).toBeNull();
+  });
+
+  it("Esc con las sugerencias abiertas las cierra y no cierra el redactor", async () => {
+    vi.mocked(svc.SuggestRecipients).mockResolvedValue([{ name: "Juan", email: "juan@x.com", contactId: 1 }] as never);
+    const user = setup();
+    await user.click(screen.getByText("nuevo"));
+    await user.type(await screen.findByLabelText("Para"), "jua");
+    await screen.findByRole("listbox");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Nuevo correo" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Para")).toHaveValue("jua");
   });
 
   it("insertar imagen agrega el img al cuerpo enviado", async () => {
@@ -523,7 +537,7 @@ describe("Composer: borradores", () => {
   it("enviar lleva composeDraftId y draftMessageId", async () => {
     const user = setup();
     await user.click(screen.getByText("seguir editando"));
-    expect(await screen.findByLabelText("Para")).toHaveValue("z@x.com");
+    expect(await screen.findByTitle("z@x.com")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Enviar" }));
     await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
     const req = vi.mocked(svc.QueueSend).mock.calls[0][0];
@@ -539,7 +553,7 @@ describe("Composer: borradores", () => {
     vi.mocked(svc.PrepareCompose).mockRejectedValue(new Error("No encontramos lo que buscabas."));
     const user = setup();
     await user.click(screen.getByText("seguir respuesta"));
-    expect(await screen.findByLabelText("Para")).toHaveValue("z@x.com");
+    expect(await screen.findByTitle("z@x.com")).toBeInTheDocument();
     expect(screen.queryByLabelText("Mensaje original")).toBeNull();
     expect(toast.error).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Enviar" }));

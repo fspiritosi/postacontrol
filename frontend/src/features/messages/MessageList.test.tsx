@@ -53,6 +53,7 @@ function renderList(view: View, selectMessage = vi.fn()) {
         state={{
           view, messageId: null, selectView: vi.fn(), selectMessage, search: null, setSearch: vi.fn(),
           threadRoot: null, selectThread: vi.fn(),
+          contactId: null, selectContact: vi.fn(), openContact: vi.fn(),
         }}
       />
     </QueryClientProvider>,

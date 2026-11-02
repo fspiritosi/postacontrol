@@ -104,6 +104,38 @@ func (s *MailService) SetAccountSignature(ctx context.Context, accountID, signat
 	return s.core.SetAccountSignature(ctx, accountID, signatureID)
 }
 
+// ListContacts devuelve las fichas de la libreta; con query, las que coinciden.
+func (s *MailService) ListContacts(ctx context.Context, query string) ([]model.Contact, error) {
+	return s.core.ListContacts(ctx, query)
+}
+
+func (s *MailService) GetContact(ctx context.Context, id int64) (model.Contact, error) {
+	return s.core.GetContact(ctx, id)
+}
+
+func (s *MailService) SaveContact(ctx context.Context, c model.Contact) (model.Contact, error) {
+	return s.core.SaveContact(ctx, c)
+}
+
+func (s *MailService) DeleteContact(ctx context.Context, id int64) error {
+	return s.core.DeleteContact(ctx, id)
+}
+
+// ContactForEmail devuelve la ficha dueña del correo, o nil si nadie lo tiene.
+func (s *MailService) ContactForEmail(ctx context.Context, email string) (*model.Contact, error) {
+	return s.core.ContactForEmail(ctx, email)
+}
+
+// AddSenderToContacts crea la ficha del remitente o devuelve la que ya tiene.
+func (s *MailService) AddSenderToContacts(ctx context.Context, addr model.Address) (model.Contact, error) {
+	return s.core.AddSenderToContacts(ctx, addr)
+}
+
+// SuggestRecipients sugiere direcciones; exclude son las que ya están en el campo.
+func (s *MailService) SuggestRecipients(ctx context.Context, query string, exclude []string) ([]model.Suggestion, error) {
+	return s.core.SuggestRecipients(ctx, query, exclude)
+}
+
 func (s *MailService) ListFolders(ctx context.Context, accountID int64) ([]model.Folder, error) {
 	return s.core.ListFolders(ctx, accountID)
 }

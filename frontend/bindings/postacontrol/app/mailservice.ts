@@ -24,6 +24,24 @@ export function AddAccount($in: model$0.AccountInput): $CancellablePromise<model
 }
 
 /**
+ * AddSenderToContacts crea la ficha del remitente o devuelve la que ya tiene.
+ */
+export function AddSenderToContacts(addr: model$0.Address): $CancellablePromise<model$0.Contact> {
+    return $Call.ByID(820464059, addr);
+}
+
+/**
+ * ContactForEmail devuelve la ficha dueña del correo, o nil si nadie lo tiene.
+ */
+export function ContactForEmail(email: string): $CancellablePromise<model$0.Contact | null> {
+    return $Call.ByID(3391142844, email);
+}
+
+export function DeleteContact(id: number): $CancellablePromise<void> {
+    return $Call.ByID(3876242856, id);
+}
+
+/**
  * DeleteDraft descarta el borrador, también de la carpeta Borradores del servidor.
  */
 export function DeleteDraft(id: number): $CancellablePromise<void> {
@@ -44,6 +62,10 @@ export function DeleteSignature(id: number): $CancellablePromise<void> {
 
 export function DetectSettings(email: string): $CancellablePromise<autoconfig$0.Settings> {
     return $Call.ByID(1057426541, email);
+}
+
+export function GetContact(id: number): $CancellablePromise<model$0.Contact> {
+    return $Call.ByID(333453687, id);
 }
 
 export function GetMessage(id: number): $CancellablePromise<model$0.MessageDetail> {
@@ -67,6 +89,13 @@ export function GetThread(folderID: number, threadRoot: string): $CancellablePro
 
 export function ListAccounts(): $CancellablePromise<model$0.Account[] | null> {
     return $Call.ByID(837905259);
+}
+
+/**
+ * ListContacts devuelve las fichas de la libreta; con query, las que coinciden.
+ */
+export function ListContacts(query: string): $CancellablePromise<model$0.Contact[] | null> {
+    return $Call.ByID(3950901534, query);
 }
 
 export function ListFolders(accountID: number): $CancellablePromise<model$0.Folder[] | null> {
@@ -158,6 +187,10 @@ export function SaveAttachment(messageID: number, index: number): $CancellablePr
     return $Call.ByID(731861391, messageID, index);
 }
 
+export function SaveContact(c: model$0.Contact): $CancellablePromise<model$0.Contact> {
+    return $Call.ByID(3297171962, c);
+}
+
 /**
  * SaveDraft guarda el borrador del redactor en la compu (id 0 lo crea), sin
  * tocar la red.
@@ -217,6 +250,13 @@ export function SetStartAtLogin(enabled: boolean): $CancellablePromise<void> {
  */
 export function StagedInfo(ids: number[] | null): $CancellablePromise<model$0.StagedAttachment[] | null> {
     return $Call.ByID(2296368261, ids);
+}
+
+/**
+ * SuggestRecipients sugiere direcciones; exclude son las que ya están en el campo.
+ */
+export function SuggestRecipients(query: string, exclude: string[] | null): $CancellablePromise<model$0.Suggestion[] | null> {
+    return $Call.ByID(671051143, query, exclude);
 }
 
 export function SyncAccount(accountID: number): $CancellablePromise<void> {

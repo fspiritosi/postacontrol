@@ -12,6 +12,8 @@ const (
 	EventSettingsChanged   = "mail:settings-changed"   // data: nil
 	EventSignaturesChanged = "mail:signatures-changed" // data: nil
 	EventOutboxUpdated     = "mail:outbox-updated"     // data: nil
+	// EventContactsChanged: hubo un alta, un cambio o una baja en la libreta.
+	EventContactsChanged = "mail:contacts-changed" // data: nil
 	// EventDraftsChanged: se guardó, subió o borró un borrador del redactor.
 	EventDraftsChanged = "mail:drafts-changed" // data: nil
 	// EventSendFinished: terminó un envío. message es el motivo si falló y

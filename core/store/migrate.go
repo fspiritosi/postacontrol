@@ -24,8 +24,11 @@ var schemaV5 string
 //go:embed schema_v6.sql
 var schemaV6 string
 
+//go:embed schema_v7.sql
+var schemaV7 string
+
 // migrations[i] lleva la base de la versión i a la i+1.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7}
 
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
 

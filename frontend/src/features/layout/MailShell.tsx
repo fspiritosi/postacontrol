@@ -54,6 +54,11 @@ export type ShellState = {
   // Hilo abierto en el lector (lista en conversaciones). Abrir uno limpia el mensaje.
   threadRoot: string | null;
   selectThread: (root: string | null) => void;
+  // Ficha abierta en la libreta (0 = ficha nueva en edición).
+  contactId: number | null;
+  selectContact: (id: number | null) => void;
+  // Pasa a la libreta con esa ficha abierta.
+  openContact: (id: number) => void;
 };
 
 type Props = {
@@ -83,6 +88,7 @@ function syncView(v: View, folders: Folder[]) {
   } else if (v.kind === "unified") {
     void syncUnified(v.role);
   }
+  // outbox y contacts no tienen nada que traer del servidor.
 }
 
 export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
@@ -90,6 +96,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [messageId, setMessageId] = useState<number | null>(null);
   const [search, setSearchState] = useState<SearchState | null>(null);
   const [threadRoot, setThreadRoot] = useState<string | null>(null);
+  const [contactId, setContactId] = useState<number | null>(null);
   const { folders, pending } = useAllFolders(accounts);
   const settings = useSettings();
   const [layout] = useState(loadLayout);
@@ -113,6 +120,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
       setMessageId(null);
       setSearchState(null);
       setThreadRoot(null);
+      setContactId(null);
     }
   }
 
@@ -131,6 +139,15 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setMessageId(null);
     setSearchState(null);
     setThreadRoot(null);
+    setContactId(null);
+  }, []);
+
+  const openContact = useCallback((id: number) => {
+    setChosen({ kind: "contacts" });
+    setMessageId(null);
+    setSearchState(null);
+    setThreadRoot(null);
+    setContactId(id);
   }, []);
 
   const selectMessage = useCallback((id: number | null) => {
@@ -171,6 +188,9 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setSearch,
     threadRoot,
     selectThread,
+    contactId,
+    selectContact: setContactId,
+    openContact,
   };
 
   return (

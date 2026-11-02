@@ -13,6 +13,7 @@ export type {
     Attachment,
     ComposeDraft,
     ComposeMode,
+    Contact,
     Draft,
     Folder,
     FolderRole,
@@ -29,5 +30,6 @@ export type {
     Settings,
     Signature,
     StagedAttachment,
+    Suggestion,
     ThreadSummary
 } from "./models.js";

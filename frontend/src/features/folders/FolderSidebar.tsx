@@ -1,4 +1,4 @@
-import { ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon } from "lucide-react";
+import { ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon, UsersIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,27 @@ function OutboxRow({ state }: { state: ShellState }) {
   );
 }
 
+
+// La libreta de contactos: siempre visible, debajo de las cuentas.
+function ContactsRow({ state }: { state: ShellState }) {
+  const active = state.view?.kind === "contacts";
+  return (
+    <button
+      type="button"
+      onClick={() => state.selectView({ kind: "contacts" })}
+      aria-current={active ? "true" : undefined}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
+        active && "bg-sidebar-accent font-medium",
+      )}
+    >
+      <span className="text-muted-foreground [&>svg]:size-4">
+        <UsersIcon />
+      </span>
+      <span className="min-w-0 flex-1 truncate">Contactos</span>
+    </button>
+  );
+}
 
 export function FolderSidebar({
   accounts,
@@ -155,6 +176,7 @@ export function FolderSidebar({
             onChangePassword={(acc) => setPasswordAccountId(acc.id)}
           />
         ))}
+        <ContactsRow state={state} />
       </nav>
       <div className="space-y-0.5 border-t p-2">
         <Button variant="ghost" className="w-full justify-start" onClick={() => setAddOpen(true)}>

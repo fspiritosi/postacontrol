@@ -206,6 +206,10 @@ export function Composer({ init, onClose }: Props) {
   };
 
   const closeSlashRef = useRef<(() => void) | null>(null);
+  const closeSuggestionsRef = useRef<(() => void) | null>(null);
+  const onSuggestionsChange = (close: (() => void) | null) => {
+    closeSuggestionsRef.current = close;
+  };
 
   // Con autoguardado, cerrar guarda (sin preguntar). Un redactor vacío o sin
   // tocar no crea borrador.
@@ -267,11 +271,13 @@ export function Composer({ init, onClose }: Props) {
           id="compose-drop"
           data-file-drop-target
           className="group/compose flex h-[80vh] max-w-3xl flex-col gap-4 sm:max-w-3xl"
-          // Radix escucha Esc antes que el redactor: si el menú "/" está abierto, ese Esc es suyo.
+          // Radix escucha Esc antes que el redactor: si el menú "/" o las sugerencias
+          // de destinatarios están abiertos, ese Esc es suyo.
           onEscapeKeyDown={(e) => {
-            if (closeSlashRef.current) {
+            const close = closeSlashRef.current ?? closeSuggestionsRef.current;
+            if (close) {
               e.preventDefault();
-              closeSlashRef.current();
+              close();
             }
           }}
         >
@@ -317,7 +323,13 @@ export function Composer({ init, onClose }: Props) {
               />
               <div className="flex items-start gap-2">
                 <div className="flex-1">
-                  <RecipientInput id="compose-to" label="Para" value={to} onChange={edit(setTo)} />
+                  <RecipientInput
+                    id="compose-to"
+                    label="Para"
+                    value={to}
+                    onChange={edit(setTo)}
+                    onSuggestionsChange={onSuggestionsChange}
+                  />
                 </div>
                 {!showCc && (
                   <Button type="button" variant="ghost" size="sm" onClick={() => setShowCc(true)}>
@@ -327,8 +339,20 @@ export function Composer({ init, onClose }: Props) {
               </div>
               {showCc && (
                 <>
-                  <RecipientInput id="compose-cc" label="CC" value={cc} onChange={edit(setCc)} />
-                  <RecipientInput id="compose-bcc" label="CCO" value={bcc} onChange={edit(setBcc)} />
+                  <RecipientInput
+                    id="compose-cc"
+                    label="CC"
+                    value={cc}
+                    onChange={edit(setCc)}
+                    onSuggestionsChange={onSuggestionsChange}
+                  />
+                  <RecipientInput
+                    id="compose-bcc"
+                    label="CCO"
+                    value={bcc}
+                    onChange={edit(setBcc)}
+                    onSuggestionsChange={onSuggestionsChange}
+                  />
                 </>
               )}
               <div className="flex items-center gap-2">

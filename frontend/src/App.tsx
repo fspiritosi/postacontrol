@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ComposerProvider } from "./features/compose/ComposerContext";
 import { Welcome } from "./features/accounts/Welcome";
 import { FolderSidebar } from "./features/folders/FolderSidebar";
+import { ContactList } from "./features/contacts/ContactList";
+import { ContactPanel } from "./features/contacts/ContactPanel";
 import { MailShell } from "./features/layout/MailShell";
 import { MessageList } from "./features/messages/MessageList";
 import { OutboxList } from "./features/outbox/OutboxList";
@@ -57,10 +59,18 @@ export default function App() {
         extras={(s) => <DraftsNotice onOpen={() => s.selectView({ kind: "outbox" })} />}
         sidebar={(s) => <FolderSidebar accounts={all} state={s} />}
         list={(s) =>
-          s.view?.kind === "outbox" ? <OutboxList /> : <MessageList accounts={all} state={s} />
+          s.view?.kind === "outbox" ? (
+            <OutboxList />
+          ) : s.view?.kind === "contacts" ? (
+            <ContactList state={s} />
+          ) : (
+            <MessageList accounts={all} state={s} />
+          )
         }
         reader={(s) =>
-          s.view?.kind === "outbox" ? (
+          s.view?.kind === "contacts" ? (
+            <ContactPanel state={s} />
+          ) : s.view?.kind === "outbox" ? (
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
               Abrí un correo de la Bandeja de salida para revisarlo, o reintentá el envío.
             </div>

@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useQueries, useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQueries,
+  useQuery,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
 import type { Account, Folder, UnifiedView } from "../../bindings/postacontrol/core/model/models";
 import type { View } from "./view";
@@ -17,6 +23,32 @@ export function useSignatures() {
   return useQuery({
     queryKey: ["signatures"],
     queryFn: async () => (await svc.ListSignatures()) ?? [],
+  });
+}
+
+export function useContacts(query: string) {
+  return useQuery({
+    queryKey: ["contacts", query],
+    queryFn: async () => (await svc.ListContacts(query)) ?? [],
+    // Mientras busca queda la lista anterior: no se vacía con cada tecla.
+    placeholderData: keepPreviousData,
+  });
+}
+
+// id null o 0 (ficha nueva): sin consulta.
+export function useContact(id: number | null) {
+  return useQuery({
+    queryKey: ["contact", id],
+    queryFn: () => svc.GetContact(id!),
+    enabled: id != null && id !== 0,
+  });
+}
+
+export function useContactForEmail(email: string) {
+  return useQuery({
+    queryKey: ["contact-for", email.toLowerCase()],
+    queryFn: () => svc.ContactForEmail(email),
+    enabled: email !== "",
   });
 }
 
@@ -136,5 +168,16 @@ export function useSearch(text: string, folderId: number) {
     getNextPageParam: (last, all) =>
       last.messages.length < PAGE_SIZE ? undefined : all.length * PAGE_SIZE,
     enabled: text.trim() !== "",
+  });
+}
+
+// Direcciones sugeridas al escribir un destinatario; exclude son las que ya
+// están en el campo. Mientras llega la respuesta se sigue viendo la anterior.
+export function useSuggestions(query: string, exclude: string[]) {
+  return useQuery({
+    queryKey: ["suggest", query, exclude],
+    queryFn: async () => (await svc.SuggestRecipients(query, exclude)) ?? [],
+    enabled: query.trim() !== "",
+    placeholderData: keepPreviousData,
   });
 }

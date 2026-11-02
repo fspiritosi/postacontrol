@@ -42,6 +42,23 @@ type Signature struct {
 	HTML string `json:"html"`
 }
 
+// Contact es una ficha de la libreta local.
+type Contact struct {
+	ID      int64    `json:"id"`
+	Name    string   `json:"name"`
+	Emails  []string `json:"emails"` // en orden; nunca nil
+	Phones  []string `json:"phones"` // nunca nil
+	Company string   `json:"company"`
+	Notes   string   `json:"notes"`
+}
+
+// Suggestion es una dirección sugerida al escribir un destinatario.
+type Suggestion struct {
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	ContactID int64  `json:"contactId"` // 0 = no es contacto
+}
+
 // AccountInput es lo que llega desde la UI. Account.ID se ignora.
 type AccountInput struct {
 	Account
