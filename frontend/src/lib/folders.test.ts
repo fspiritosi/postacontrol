@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Folder } from "../../bindings/postacontrol/core/model/models";
-import { buildFolderTree, canModify, folderLabel, isSpecialTree, moveTargets, siblingsOf } from "./folders";
+import {
+  buildFolderTree,
+  canModify,
+  folderLabel,
+  isFirstLevel,
+  isSpecialTree,
+  moveTargets,
+  siblingsOf,
+} from "./folders";
 
 let nextId = 1;
 const f = (name: string, role = ""): Folder => ({
@@ -81,17 +89,21 @@ describe("orden por position", () => {
 });
 
 describe("isSpecialTree, canModify, siblingsOf y moveTargets", () => {
-  const tree = () =>
-    buildFolderTree([
-      f("INBOX", "inbox"),
-      f("Clientes"),
-      f("Clientes.Acme"),
-      f("Clientes.Acme.2025"),
-      f("Otra"),
-      f("Mixta"),
-      f("Mixta.Enviados", "sent"),
-      f("Sola.Hija"),
-    ]);
+  const list = [
+    f("INBOX", "inbox"),
+    f("Clientes"),
+    f("Clientes.Acme"),
+    f("Clientes.Acme.2025"),
+    f("Otra"),
+    f("Mixta"),
+    f("Mixta.Enviados", "sent"),
+    f("MixtaVieja"),
+    f("Sola.Hija"),
+    f("[Gmail]"),
+    f("[Gmail].Sent Mail", "sent"),
+    f("[Gmail].Trash", "trash"),
+  ];
+  const tree = () => buildFolderTree(list);
   const find = (list: ReturnType<typeof tree>, name: string): ReturnType<typeof tree>[number] => {
     for (const n of list) {
       if (n.name === name) return n;
@@ -101,14 +113,20 @@ describe("isSpecialTree, canModify, siblingsOf y moveTargets", () => {
     return undefined as never;
   };
 
-  it("isSpecialTree mira al nodo y a sus descendientes", () => {
+  it("isSpecialTree mira al nodo y a lo que cuelga de él por nombre", () => {
     const t = tree();
-    expect(isSpecialTree(find(t, "INBOX"))).toBe(true);
-    expect(isSpecialTree(find(t, "Mixta"))).toBe(false);
-    expect(isSpecialTree(find(t, "Clientes"))).toBe(false);
-    expect(canModify(find(t, "Clientes"))).toBe(true);
-    expect(canModify(find(t, "INBOX"))).toBe(false);
-    expect(canModify(find(t, "Sola"))).toBe(false); // sintetizada, id 0
+    expect(isSpecialTree(list, find(t, "INBOX"))).toBe(true);
+    // Sus especiales se ven en la raíz, pero siguen colgando de ella.
+    expect(isSpecialTree(list, find(t, "Mixta"))).toBe(true);
+    expect(isSpecialTree(list, find(t, "[Gmail]"))).toBe(true);
+    expect(isSpecialTree(list, find(t, "MixtaVieja"))).toBe(false);
+    expect(isSpecialTree(list, find(t, "Clientes"))).toBe(false);
+    expect(canModify(list, find(t, "Clientes"))).toBe(true);
+    expect(canModify(list, find(t, "MixtaVieja"))).toBe(true);
+    expect(canModify(list, find(t, "INBOX"))).toBe(false);
+    expect(canModify(list, find(t, "Mixta"))).toBe(false);
+    expect(canModify(list, find(t, "[Gmail]"))).toBe(false);
+    expect(canModify(list, find(t, "Sola"))).toBe(false); // sintetizada, id 0
   });
 
   it("siblingsOf devuelve el nivel del nodo", () => {
@@ -127,5 +145,16 @@ describe("isSpecialTree, canModify, siblingsOf y moveTargets", () => {
     expect(names).not.toContain("Sola");
     expect(names).toContain("Otra");
     expect(moveTargets(t, find(t, "Clientes")).map((n) => n.name)).not.toContain("Clientes.Acme");
+  });
+});
+
+describe("isFirstLevel", () => {
+  it("sin padre o colgando de INBOX (el prefijo personal) ya está en el primer nivel", () => {
+    expect(isFirstLevel(f("Clientes"))).toBe(true);
+    expect(isFirstLevel(f("INBOX.Clientes"))).toBe(true);
+    expect(isFirstLevel(f("inbox.Clientes"))).toBe(true);
+    expect(isFirstLevel({ name: "Plano.Algo", delimiter: "" })).toBe(true);
+    expect(isFirstLevel(f("Clientes.Acme"))).toBe(false);
+    expect(isFirstLevel(f("INBOX.Clientes.Acme"))).toBe(false);
   });
 });

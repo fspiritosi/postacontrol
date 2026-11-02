@@ -61,9 +61,9 @@ const inbox = (id: number, accountId: number, unread: number) =>
 // Carpeta sin rol: no choca con la fila "Entrada" de Todas las cuentas.
 const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0 } as const;
 
-function renderSidebar(accounts: Account[], state: ShellState = baseState) {
+function renderSidebar(accounts: Account[], state: ShellState = baseState, client = new QueryClient()) {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <FolderSidebar accounts={accounts} state={state} />
     </QueryClientProvider>,
   );
@@ -419,6 +419,49 @@ describe("FolderSidebar", () => {
       await waitFor(() => expect(svc.MoveFolder).toHaveBeenCalledWith(12, 3));
     });
 
+    it("una carpeta que contiene una especial solo se reordena", async () => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        inbox(3, 7, 0),
+        folder(20, "Mixta"),
+        { ...folder(21, "Mixta/Enviados"), role: "sent" },
+        folder(12, "Zeta"),
+      ] as never);
+      renderSidebar([account]);
+      const zeta = await rowOf("Zeta");
+      const dt = folderDt(20);
+      expect(over(zeta, dt, MID)).toBe(true); // adentro: no
+      dropOn(zeta, dt, MID);
+      expect(svc.MoveFolder).not.toHaveBeenCalled();
+      expect(over(zeta, dt, BOT)).toBe(false); // entre hermanos: sí
+    });
+
+    it("una que cuelga de INBOX no se suelta entre las de la raíz (MoveFolder a 0 no la cambiaría)", async () => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0), folder(5, "INBOX/Varios"), folder(12, "Zeta")] as never);
+      renderSidebar([account]);
+      const zeta = await rowOf("Zeta");
+      const dt = folderDt(5);
+      expect(over(zeta, dt, TOP)).toBe(true);
+      dropOn(zeta, dt, TOP);
+      expect(svc.MoveFolder).not.toHaveBeenCalled();
+      expect(svc.SetFolderOrder).not.toHaveBeenCalled();
+      expect(over(zeta, dt, MID)).toBe(false); // adentro de Zeta sí
+    });
+
+    it("mover arrastrando invalida también las consultas de correo; reordenar no", async () => {
+      const client = new QueryClient();
+      const spy = vi.spyOn(client, "invalidateQueries");
+      const keys = () => spy.mock.calls.map(([f]) => JSON.stringify(f?.queryKey));
+      renderSidebar([account], baseState, client);
+      const clientes = await rowOf("Clientes");
+      dropOn(clientes, folderDt(13), TOP); // Omega antes de Clientes: solo orden
+      await waitFor(() => expect(svc.SetFolderOrder).toHaveBeenCalled());
+      await waitFor(() => expect(keys()).toContain(JSON.stringify(["folders", 7])));
+      expect(keys()).not.toContain(JSON.stringify(["search"]));
+      dropOn(clientes, folderDt(12), MID);
+      await waitFor(() => expect(svc.MoveFolder).toHaveBeenCalledWith(12, 10));
+      await waitFor(() => expect(keys()).toContain(JSON.stringify(["search"])));
+    });
+
     it("una carpeta de otra cuenta no se acepta", async () => {
       renderSidebar([account]);
       const row = await rowOf("Clientes");
@@ -596,6 +639,31 @@ describe("FolderSidebar", () => {
         expect(item(n).getAttribute("aria-disabled")).toBe("true");
       for (const n of ["Nueva subcarpeta…", "Bajar"])
         expect(item(n).getAttribute("aria-disabled")).toBeNull();
+    });
+
+    it("en una que contiene una especial se deshabilitan Renombrar, Mover y Eliminar", async () => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        inbox(3, 7, 0),
+        folder(20, "Mixta"),
+        { ...folder(21, "Mixta/Enviados"), role: "sent" },
+      ] as never);
+      renderSidebar([account]);
+      await menuOf("Mixta");
+      for (const n of ["Renombrar…", "Mover a…", "Eliminar…"])
+        expect(item(n).getAttribute("aria-disabled")).toBe("true");
+      expect(item("Nueva subcarpeta…").getAttribute("aria-disabled")).toBeNull();
+    });
+
+    it("Mover a… no ofrece Primer nivel a una que cuelga de INBOX", async () => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0), folder(5, "INBOX/Varios"), folder(12, "Zeta")] as never);
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Varios");
+      await user.click(item("Mover a…"));
+      expect(await screen.findByText("Mover «Varios»")).toBeTruthy();
+      const labels = screen.getAllByRole("radio").map((r) => r.closest("label")!.textContent);
+      expect(labels).not.toContain("Primer nivel");
+      expect(labels).toContain("Zeta");
     });
 
     it("Nueva subcarpeta… en Entrada crea dentro de la especial", async () => {

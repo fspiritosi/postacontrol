@@ -13,7 +13,7 @@ import {
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
-import type { Account } from "../../../bindings/postacontrol/core/model/models";
+import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
@@ -48,6 +48,7 @@ import {
   readMessageDrag,
   setFolderDrag,
 } from "@/lib/dnd";
+import { invalidateMailQueries } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { toastSyncError } from "@/lib/events";
 import {
@@ -55,6 +56,7 @@ import {
   canModify,
   findById,
   inSubtree,
+  isFirstLevel,
   isSpecialTree,
   moveTargets,
   parentOf,
@@ -79,6 +81,8 @@ export const ROLE_ICON: Record<string, ReactNode> = {
 // Lo que el menú contextual de una carpeta le pide a la sección de la cuenta.
 type FolderActions = {
   tree: FolderNode[];
+  // La lista plana: lo especial se decide por nombre (ver isSpecialTree).
+  folders: Folder[];
   onCreate: (parent: FolderNode) => void;
   onRename: (node: FolderNode) => void;
   onMove: (node: FolderNode) => void;
@@ -97,6 +101,7 @@ type FolderZone = "before" | "into" | "after";
 // validar todo; esto solo evita ofrecer lo que no va.
 function folderZoneAllowed(
   tree: FolderNode[],
+  folders: Folder[],
   dragged: FolderNode,
   target: FolderNode,
   zone: FolderZone,
@@ -104,13 +109,16 @@ function folderZoneAllowed(
   // Ni sobre sí misma ni sobre una descendiente.
   if (target.id === 0 || inSubtree(dragged, target.name)) return false;
   const sameLevel = siblingsOf(tree, dragged).some((n) => n.name === target.name);
-  // Una especial solo se reordena entre sus hermanos.
-  if (isSpecialTree(dragged)) return zone !== "into" && sameLevel;
+  // Una especial (o la que contiene una) solo se reordena entre sus hermanos.
+  if (isSpecialTree(folders, dragged)) return zone !== "into" && sameLevel;
   if (zone === "into") return moveTargets(tree, dragged).some((n) => n.name === target.name);
   if (sameLevel) return true;
   // Cambiar de nivel pide un padre real (los sintetizados no tienen id).
   const parent = parentOf(tree, target);
-  return parent == null || parent.id !== 0;
+  // A la raíz no se muda la que ya está en el primer nivel del servidor
+  // (colgando de INBOX): MoveFolder a 0 la dejaría igual.
+  if (parent == null) return !isFirstLevel(dragged);
+  return parent.id !== 0;
 }
 
 function FolderRow({
@@ -160,7 +168,7 @@ function FolderRow({
     if (!dragged) return null;
     const rect = e.currentTarget.getBoundingClientRect();
     const zone = dropZone(e.clientY - rect.top, rect.height);
-    return folderZoneAllowed(actions.tree, dragged, node, zone) ? zone : null;
+    return folderZoneAllowed(actions.tree, actions.folders, dragged, node, zone) ? zone : null;
   };
   const onDragOver = (e: DragEvent) => {
     const zone = folderZone(e);
@@ -262,7 +270,7 @@ function FolderRow({
   // Subir/Bajar se mueven entre hermanos reales (los sintetizados no se guardan).
   const siblings = siblingsOf(actions.tree, node).filter((n) => n.id !== 0);
   const idx = siblings.findIndex((n) => n.name === node.name);
-  const modifiable = canModify(node);
+  const modifiable = canModify(actions.folders, node);
   return (
     <>
       {node.id === 0 ? (
@@ -375,8 +383,12 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
   // Suelta una carpeta: adentro de otra, o antes/después de una hermana (si
   // viene de otro nivel, primero se muda al padre de destino).
   const dropFolder = async (dragged: FolderNode, target: FolderNode, zone: FolderZone) => {
+    // Mover cambia dónde están los correos (también si falla a medias);
+    // reordenar no.
+    let moved = false;
     try {
       if (zone === "into") {
+        moved = true;
         await svc.MoveFolder(dragged.id, target.id);
       } else {
         const sibs = siblingsOf(tree, target).filter((n) => n.id !== 0);
@@ -385,7 +397,10 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
         const at = rest.findIndex((n) => n.name === target.name) + (zone === "after" ? 1 : 0);
         const next = [...rest.slice(0, at), dragged, ...rest.slice(at)];
         if (sameLevel && next.every((n, i) => n.name === sibs[i].name)) return;
-        if (!sameLevel) await svc.MoveFolder(dragged.id, parentOf(tree, target)?.id ?? 0);
+        if (!sameLevel) {
+          moved = true;
+          await svc.MoveFolder(dragged.id, parentOf(tree, target)?.id ?? 0);
+        }
         await svc.SetFolderOrder(
           account.id,
           next.map((n) => n.id),
@@ -394,12 +409,14 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
-      void queryClient.invalidateQueries({ queryKey: ["folders", account.id] });
+      if (moved) invalidateMailQueries(queryClient);
+      else void queryClient.invalidateQueries({ queryKey: ["folders", account.id] });
     }
   };
 
   const actions: FolderActions = {
     tree,
+    folders: list,
     dragging: () => dragging.current,
     setDragging: (id) => {
       dragging.current = id;

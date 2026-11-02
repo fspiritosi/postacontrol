@@ -14,14 +14,23 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { invalidateMailQueries } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
-import { folderLabel, isRootLevel, moveTargets, type FolderNode } from "@/lib/folders";
+import { folderLabel, isFirstLevel, isRootLevel, moveTargets, type FolderNode } from "@/lib/folders";
 
 // Los cambios de carpetas también llegan por `mail:folders-updated`, pero
 // invalidamos acá para no depender del evento.
 function useRefreshFolders(accountId: number) {
   const queryClient = useQueryClient();
   return () => void queryClient.invalidateQueries({ queryKey: ["folders", accountId] });
+}
+
+// Renombrar, mover y eliminar cambian dónde están los correos: la búsqueda y
+// las listas abiertas pueden tener los viejos, así que se invalida todo lo de
+// correo (incluidas las carpetas).
+function useRefreshMail() {
+  const queryClient = useQueryClient();
+  return () => invalidateMailQueries(queryClient);
 }
 
 export type NameMode =
@@ -31,7 +40,9 @@ export type NameMode =
 // Crear una carpeta (de primer nivel o subcarpeta) o renombrar una.
 export function NameDialog({ mode, onClose }: { mode: NameMode; onClose: () => void }) {
   const accountId = mode.kind === "create" ? mode.accountId : mode.node.accountId;
-  const refresh = useRefreshFolders(accountId);
+  const refreshFolders = useRefreshFolders(accountId);
+  const refreshMail = useRefreshMail();
+  const refresh = mode.kind === "rename" ? refreshMail : refreshFolders;
   const [name, setName] = useState(mode.kind === "rename" ? mode.node.label : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -111,13 +122,15 @@ export function MoveDialog({
   tree: FolderNode[];
   onClose: () => void;
 }) {
-  const refresh = useRefreshFolders(node.accountId);
+  const refresh = useRefreshMail();
   const targets = moveTargets(tree, node);
   const [dest, setDest] = useState(FIRST_LEVEL);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const options = [
-    ...(isRootLevel(tree, node) ? [] : [{ value: FIRST_LEVEL, label: "Primer nivel" }]),
+    // Si ya está en el primer nivel (también colgando de INBOX, el prefijo
+    // personal de Dovecot) moverla ahí no cambia nada.
+    ...(isRootLevel(tree, node) || isFirstLevel(node) ? [] : [{ value: FIRST_LEVEL, label: "Primer nivel" }]),
     ...targets.map((t) => ({ value: String(t.id), label: t.name.split(t.delimiter || "\u0000").join(" / ") })),
   ];
   // Si "Primer nivel" no se ofrece, arranca en el primer destino.
@@ -129,11 +142,12 @@ export function MoveDialog({
     setError("");
     try {
       await svc.MoveFolder(node.id, current === FIRST_LEVEL ? 0 : Number(current));
-      refresh();
       onClose();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
+      // También si falló: un movido a medias ya cambió carpetas y correos.
+      refresh();
       setBusy(false);
     }
   };
@@ -186,43 +200,54 @@ export function deleteDescription(info: FolderDeleteInfo, delimiter = ""): strin
   const subs = info.subfolders ?? [];
   const total = info.total + subs.reduce((n, s) => n + s.total, 0);
   if (total === 0 && subs.length === 0) return null;
+  const list = subs.map((s) => `«${folderLabel({ name: s.name, delimiter, role: "" })}», con ${plural(s.total, "correo", "correos")}`).join("; ");
+  const subsText = `${plural(subs.length, "subcarpeta", "subcarpetas")} (${list})`;
+  // Sin ningún correo no hay nada que vaya a la Papelera.
+  if (total === 0) return `Tiene ${subsText}. Las carpetas se borran del servidor.`;
   let head = `Tiene ${plural(info.total, "correo", "correos")}`;
-  if (subs.length > 0) {
-    const list = subs.map((s) => `«${folderLabel({ name: s.name, delimiter, role: "" })}», con ${plural(s.total, "correo", "correos")}`).join("; ");
-    head += ` y ${plural(subs.length, "subcarpeta", "subcarpetas")} (${list})`;
-  }
-  return `${head}. Los ${total} correos van a la Papelera y las carpetas se borran del servidor.`;
+  if (subs.length > 0) head += ` y ${subsText}`;
+  const trash = total === 1 ? "El correo va" : `Los ${total} correos van`;
+  return `${head}. ${trash} a la Papelera y las carpetas se borran del servidor.`;
 }
 
 // Confirma y elimina una carpeta (los correos van a la Papelera).
 export function DeleteDialog({ node, onClose }: { node: FolderNode; onClose: () => void }) {
-  const refresh = useRefreshFolders(node.accountId);
+  const refresh = useRefreshMail();
   const [info, setInfo] = useState<FolderDeleteInfo | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Cada vez que cambia se vuelve a contar en el servidor.
+  const [count, setCount] = useState(0);
 
   useEffect(() => {
     let alive = true;
     svc
       .DeleteFolderPreview(node.id)
       .then((i) => alive && setInfo(i))
-      .catch((e) => alive && setError(errorMessage(e)));
+      // Si ya hay un error (el de eliminar), ese es el que importa.
+      .catch((e) => alive && setError((prev) => prev || errorMessage(e)));
     return () => {
       alive = false;
     };
-  }, [node.id]);
+  }, [node.id, count]);
 
   const run = async () => {
     setBusy(true);
     setError("");
     try {
       const moved = await svc.DeleteFolder(node.id);
-      toast.success(moved > 0 ? `Carpeta eliminada; ${moved} correos a la Papelera` : "Carpeta eliminada");
-      refresh();
+      toast.success(
+        moved > 0 ? `Carpeta eliminada; ${plural(moved, "correo", "correos")} a la Papelera` : "Carpeta eliminada",
+      );
       onClose();
     } catch (e) {
+      // Si cortó a mitad, parte ya pudo ir a la Papelera: los conteos viejos
+      // no valen. Se vuelve a contar antes de dejar reintentar.
       setError(errorMessage(e));
+      setInfo(null);
+      setCount((n) => n + 1);
     } finally {
+      refresh();
       setBusy(false);
     }
   };

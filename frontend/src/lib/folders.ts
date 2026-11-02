@@ -92,14 +92,30 @@ export function buildFolderTree(folders: Folder[]): FolderNode[] {
   return roots;
 }
 
-// El nodo o algún descendiente es una carpeta especial (tiene rol).
-export function isSpecialTree(node: FolderNode): boolean {
-  return node.role !== "" || node.children.some(isSpecialTree);
+// La carpeta o algo que cuelga de ella es especial (tiene rol). Se mira en la
+// lista plana y por nombre, como el núcleo: en el árbol las especiales se
+// suben a la raíz, así que un padre como «[Gmail]» ya no las tiene de hijas.
+export function isSpecialTree(
+  folders: Pick<Folder, "name" | "role">[],
+  node: Pick<Folder, "name" | "delimiter" | "role">,
+): boolean {
+  if (node.role !== "") return true;
+  const prefix = node.delimiter ? node.name + node.delimiter : null;
+  return folders.some((f) => f.role !== "" && (f.name === node.name || (prefix != null && f.name.startsWith(prefix))));
 }
 
 // Se puede renombrar, mover y eliminar: no es sintetizada ni contiene especiales.
-export function canModify(node: FolderNode): boolean {
-  return node.id !== 0 && !isSpecialTree(node);
+export function canModify(folders: Pick<Folder, "name" | "role">[], node: FolderNode): boolean {
+  return node.id !== 0 && !isSpecialTree(folders, node);
+}
+
+// Ya está en el primer nivel del servidor: no tiene padre o cuelga de INBOX.
+// Con el prefijo personal «INBOX.» de Dovecot mover al primer nivel deja el
+// mismo nombre; la app no conoce el prefijo, así que INBOX cuenta como raíz.
+export function isFirstLevel(node: Pick<Folder, "name" | "delimiter">): boolean {
+  if (!node.delimiter) return true;
+  const i = node.name.lastIndexOf(node.delimiter);
+  return i < 0 || node.name.slice(0, i).toUpperCase() === "INBOX";
 }
 
 // El árbol se reconstruye en cada render, así que los nodos se comparan por
