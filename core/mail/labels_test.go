@@ -462,3 +462,40 @@ func TestMoveKeepsLabel(t *testing.T) {
 		})
 	}
 }
+
+// Sin PERMANENTFLAGS no se sabe si el servidor guarda keywords: se manda el
+// STORE y decide su respuesta. Un NO es un rechazo común, no vuelve local la cuenta.
+func TestSetLabelUnknownPermanentFlags(t *testing.T) {
+	for _, reject := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reject=%v", reject), func(t *testing.T) {
+			c, imap, smtp, n := newTestCore(t)
+			ctx := context.Background()
+			deliverN(t, imap, 1, "m")
+			acc, inboxID := setupSynced(t, imap, smtp, c)
+			l, err := c.CreateLabel(ctx, "Facturas", okColor)
+			require.NoError(t, err)
+			kw, err := c.store.LabelKeyword(ctx, l.ID)
+			require.NoError(t, err)
+			m := listAll(t, c, inboxID)[0]
+			imap.OmitPermanentFlags()
+			if reject {
+				imap.RejectKeywordStores()
+			}
+
+			err = c.SetLabel(ctx, []int64{m.ID}, l.ID, true)
+			if reject {
+				requireUserError(t, err, "server")
+				assert.Equal(t, []int64{}, labelsByUID(t, c, inboxID)[m.UID], "la caché queda como estaba")
+				assert.NotContains(t, serverKeywords(t, c, imap, "INBOX")[m.UID], goimap.Flag(kw))
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, []int64{l.ID}, labelsByUID(t, c, inboxID)[m.UID])
+				assert.Contains(t, serverKeywords(t, c, imap, "INBOX")[m.UID], goimap.Flag(kw))
+			}
+			local, err := c.store.AccountLabelsLocal(ctx, acc.ID)
+			require.NoError(t, err)
+			assert.False(t, local)
+			assert.Empty(t, n.matching(EventLabelsLocalOnly))
+		})
+	}
+}

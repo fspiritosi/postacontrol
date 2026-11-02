@@ -307,9 +307,10 @@ func (c *Core) SetLabel(ctx context.Context, ids []int64, labelID int64, on bool
 }
 
 // storeLabelKeyword pone o saca el keyword en los mensajes de una carpeta. Si
-// al abrirla para escritura el servidor no anuncia keywords, no manda el
-// STORE, marca la cuenta como local (avisando la primera vez) y devuelve
-// local en true.
+// al abrirla para escritura el servidor anuncia flags permanentes sin \*, no
+// manda el STORE, marca la cuenta como local (avisando la primera vez) y
+// devuelve local en true. Si no anuncia ninguno, no se sabe: se manda el
+// STORE y un NO es un rechazo común, que no vuelve local la cuenta.
 func (c *Core) storeLabelKeyword(ctx context.Context, accountID, folderID int64, rs []store.MessageRef,
 	kw string, on bool) (local bool, err error) {
 	f, last, err := c.store.GetFolder(ctx, folderID)
@@ -326,7 +327,7 @@ func (c *Core) storeLabelKeyword(ctx context.Context, accountID, folderID int64,
 		if err != nil {
 			return err
 		}
-		if local = !info.KeywordsOK; local {
+		if local = info.Keywords == imapx.KeywordsNo; local {
 			return nil
 		}
 		return conn.StoreFlags(uids, on, goimap.Flag(kw))

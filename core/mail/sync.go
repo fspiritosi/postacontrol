@@ -469,12 +469,14 @@ func hasFlag(flags []imap.Flag, want imap.Flag) bool {
 	return false
 }
 
-// keywordsOf devuelve los keywords de flags: los que no empiezan con «\».
+// keywordsOf devuelve los keywords de flags (los que no empiezan con «\»), en
+// minúsculas: los flags IMAP no distinguen mayúsculas y los keywords de las
+// etiquetas son siempre en minúsculas.
 func keywordsOf(flags []imap.Flag) []string {
 	out := []string{}
 	for _, f := range flags {
 		if !strings.HasPrefix(string(f), `\`) {
-			out = append(out, string(f))
+			out = append(out, strings.ToLower(string(f)))
 		}
 	}
 	return out

@@ -111,13 +111,27 @@ func folderDepth(f RemoteFolder) int {
 	return strings.Count(f.Name, f.Delimiter) + 1
 }
 
+// KeywordSupport dice si el servidor guarda keywords nuevos, según el
+// PERMANENTFLAGS que mandó al abrir la carpeta.
+type KeywordSupport int
+
+const (
+	// KeywordsUnknown: PERMANENTFLAGS no vino o vino vacío (go-imap no
+	// distingue los dos casos). Por RFC 3501 §7.1 hay que suponer que sí, y
+	// la respuesta del STORE decide.
+	KeywordsUnknown KeywordSupport = iota
+	// KeywordsYes: PERMANENTFLAGS trae \*.
+	KeywordsYes
+	// KeywordsNo: PERMANENTFLAGS trae flags pero no \*.
+	KeywordsNo
+)
+
 type SelectInfo struct {
 	UIDValidity, UIDNext uint32
 	NumMessages          uint32
-	// KeywordsOK: PERMANENTFLAGS trae \*, así que el servidor guarda keywords
-	// nuevos. Solo es confiable después de SelectRW: con EXAMINE muchos
+	// Keywords solo es confiable después de SelectRW: con EXAMINE muchos
 	// servidores no informan ningún flag permanente.
-	KeywordsOK bool
+	Keywords KeywordSupport
 }
 
 // Select abre la carpeta en solo lectura (EXAMINE).
@@ -135,8 +149,18 @@ func (c *Conn) selectMailbox(name string, readOnly bool) (SelectInfo, error) {
 	c.rw = !readOnly
 	return SelectInfo{
 		UIDValidity: d.UIDValidity, UIDNext: uint32(d.UIDNext), NumMessages: d.NumMessages,
-		KeywordsOK: slices.Contains(d.PermanentFlags, imap.FlagWildcard),
+		Keywords: keywordSupport(d.PermanentFlags),
 	}, nil
+}
+
+func keywordSupport(permanent []imap.Flag) KeywordSupport {
+	switch {
+	case len(permanent) == 0:
+		return KeywordsUnknown
+	case slices.Contains(permanent, imap.FlagWildcard):
+		return KeywordsYes
+	}
+	return KeywordsNo
 }
 
 var roleByName = map[string]model.FolderRole{

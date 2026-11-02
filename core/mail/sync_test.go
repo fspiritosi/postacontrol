@@ -705,3 +705,15 @@ func TestSyncPicksUpKeywordChanges(t *testing.T) {
 	require.NoError(t, c.SyncFolder(ctx, inboxID))
 	assert.Equal(t, map[uint32][]int64{1: {}, 2: {l.ID}}, labelsByUID(t, c, inboxID))
 }
+
+// Los flags IMAP no distinguen mayúsculas, y nuestros keywords son siempre en
+// minúsculas. imapmemserver ya los guarda en minúsculas, así que el caso de un
+// servidor que los devuelve con otras mayúsculas se prueba sin servidor: tanto
+// las cabeceras (headerRows) como refreshFlags pasan por keywordsOf.
+func TestKeywordsOfIgnoresCase(t *testing.T) {
+	flags := []goimap.Flag{goimap.FlagSeen, "$PC_AAAAAAAA", "$Label1"}
+	assert.Equal(t, []string{"$pc_aaaaaaaa", "$label1"}, keywordsOf(flags))
+	assert.Equal(t, []int64{7}, labelsOf(keywordsOf(flags), map[string]int64{"$pc_aaaaaaaa": 7}))
+	rows := headerRows([]imapx.RemoteHeader{{UID: 1, Flags: flags}})
+	assert.Equal(t, []string{"$pc_aaaaaaaa", "$label1"}, rows[0].Keywords)
+}

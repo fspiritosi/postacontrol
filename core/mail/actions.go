@@ -282,9 +282,9 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 		return err
 	}
 	if b.dest != nil {
-		if err := c.saveLabelCarry(ctx, accountID, b.refs); err != nil {
-			return c.ctxOrUserError(ctx, err)
-		}
+		// El MOVE ya pasó: si no se pudo anotar el carry, las etiquetas locales
+		// se pierden, pero la caché igual tiene que reflejar el movimiento.
+		_ = c.saveLabelCarry(ctx, accountID, b.refs)
 	}
 	if err := c.store.DeleteMessages(ctx, ids); err != nil {
 		return c.ctxOrUserError(ctx, err)

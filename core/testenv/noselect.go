@@ -58,8 +58,8 @@ func (s *IMAP) SetMoveHook(fn func(src string)) {
 }
 
 // NoKeywords simula un servidor que no guarda keywords: desde ahora SELECT y
-// EXAMINE sacan \* de PERMANENTFLAGS y un STORE que incluya algún keyword (un
-// flag que no empieza con «\») responde NO.
+// EXAMINE anuncian en PERMANENTFLAGS solo los flags de sistema (sin \*) y un
+// STORE que incluya algún keyword (un flag que no empieza con «\») responde NO.
 func (s *IMAP) NoKeywords() {
 	s.simMu.Lock()
 	defer s.simMu.Unlock()
@@ -73,6 +73,16 @@ func (s *IMAP) RejectKeywordStores() {
 	s.simMu.Lock()
 	defer s.simMu.Unlock()
 	s.rejectKeywords = true
+}
+
+// OmitPermanentFlags hace que SELECT y EXAMINE respondan PERMANENTFLAGS
+// vacío. go-imap no distingue eso de un servidor que no manda PERMANENTFLAGS:
+// para el cliente, no se sabe qué flags guarda. Tiene prioridad sobre
+// NoKeywords.
+func (s *IMAP) OmitPermanentFlags() {
+	s.simMu.Lock()
+	defer s.simMu.Unlock()
+	s.noPermFlags = true
 }
 
 func (s *IMAP) record(op string) {
@@ -113,12 +123,16 @@ func (sess *session) Select(name string, options *imap.SelectOptions) (*imap.Sel
 	}
 	sess.selected = name
 	sess.s.simMu.Lock()
-	noKeywords := sess.s.noKeywords
+	noKeywords, noPermFlags := sess.s.noKeywords, sess.s.noPermFlags
 	sess.s.simMu.Unlock()
-	if noKeywords {
-		data.PermanentFlags = slices.DeleteFunc(slices.Clone(data.PermanentFlags), func(f imap.Flag) bool {
-			return f == imap.FlagWildcard
-		})
+	switch {
+	case noPermFlags:
+		data.PermanentFlags = nil
+	case noKeywords:
+		// imapmemserver anuncia los flags en uso más \*: sin \* la lista
+		// puede quedar vacía, que es otra cosa (no se sabe). Un servidor sin
+		// keywords anuncia los flags de sistema.
+		data.PermanentFlags = []imap.Flag{imap.FlagSeen, imap.FlagAnswered, imap.FlagFlagged, imap.FlagDeleted, imap.FlagDraft}
 	}
 	return data, nil
 }

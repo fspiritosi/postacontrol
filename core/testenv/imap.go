@@ -43,9 +43,10 @@ type IMAP struct {
 	noCount  map[string]bool
 	ops      []string
 	moveHook func(src string)
-	// noKeywords: SELECT y EXAMINE no anuncian \* en PERMANENTFLAGS.
+	// noKeywords: SELECT y EXAMINE anuncian PERMANENTFLAGS sin \*.
+	// noPermFlags: SELECT y EXAMINE mandan PERMANENTFLAGS vacío.
 	// rejectKeywords: STORE con algún keyword responde NO.
-	noKeywords, rejectKeywords bool
+	noKeywords, noPermFlags, rejectKeywords bool
 }
 
 // Sessions devuelve cuántas conexiones aceptó el servidor desde que arrancó

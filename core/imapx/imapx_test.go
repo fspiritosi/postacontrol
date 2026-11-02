@@ -1000,3 +1000,21 @@ func TestMailboxTotal_WithoutCountIsAnError(t *testing.T) {
 	_, err := c.MailboxTotal("INBOX")
 	assert.ErrorIs(t, err, imapx.ErrNoMessageCount)
 }
+
+func TestSelect_KeywordSupport(t *testing.T) {
+	s, tlsc := setup(t)
+	c := dial(t, s, tlsc)
+	info, err := c.SelectRW("INBOX")
+	require.NoError(t, err)
+	assert.Equal(t, imapx.KeywordsYes, info.Keywords, `PERMANENTFLAGS con \*`)
+
+	s.NoKeywords()
+	info, err = c.SelectRW("INBOX")
+	require.NoError(t, err)
+	assert.Equal(t, imapx.KeywordsNo, info.Keywords, `PERMANENTFLAGS sin \*`)
+
+	s.OmitPermanentFlags()
+	info, err = c.SelectRW("INBOX")
+	require.NoError(t, err)
+	assert.Equal(t, imapx.KeywordsUnknown, info.Keywords, "PERMANENTFLAGS vacío")
+}
