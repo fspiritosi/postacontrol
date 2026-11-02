@@ -1,6 +1,7 @@
 import { PaperclipIcon, StarIcon } from "lucide-react";
 import type { ThreadSummary } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
+import { threadTargets, type Target } from "@/lib/bulk";
 import { startMessageDrag, threadDrag, type DragInfo } from "@/lib/dnd";
 import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
@@ -9,6 +10,7 @@ import type { Marks } from "@/lib/selection";
 import { useReadingPane } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { LabelChips, LabelLine } from "../labels/LabelStripe";
+import { RowContextMenu } from "./RowContextMenu";
 import { useMarking, type ClickMods } from "./useMarking";
 
 type Props = {
@@ -23,6 +25,11 @@ type Props = {
   // Conversaciones marcadas para actuar sobre varias.
   marked: Marks<string>;
   onMark: (m: Marks<string>) => void;
+  // Sobre qué actúa el clic derecho en la conversación con esa raíz (por
+  // omisión, solo esa conversación).
+  menuTargets?: (root: string) => Promise<Target[]>;
+  // Desde el menú se marcaron como no leídos (la conversación de esa fila o las marcadas).
+  onUnread?: (root: string) => void;
 };
 
 // Fila de un hilo: mismos estilos que MessageRow, con los participantes en
@@ -36,6 +43,8 @@ function ThreadRow({
   anyMarked,
   onToggle,
   dragOf,
+  menuTargets,
+  onUnread,
 }: {
   thread: ThreadSummary;
   color?: string;
@@ -45,6 +54,8 @@ function ThreadRow({
   anyMarked: boolean;
   onToggle: (root: string) => void;
   dragOf: (t: ThreadSummary) => DragInfo | null;
+  menuTargets: (root: string) => Promise<Target[]>;
+  onUnread?: (root: string) => void;
 }) {
   const compact = useReadingPane() !== "right";
   const m = t.latest;
@@ -52,6 +63,10 @@ function ThreadRow({
   const participants =
     (t.participants ?? []).join(", ") || m.from.name || m.from.email;
   return (
+    <RowContextMenu
+      targets={() => menuTargets(t.threadRoot)}
+      onUnread={onUnread && (() => onUnread(t.threadRoot))}
+    >
     <li
       className={cn("group relative", marked && "bg-primary/10")}
       data-unread={unread || undefined}
@@ -198,6 +213,7 @@ function ThreadRow({
         )}
       </button>
     </li>
+    </RowContextMenu>
   );
 }
 
@@ -210,6 +226,8 @@ export function ThreadList({
   onSelect,
   marked,
   onMark,
+  menuTargets,
+  onUnread,
 }: Props) {
   const threads = useThreads(folderId, unreadOnly);
   const items = threads.data?.pages.flat() ?? [];
@@ -251,6 +269,8 @@ export function ThreadList({
             anyMarked={marking.any}
             onToggle={marking.toggle}
             dragOf={(row) => threadDrag(folderId, items, marked.keys, row)}
+            menuTargets={menuTargets ?? ((root) => threadTargets(folderId, [root]))}
+            onUnread={onUnread}
           />
         ))}
       </ul>

@@ -184,6 +184,16 @@ export function SearchResults({ accounts, state, search }: Props) {
               onToggle={marking.toggle}
               folderLabel={labelOf(m.folderId)}
               dragOf={(row) => flatDrag(items, state.marked.keys, row)}
+              menuTargets={(row) =>
+                markedKeys.includes(row.id)
+                  ? barTargets()
+                  : Promise.resolve(loadedTargets([row], [row.id]))
+              }
+              onUnread={(row) => {
+                const ids = markedKeys.includes(row.id) ? markedKeys : [row.id];
+                if (state.messageId != null && ids.includes(state.messageId))
+                  state.selectMessage(null);
+              }}
             />
           ))}
         </ul>

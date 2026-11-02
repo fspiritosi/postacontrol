@@ -238,6 +238,17 @@ export function MessageList({
           onSelect={state.selectThread}
           marked={state.markedThreads}
           onMark={state.setMarkedThreads}
+          menuTargets={(root) =>
+            markedRoots.includes(root)
+              ? barTargets()
+              : threadTargets(folderId, [root])
+          }
+          onUnread={(root) => {
+            // Volver a abrir el lector lo marcaría leído otra vez: se cierra.
+            const roots = markedRoots.includes(root) ? markedRoots : [root];
+            if (state.threadRoot != null && roots.includes(state.threadRoot))
+              state.selectThread(null);
+          }}
         />
       ) : (
         <div
@@ -274,6 +285,16 @@ export function MessageList({
                 anyMarked={marking.any}
                 onToggle={marking.toggle}
                 dragOf={(row) => flatDrag(items, state.marked.keys, row)}
+                menuTargets={(row) =>
+                  markedKeys.includes(row.id)
+                    ? barTargets()
+                    : Promise.resolve(loadedTargets([row], [row.id]))
+                }
+                onUnread={(row) => {
+                  const ids = markedKeys.includes(row.id) ? markedKeys : [row.id];
+                  if (state.messageId != null && ids.includes(state.messageId))
+                    state.selectMessage(null);
+                }}
               />
             ))}
           </ul>

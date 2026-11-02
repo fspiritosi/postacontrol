@@ -4,6 +4,7 @@ import {
   MailIcon,
   MailOpenIcon,
   StarIcon,
+  TagIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
@@ -39,6 +40,7 @@ import {
 import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
 import { useAllFolders } from "@/lib/queries";
+import { LabelMenuItems } from "../labels/LabelMenu";
 
 // Cómo terminó una acción: qué ids salieron bien, cuáles fallaron y si los
 // correos dejaron de estar donde se los miraba (movidos o borrados).
@@ -256,6 +258,17 @@ export function SelectionBar({
         <StarIcon className={allFlagged ? "fill-current" : undefined} />
         {allFlagged ? "Quitar destacado" : "Destacar"}
       </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" disabled={!ready}>
+            <TagIcon />
+            Etiquetas
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <LabelMenuItems kind="dropdown" targets={list} />
+        </DropdownMenuContent>
+      </DropdownMenu>
       {destinations.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

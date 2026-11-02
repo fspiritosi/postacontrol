@@ -9,6 +9,7 @@ import { defaultView, loadView, saveView, viewAccount, viewIsValid, type View } 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useComposer } from "../compose/ComposerContext";
+import { useLabelKeys } from "../labels/useLabelKeys";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -242,6 +243,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setMarkedThreads,
     clearMarks,
   };
+
+  useLabelKeys(state);
 
   // Los dos paneles del grupo interior se arman una vez; solo cambia el orden.
   const listPanel = (

@@ -10,6 +10,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   MoveMessages: vi.fn(() => Promise.resolve()),
   DeleteMessages: vi.fn(() => Promise.resolve()),
   GetThread: vi.fn(),
+  ListLabels: vi.fn(() => Promise.resolve([])),
+  SetLabel: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -335,5 +337,20 @@ describe("SelectionBar", () => {
       screen.getByRole("button", { name: "Quitar selección" }),
     );
     expect(onClear).toHaveBeenCalled();
+  });
+
+  it("el botón Etiquetas muestra la raya si solo algunos tienen la etiqueta y la pone en todos", async () => {
+    vi.mocked(svc.ListLabels).mockResolvedValue([
+      { id: 11, name: "Clientes", color: "#dc2626", position: 0 },
+    ] as never);
+    renderBar([t(1, 7, 70, { labels: [11] }), t(2, 7, 70)]);
+    const button = await screen.findByRole("button", { name: "Etiquetas" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(await screen.findByTestId("label-some")).toBeTruthy();
+    await userEvent.click(screen.getByRole("menuitem", { name: /Clientes/ }));
+    await waitFor(() =>
+      expect(svc.SetLabel).toHaveBeenCalledWith([1, 2], 11, true),
+    );
   });
 });

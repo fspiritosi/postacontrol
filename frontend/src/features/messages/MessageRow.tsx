@@ -8,7 +8,9 @@ import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
 import { useReadingPane } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { loadedTargets, type Target } from "@/lib/bulk";
 import { LabelChips, LabelLine } from "../labels/LabelStripe";
+import { RowContextMenu } from "./RowContextMenu";
 import type { ClickMods } from "./useMarking";
 
 type Props = {
@@ -26,6 +28,10 @@ type Props = {
   folderLabel?: string;
   // Qué lleva al arrastrarla a una carpeta (null: no se puede arrastrar ahora).
   dragOf?: (m: MessageSummary) => DragInfo | null;
+  // Sobre qué actúa el clic derecho (por omisión, solo esta fila).
+  menuTargets?: (m: MessageSummary) => Promise<Target[]>;
+  // Desde el menú se marcaron como no leídos.
+  onUnread?: (m: MessageSummary) => void;
 };
 
 export function MessageRow({
@@ -38,6 +44,8 @@ export function MessageRow({
   onToggle,
   folderLabel,
   dragOf,
+  menuTargets,
+  onUnread,
 }: Props) {
   const queryClient = useQueryClient();
   // Con el lector abajo o arriba la lista es ancha: cada correo ocupa un renglón.
@@ -55,6 +63,14 @@ export function MessageRow({
   };
 
   return (
+    <RowContextMenu
+      targets={() =>
+        menuTargets
+          ? menuTargets(m)
+          : Promise.resolve(loadedTargets([m], [m.id]))
+      }
+      onUnread={onUnread && (() => onUnread(m))}
+    >
     <li
       className={cn("group relative", marked && "bg-primary/10")}
       data-unread={!m.seen || undefined}
@@ -208,5 +224,6 @@ export function MessageRow({
         />
       </button>
     </li>
+    </RowContextMenu>
   );
 }
