@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { invalidateMailQueries } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
@@ -43,14 +44,7 @@ export function MessageActions({ message, selectMessage }: Props) {
   const inDrafts = current?.role === "drafts";
   const targets = folders.filter((f) => f.selectable && f.id !== message.folderId);
 
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ["messages"] });
-    void queryClient.invalidateQueries({ queryKey: ["threads"] });
-    void queryClient.invalidateQueries({ queryKey: ["thread"] });
-    void queryClient.invalidateQueries({ queryKey: ["folders"] });
-    // Lo movido, borrado o marcado puede estar en los resultados de la búsqueda.
-    void queryClient.invalidateQueries({ queryKey: ["search"] });
-  };
+  const refresh = () => invalidateMailQueries(queryClient);
   const run = async (fn: () => Promise<void>, after?: () => void) => {
     try {
       await fn();

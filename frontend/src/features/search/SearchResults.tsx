@@ -1,13 +1,18 @@
-import { useState } from "react";
-import type { Account, MessageSummary } from "../../../bindings/postacontrol/core/model/models";
+import { useCallback, useState } from "react";
+import type {
+  Account,
+  MessageSummary,
+} from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { Button } from "@/components/ui/button";
+import { loadedTargets } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
 import { useAllFolders, useSearch } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { MessageRow } from "../messages/MessageRow";
-import { useMarking } from "../messages/useMarking";
+import { SelectionBar } from "../messages/SelectionBar";
+import { finishFlat, useMarking } from "../messages/useMarking";
 import type { SearchScope, SearchState, ShellState } from "../layout/MailShell";
 
 type Props = {
@@ -28,7 +33,10 @@ export function SearchResults({ accounts, state, search }: Props) {
   const { folders } = useAllFolders(accounts);
   const results = useSearch(search.text, folderId);
   // Los resultados del servidor se descartan al cambiar el texto o el alcance.
-  const [server, setServer] = useState<{ key: string; items: MessageSummary[] } | null>(null);
+  const [server, setServer] = useState<{
+    key: string;
+    items: MessageSummary[];
+  } | null>(null);
   const [serverLoading, setServerLoading] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -55,14 +63,25 @@ export function SearchResults({ accounts, state, search }: Props) {
     onOpen: state.selectMessage,
   });
 
-  const colorOf = (accountId: number) => accounts.find((a) => a.id === accountId)?.color;
+  const markedKeys = state.marked.keys;
+  const barTargets = useCallback(
+    () => Promise.resolve(loadedTargets(items, markedKeys)),
+    // `items` se arma de nuevo en cada render: se sigue lo que lo origina.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [results.data, server, key, markedKeys],
+  );
+
+  const colorOf = (accountId: number) =>
+    accounts.find((a) => a.id === accountId)?.color;
   const labelOf = (id: number) => {
     const f = folders.find((x) => x.id === id);
     return f ? folderLabel(f) : undefined;
   };
 
   const currentLabel = inFolder ? labelOf(view.folderId) : undefined;
-  const serverLabel = currentLabel ? `Buscar en el servidor en ${currentLabel}` : "Buscar en el servidor";
+  const serverLabel = currentLabel
+    ? `Buscar en el servidor en ${currentLabel}`
+    : "Buscar en el servidor";
 
   const searchServer = async () => {
     if (!inFolder) return;
@@ -79,69 +98,106 @@ export function SearchResults({ accounts, state, search }: Props) {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto outline-none" tabIndex={-1} onKeyDown={marking.onKeyDown}>
-      {inFolder && (
-        <div className="flex rounded-md bg-muted p-0.5 text-xs m-2" role="group" aria-label="Alcance">
-          {SCOPES.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              aria-pressed={search.scope === o.value}
-              onClick={() => state.setSearch({ text: search.text, scope: o.value })}
-              className={cn(
-                "flex-1 rounded px-2.5 py-1 text-muted-foreground transition-colors",
-                search.scope === o.value && "bg-background text-foreground shadow-sm",
-              )}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {markedKeys.length > 1 && (
+        <SelectionBar
+          count={markedKeys.length}
+          accounts={accounts}
+          folderId={inFolder ? view.folderId : null}
+          targets={barTargets}
+          onDone={(r) => finishFlat(state, r)}
+          onClear={state.clearMarks}
+        />
       )}
-      {pending > 0 && (
-        <div className="flex flex-col items-start gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
-          <p>Todavía faltan indexar {pending} correos.</p>
-          {inFolder && (
-            <Button variant="outline" size="sm" onClick={() => void searchServer()} disabled={serverLoading}>
-              {serverLabel}
-            </Button>
-          )}
-        </div>
-      )}
-      {serverError && <p className="p-4 text-sm text-destructive">{serverError}</p>}
-      {results.isError && <p className="p-4 text-sm text-destructive">{errorMessage(results.error)}</p>}
-      {!results.isPending && !results.isError && items.length === 0 && (
-        <p className="p-6 text-center text-sm text-muted-foreground" aria-live="polite">
-          No encontramos correos.
-        </p>
-      )}
-      <ul>
-        {items.map((m) => (
-          <MessageRow
-            key={m.id}
-            message={m}
-            color={colorOf(m.accountId)}
-            selected={state.messageId === m.id}
-            onSelect={marking.select}
-            marked={state.marked.keys.includes(m.id)}
-            anyMarked={marking.any}
-            onToggle={marking.toggle}
-            folderLabel={labelOf(m.folderId)}
-          />
-        ))}
-      </ul>
-      {results.hasNextPage && (
-        <div className="p-3 text-center">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void results.fetchNextPage()}
-            disabled={results.isFetchingNextPage}
+      <div
+        className="flex-1 overflow-y-auto outline-none"
+        tabIndex={-1}
+        onKeyDown={marking.onKeyDown}
+      >
+        {inFolder && (
+          <div
+            className="flex rounded-md bg-muted p-0.5 text-xs m-2"
+            role="group"
+            aria-label="Alcance"
           >
-            Cargar más
-          </Button>
-        </div>
-      )}
+            {SCOPES.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                aria-pressed={search.scope === o.value}
+                onClick={() =>
+                  state.setSearch({ text: search.text, scope: o.value })
+                }
+                className={cn(
+                  "flex-1 rounded px-2.5 py-1 text-muted-foreground transition-colors",
+                  search.scope === o.value &&
+                    "bg-background text-foreground shadow-sm",
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {pending > 0 && (
+          <div className="flex flex-col items-start gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+            <p>Todavía faltan indexar {pending} correos.</p>
+            {inFolder && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void searchServer()}
+                disabled={serverLoading}
+              >
+                {serverLabel}
+              </Button>
+            )}
+          </div>
+        )}
+        {serverError && (
+          <p className="p-4 text-sm text-destructive">{serverError}</p>
+        )}
+        {results.isError && (
+          <p className="p-4 text-sm text-destructive">
+            {errorMessage(results.error)}
+          </p>
+        )}
+        {!results.isPending && !results.isError && items.length === 0 && (
+          <p
+            className="p-6 text-center text-sm text-muted-foreground"
+            aria-live="polite"
+          >
+            No encontramos correos.
+          </p>
+        )}
+        <ul>
+          {items.map((m) => (
+            <MessageRow
+              key={m.id}
+              message={m}
+              color={colorOf(m.accountId)}
+              selected={state.messageId === m.id}
+              onSelect={marking.select}
+              marked={state.marked.keys.includes(m.id)}
+              anyMarked={marking.any}
+              onToggle={marking.toggle}
+              folderLabel={labelOf(m.folderId)}
+            />
+          ))}
+        </ul>
+        {results.hasNextPage && (
+          <div className="p-3 text-center">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void results.fetchNextPage()}
+              disabled={results.isFetchingNextPage}
+            >
+              Cargar más
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

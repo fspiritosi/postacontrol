@@ -1,23 +1,295 @@
-import { XIcon } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  FolderInputIcon,
+  MailIcon,
+  MailOpenIcon,
+  StarIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import type {
+  Account,
+  Folder,
+} from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  invalidateMailQueries,
+  moveMarked,
+  runPerAccount,
+  type AccountFailure,
+  type Target,
+} from "@/lib/bulk";
+import { errorMessage } from "@/lib/errors";
+import { folderLabel } from "@/lib/folders";
+import { useAllFolders } from "@/lib/queries";
+
+// Cómo terminó una acción: qué ids salieron bien, cuáles fallaron y si los
+// correos dejaron de estar donde se los miraba (movidos o borrados).
+export type BulkResult = { ok: number[]; failed: number[]; removed: boolean };
 
 type Props = {
   count: number;
   // Conversaciones en lugar de correos sueltos.
   threads?: boolean;
+  accounts: Account[];
+  // Carpeta que se está viendo (null en la unificada o en una búsqueda general).
+  folderId: number | null;
+  // Los correos marcados que siguen cargados. Tiene que ser estable entre
+  // renders mientras no cambien las marcas.
+  targets: () => Promise<Target[]>;
+  onDone: (r: BulkResult) => void;
   onClear: () => void;
 };
 
 // Barra sobre la lista cuando hay varios marcados.
-export function SelectionBar({ count, threads, onClear }: Props) {
+export function SelectionBar({
+  count,
+  threads,
+  accounts,
+  folderId,
+  targets,
+  onDone,
+  onClear,
+}: Props) {
+  const queryClient = useQueryClient();
+  const { folders } = useAllFolders(accounts);
+  const [current, setCurrent] = useState<Target[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Borrado que espera confirmación, con los correos que va a tocar.
+  const [confirm, setConfirm] = useState<Target[] | null>(null);
+
+  // Para decidir qué ofrecer hay que saber qué es lo marcado.
+  useEffect(() => {
+    let live = true;
+    targets().then(
+      (t) => live && setCurrent(t),
+      () => live && setCurrent([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [targets]);
+
+  const inTrash = (t: Target) =>
+    folders.find((f) => f.id === t.folderId)?.role === "trash";
+  const list = current ?? [];
+  const ready = current != null && current.length > 0 && !busy;
+  const allFlagged = list.length > 0 && list.every((t) => t.flagged);
+  const allTrash = list.length > 0 && list.every(inTrash);
+  const accountIds = new Set(list.map((t) => t.accountId));
+  const destinations: Folder[] =
+    accountIds.size === 1
+      ? folders.filter(
+          (f) =>
+            f.accountId === [...accountIds][0] &&
+            f.selectable &&
+            f.id !== folderId,
+        )
+      : [];
+
+  const nameOf = (accountId: number) => {
+    const a = accounts.find((x) => x.id === accountId);
+    return a ? a.displayName || a.email : String(accountId);
+  };
+
+  // Corre la acción sobre lo marcado de ahora (no de cuando se pintó la barra),
+  // avisa lo que falló por cuenta y deja marcado solo eso.
+  const act = async (
+    fn: (accountId: number, ids: number[]) => Promise<void>,
+    opts: {
+      removed: boolean;
+      onOk?: (done: Target[]) => void;
+      fixed?: Target[];
+    },
+  ) => {
+    setBusy(true);
+    try {
+      const all = opts.fixed ?? (await targets());
+      const { failed } = await runPerAccount(all, fn);
+      finish(all, failed, opts);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const finish = (
+    all: Target[],
+    failed: AccountFailure[],
+    opts: { removed: boolean; onOk?: (done: Target[]) => void },
+  ) => {
+    const failedIds = new Set(failed.flatMap((f) => f.ids));
+    const done = all.filter((t) => !failedIds.has(t.id));
+    for (const f of failed)
+      toast.error(
+        `No se pudo en ${nameOf(f.accountId)}: ${errorMessage(f.error)}`,
+      );
+    if (done.length > 0) opts.onOk?.(done);
+    invalidateMailQueries(queryClient);
+    onDone({
+      ok: done.map((t) => t.id),
+      failed: [...failedIds],
+      removed: opts.removed,
+    });
+  };
+
+  const setSeen = (seen: boolean) =>
+    act((_a, ids) => svc.SetSeen(ids, seen), { removed: false });
+  const setFlagged = () =>
+    act((_a, ids) => svc.SetFlagged(ids, !allFlagged), { removed: false });
+
+  const moveTo = async (dest: Folder) => {
+    setBusy(true);
+    try {
+      const all = await targets();
+      const { failed } = await moveMarked(all, dest);
+      finish(all, failed, {
+        removed: true,
+        onOk: (done) =>
+          toast.success(`${done.length} movidos a ${folderLabel(dest)}`),
+      });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = (all: Target[]) =>
+    act((_a, ids) => svc.DeleteMessages(ids), {
+      removed: true,
+      fixed: all,
+      onOk: (done) => {
+        const toTrash = done.filter((t) => !inTrash(t)).length;
+        if (toTrash > 0) toast.success(`${toTrash} movidos a la Papelera`);
+      },
+    });
+
+  // En la Papelera el borrado es definitivo: si hay algo ahí, se confirma.
+  const askRemove = async () => {
+    const all = await targets();
+    if (all.some(inTrash)) setConfirm(all);
+    else void remove(all);
+  };
+
+  const inTrashCount = confirm?.filter(inTrash).length ?? 0;
+
   return (
-    <div className="flex items-center gap-2 border-b bg-primary/10 px-3 py-1.5">
+    <div className="flex flex-wrap items-center gap-1.5 border-b bg-primary/10 px-3 py-1.5">
       <span className="min-w-0 flex-1 truncate text-sm font-medium">
-        {threads ? `${count} conversaciones seleccionadas` : `${count} seleccionados`}
+        {threads
+          ? `${count} conversaciones seleccionadas`
+          : `${count} seleccionados`}
       </span>
-      <Button variant="ghost" size="icon-sm" aria-label="Quitar selección" onClick={onClear}>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!ready}
+        onClick={() => void setSeen(true)}
+      >
+        <MailOpenIcon />
+        Marcar leído
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!ready}
+        onClick={() => void setSeen(false)}
+      >
+        <MailIcon />
+        Marcar no leído
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!ready}
+        onClick={() => void setFlagged()}
+      >
+        <StarIcon className={allFlagged ? "fill-current" : undefined} />
+        {allFlagged ? "Quitar destacado" : "Destacar"}
+      </Button>
+      {destinations.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" disabled={!ready}>
+              <FolderInputIcon />
+              Mover a…
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {destinations.map((f) => (
+              <DropdownMenuItem key={f.id} onSelect={() => void moveTo(f)}>
+                {folderLabel(f)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!ready}
+        onClick={() => void askRemove()}
+      >
+        <Trash2Icon />
+        {allTrash ? "Eliminar definitivamente" : "Eliminar"}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Quitar selección"
+        onClick={onClear}
+      >
         <XIcon />
       </Button>
+      <Dialog
+        open={confirm != null}
+        onOpenChange={(o) => !o && setConfirm(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar definitivamente</DialogTitle>
+            <DialogDescription>
+              {confirm != null && inTrashCount === confirm.length
+                ? `¿Eliminar definitivamente ${confirm.length} correos? No se puede deshacer.`
+                : `${inTrashCount} de los ${confirm?.length ?? 0} correos están en la Papelera y se eliminan definitivamente. Los demás van a la Papelera. No se puede deshacer.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const all = confirm;
+                setConfirm(null);
+                if (all) void remove(all);
+              }}
+            >
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

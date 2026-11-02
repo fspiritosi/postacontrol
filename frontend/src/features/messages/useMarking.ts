@@ -1,4 +1,6 @@
 import type { KeyboardEvent } from "react";
+import type { BulkResult } from "./SelectionBar";
+import type { ShellState } from "../layout/MailShell";
 import { markAll, NO_MARKS, rangeMark, toggleMark, type Marks } from "@/lib/selection";
 
 export type ClickMods = { ctrl: boolean; shift: boolean };
@@ -52,4 +54,14 @@ export function useMarking<K>({
   };
 
   return { select, toggle, onKeyDown, any: marks.keys.length > 0 };
+}
+
+// Lo que pasa en la lista plana (y en la búsqueda) al terminar una acción
+// sobre lo marcado: quedan marcados solo los que fallaron, y si lo que estaba
+// abierto se movió o se borró, se cierra el lector.
+export function finishFlat(state: ShellState, r: BulkResult) {
+  state.setMarked({ keys: r.failed, anchor: null });
+  if (r.removed && state.messageId != null && r.ok.includes(state.messageId)) {
+    state.selectMessage(null);
+  }
 }

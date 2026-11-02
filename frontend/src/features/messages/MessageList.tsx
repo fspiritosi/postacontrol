@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { loadedTargets, threadTargets, type Target } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { useFolderSyncing, useSyncProgress } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
@@ -16,10 +17,11 @@ import type { ShellState } from "../layout/MailShell";
 import { SearchBox } from "../search/SearchBox";
 import { SearchResults } from "../search/SearchResults";
 import { MessageRow } from "./MessageRow";
-import { SelectionBar } from "./SelectionBar";
+import { SelectionBar, type BulkResult } from "./SelectionBar";
 import { ThreadList } from "./ThreadList";
 import { UnsyncedDraftsBanner } from "./UnsyncedDraftsBanner";
-import { useMarking } from "./useMarking";
+import { finishFlat, useMarking } from "./useMarking";
+import type { ThreadSummary } from "../../../bindings/postacontrol/core/model/models";
 
 export function MessageList({
   accounts,
@@ -51,14 +53,18 @@ export function MessageList({
         : "";
   // En Borradores se avisa de los que todavía no llegaron al servidor.
   const draftsView =
-    view?.kind === "unified" ? view.role === "drafts" : folder?.role === "drafts";
+    view?.kind === "unified"
+      ? view.role === "drafts"
+      : folder?.role === "drafts";
   const items = messages.data?.pages.flat() ?? [];
   const syncing =
     progress != null && folderId != null && progress.folderId === folderId;
   const colorOf = (accountId: number) =>
     accounts.find((a) => a.id === accountId)?.color;
   const markCount =
-    threaded && search == null ? state.markedThreads.keys.length : state.marked.keys.length;
+    threaded && search == null
+      ? state.markedThreads.keys.length
+      : state.marked.keys.length;
   const marking = useMarking({
     marks: state.marked,
     onMark: state.setMarked,
@@ -66,6 +72,59 @@ export function MessageList({
     open: state.messageId,
     onOpen: state.selectMessage,
   });
+
+  const threadedMarks = threaded && search == null;
+  // Qué conversación tiene cada mensaje tocado, para saber cuáles quedan marcadas si algo falla.
+  const rootOf = useRef(new Map<number, string>());
+  const markedKeys = state.marked.keys;
+  const markedRoots = state.markedThreads.keys;
+  const barTargets = useCallback(async (): Promise<Target[]> => {
+    if (!threadedMarks || folderId == null) {
+      return loadedTargets(messages.data?.pages.flat() ?? [], markedKeys);
+    }
+    // Solo las conversaciones que siguen cargadas en la lista.
+    const pages = queryClient.getQueryData<{ pages: ThreadSummary[][] }>([
+      "threads",
+      folderId,
+      unreadOnly,
+    ]);
+    const loaded = new Set(
+      (pages?.pages.flat() ?? []).map((t) => t.threadRoot),
+    );
+    const roots = markedRoots.filter((r) => loaded.has(r));
+    const per = await Promise.all(
+      roots.map((r) => threadTargets(folderId, [r])),
+    );
+    rootOf.current = new Map(
+      per.flatMap((ts, i) => ts.map((t) => [t.id, roots[i]] as const)),
+    );
+    return per.flat();
+  }, [
+    threadedMarks,
+    folderId,
+    messages.data,
+    markedKeys,
+    markedRoots,
+    queryClient,
+    unreadOnly,
+  ]);
+
+  const barDone = (r: BulkResult) => {
+    if (!threadedMarks) return finishFlat(state, r);
+    const rootsOf = (ids: number[]) => [
+      ...new Set(ids.flatMap((id) => rootOf.current.get(id) ?? [])),
+    ];
+    const failedRoots = rootsOf(r.failed);
+    state.setMarkedThreads({ keys: failedRoots, anchor: null });
+    if (
+      r.removed &&
+      state.threadRoot != null &&
+      !failedRoots.includes(state.threadRoot) &&
+      rootsOf(r.ok).includes(state.threadRoot)
+    ) {
+      state.selectThread(null);
+    }
+  };
 
   // Se guarda al instante, conservando el resto de la configuración.
   const setThreaded = async (v: boolean) => {
@@ -89,7 +148,9 @@ export function MessageList({
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {title}
+        </h2>
         {canThread && (
           <div className="flex items-center gap-1.5">
             <Switch
@@ -99,7 +160,10 @@ export function MessageList({
               disabled={settings.isPending}
               onCheckedChange={(v) => void setThreaded(v)}
             />
-            <Label htmlFor="threaded-list" className="text-xs font-normal text-muted-foreground">
+            <Label
+              htmlFor="threaded-list"
+              className="text-xs font-normal text-muted-foreground"
+            >
               Conversaciones
             </Label>
           </div>
@@ -161,10 +225,14 @@ export function MessageList({
         <UnsyncedDraftsBanner accountId={folder ? folder.accountId : null} />
       )}
 
-      {markCount > 1 && (
+      {markCount > 1 && search == null && (
         <SelectionBar
           count={markCount}
-          threads={threaded && search == null}
+          threads={threadedMarks}
+          accounts={accounts}
+          folderId={folderId}
+          targets={barTargets}
+          onDone={barDone}
           onClear={state.clearMarks}
         />
       )}
