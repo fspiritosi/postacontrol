@@ -10,7 +10,7 @@ import {
   ShieldAlertIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useState, type DragEvent, type ReactNode } from "react";
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
@@ -39,10 +39,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { dragAccount, hasMessageDrag, readMessageDrag } from "@/lib/dnd";
+import {
+  dragAccount,
+  dropZone,
+  hasFolderDrag,
+  hasMessageDrag,
+  readFolderDrag,
+  readMessageDrag,
+  setFolderDrag,
+} from "@/lib/dnd";
 import { errorMessage } from "@/lib/errors";
 import { toastSyncError } from "@/lib/events";
-import { buildFolderTree, canModify, siblingsOf, type FolderNode } from "@/lib/folders";
+import {
+  buildFolderTree,
+  canModify,
+  isSpecialTree,
+  siblingsOf,
+  type FolderNode,
+} from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
@@ -66,7 +80,56 @@ type FolderActions = {
   onMove: (node: FolderNode) => void;
   onDelete: (node: FolderNode) => void;
   onShift: (node: FolderNode, dir: -1 | 1) => void;
+  // Carpeta que se está arrastrando: en `dragover` el navegador no deja leer
+  // los datos, así que se guarda acá desde `dragstart`.
+  dragging: () => number | null;
+  setDragging: (id: number | null) => void;
+  onDropFolder: (dragged: FolderNode, target: FolderNode, zone: FolderZone) => Promise<void>;
 };
+
+type FolderZone = "before" | "into" | "after";
+
+function findById(list: FolderNode[], id: number): FolderNode | null {
+  for (const n of list) {
+    if (n.id === id) return n;
+    const r = findById(n.children, id);
+    if (r) return r;
+  }
+  return null;
+}
+
+function inSubtree(root: FolderNode, name: string): boolean {
+  return root.name === name || root.children.some((c) => inSubtree(c, name));
+}
+
+function parentOf(tree: FolderNode[], node: FolderNode): FolderNode | null {
+  for (const n of tree) {
+    if (n.children.some((c) => c.name === node.name)) return n;
+    const r = parentOf(n.children, node);
+    if (r) return r;
+  }
+  return null;
+}
+
+// Si `dragged` puede soltarse en esa zona de `target`. El núcleo vuelve a
+// validar todo; esto solo evita ofrecer lo que no va.
+function folderZoneAllowed(
+  tree: FolderNode[],
+  dragged: FolderNode,
+  target: FolderNode,
+  zone: FolderZone,
+): boolean {
+  // Ni sobre sí misma ni sobre una descendiente.
+  if (target.id === 0 || inSubtree(dragged, target.name)) return false;
+  const sameLevel = siblingsOf(tree, dragged).some((n) => n.name === target.name);
+  // Una especial solo se reordena entre sus hermanos.
+  if (isSpecialTree(dragged)) return zone !== "into" && sameLevel;
+  if (zone === "into") return parentOf(tree, dragged)?.name !== target.name;
+  if (sameLevel) return true;
+  // Cambiar de nivel pide un padre real (los sintetizados no tienen id).
+  const parent = parentOf(tree, target);
+  return parent == null || parent.id !== 0;
+}
 
 function FolderRow({
   node,
@@ -82,7 +145,8 @@ function FolderRow({
   actions: FolderActions;
 }) {
   const queryClient = useQueryClient();
-  const [over, setOver] = useState(false);
+  // Qué indicador de soltar se muestra: adentro (recuadro) o antes/después (línea).
+  const [hint, setHint] = useState<FolderZone | null>(null);
   const active = node.id !== 0 && state.view?.kind === "folder" && state.view.folderId === node.id;
   // selectView también pide sincronizar la carpeta.
   const select = () => state.selectView({ kind: "folder", folderId: node.id });
@@ -99,17 +163,52 @@ function FolderRow({
       state.view?.kind === "folder" &&
       state.view.folderId === node.id
     );
+  // Zona de una carpeta arrastrada sobre esta fila, o null si no se acepta.
+  // Los correos nunca pasan por acá: siempre cuentan como "adentro".
+  const folderZone = (e: DragEvent): FolderZone | null => {
+    if (
+      node.id === 0 ||
+      hasMessageDrag(e.dataTransfer) ||
+      !hasFolderDrag(e.dataTransfer) ||
+      dragAccount(e.dataTransfer) !== node.accountId
+    )
+      return null;
+    const id = actions.dragging() ?? readFolderDrag(e.dataTransfer);
+    const dragged = id == null ? null : findById(actions.tree, id);
+    if (!dragged) return null;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const zone = dropZone(e.clientY - rect.top, rect.height);
+    return folderZoneAllowed(actions.tree, dragged, node, zone) ? zone : null;
+  };
   const onDragOver = (e: DragEvent) => {
-    if (!droppable(e)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setOver(true);
+    const zone = folderZone(e);
+    if (zone || droppable(e)) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setHint(zone ?? "into");
+    } else setHint(null);
   };
   const onDragLeave = (e: DragEvent) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHint(null);
+  };
+  const onDragStart = (e: DragEvent) => {
+    actions.setDragging(node.id);
+    setFolderDrag(e.dataTransfer, node.accountId, node.id);
+  };
+  const onDragEnd = () => {
+    actions.setDragging(null);
+    setHint(null);
   };
   const onDrop = (e: DragEvent) => {
-    setOver(false);
+    setHint(null);
+    const zone = folderZone(e);
+    if (zone) {
+      e.preventDefault();
+      const dragged = findById(actions.tree, actions.dragging() ?? readFolderDrag(e.dataTransfer) ?? -1);
+      actions.setDragging(null);
+      if (dragged) void actions.onDropFolder(dragged, node, zone);
+      return;
+    }
     if (!droppable(e)) return;
     e.preventDefault();
     const drag = readMessageDrag(e.dataTransfer);
@@ -122,22 +221,36 @@ function FolderRow({
       nameOf: () => accountName,
     }).catch((err) => toast.error(errorMessage(err)));
   };
+  // Las carpetas reales se arrastran; las sintetizadas (id 0) no.
+  const dragProps =
+    node.id === 0
+      ? {}
+      : { draggable: true, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop };
+  const indicator = (hint === "before" || hint === "after") && (
+    <span
+      aria-hidden
+      data-drop={hint}
+      className={cn(
+        "pointer-events-none absolute inset-x-0 h-0.5 bg-primary",
+        hint === "before" ? "top-0" : "bottom-0",
+      )}
+    />
+  );
   const row =
     node.selectable && node.id !== 0 ? (
         <button
           type="button"
           onClick={select}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
+          {...dragProps}
           aria-current={active ? "true" : undefined}
           style={{ paddingLeft: 8 + depth * 14 }}
           className={cn(
-            "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
+            "relative flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
             active && "bg-sidebar-accent font-medium",
-            over && "outline outline-2 outline-primary bg-primary/10",
+            hint === "into" && "outline outline-2 outline-primary bg-primary/10",
           )}
         >
+          {indicator}
           <span className="text-muted-foreground [&>svg]:size-4">
             {ROLE_ICON[node.role] ?? <FolderIcon />}
           </span>
@@ -150,9 +263,14 @@ function FolderRow({
         </button>
       ) : (
         <div
+          {...dragProps}
           style={{ paddingLeft: 8 + depth * 14 }}
-          className="flex items-center gap-2 py-1.5 pr-2 text-sm text-muted-foreground"
+          className={cn(
+            "relative flex items-center gap-2 py-1.5 pr-2 text-sm text-muted-foreground",
+            hint === "into" && "outline outline-2 outline-primary bg-primary/10",
+          )}
         >
+          {indicator}
           <FolderIcon className="size-4" />
           <span className="truncate">{node.label}</span>
         </div>
@@ -270,8 +388,41 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     }
   };
 
+  const dragging = useRef<number | null>(null);
+
+  // Suelta una carpeta: adentro de otra, o antes/después de una hermana (si
+  // viene de otro nivel, primero se muda al padre de destino).
+  const dropFolder = async (dragged: FolderNode, target: FolderNode, zone: FolderZone) => {
+    try {
+      if (zone === "into") {
+        await svc.MoveFolder(dragged.id, target.id);
+      } else {
+        const sibs = siblingsOf(tree, target).filter((n) => n.id !== 0);
+        const sameLevel = sibs.some((n) => n.name === dragged.name);
+        const rest = sibs.filter((n) => n.name !== dragged.name);
+        const at = rest.findIndex((n) => n.name === target.name) + (zone === "after" ? 1 : 0);
+        const next = [...rest.slice(0, at), dragged, ...rest.slice(at)];
+        if (sameLevel && next.every((n, i) => n.name === sibs[i].name)) return;
+        if (!sameLevel) await svc.MoveFolder(dragged.id, parentOf(tree, target)?.id ?? 0);
+        await svc.SetFolderOrder(
+          account.id,
+          next.map((n) => n.id),
+        );
+      }
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      void queryClient.invalidateQueries({ queryKey: ["folders", account.id] });
+    }
+  };
+
   const actions: FolderActions = {
     tree,
+    dragging: () => dragging.current,
+    setDragging: (id) => {
+      dragging.current = id;
+    },
+    onDropFolder: dropFolder,
     onCreate: (parent) => setNameMode({ kind: "create", accountId: account.id, parent }),
     onRename: (node) => setNameMode({ kind: "rename", node }),
     onMove: setMoving,

@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   accountMime,
   dragAccount,
+  dropZone,
   flatDrag,
+  FOLDER_MIME,
   MSG_MIME,
+  readFolderDrag,
   readMessageDrag,
+  setFolderDrag,
   setMessageDrag,
 } from "./dnd";
 import type { MessageSummary } from "../../bindings/postacontrol/core/model/models";
@@ -65,6 +69,40 @@ describe("dnd", () => {
 
     it("marcados de varias cuentas no se arrastran", () => {
       expect(flatDrag(items, [1, 4], items[0])).toBeNull();
+    });
+  });
+
+  describe("carpetas", () => {
+    it("setFolderDrag y readFolderDrag viajan con la cuenta", () => {
+      const d = dt();
+      setFolderDrag(d, 7, 42);
+      expect(d.types).toContain(FOLDER_MIME);
+      expect(dragAccount(d)).toBe(7);
+      expect(readFolderDrag(d)).toBe(42);
+      expect(d.effectAllowed).toBe("move");
+    });
+
+    it("readFolderDrag sin datos o rotos da null", () => {
+      expect(readFolderDrag(dt())).toBeNull();
+      const d = dt();
+      d.setData(FOLDER_MIME, "x");
+      expect(readFolderDrag(d)).toBeNull();
+    });
+  });
+
+  describe("dropZone", () => {
+    it("el cuarto de arriba es before, el de abajo after y el resto into", () => {
+      expect(dropZone(0, 40)).toBe("before");
+      expect(dropZone(9, 40)).toBe("before");
+      expect(dropZone(10, 40)).toBe("into");
+      expect(dropZone(20, 40)).toBe("into");
+      expect(dropZone(30, 40)).toBe("into");
+      expect(dropZone(31, 40)).toBe("after");
+      expect(dropZone(40, 40)).toBe("after");
+    });
+
+    it("sin alto es into", () => {
+      expect(dropZone(0, 0)).toBe("into");
     });
   });
 });

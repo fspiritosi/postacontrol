@@ -58,6 +58,34 @@ export function dragAccount(dt: DataTransfer): number | null {
   return null;
 }
 
+// Arrastrar carpetas del panel para moverlas u ordenarlas. La cuenta viaja
+// igual que con los correos.
+export const FOLDER_MIME = "application/x-postacontrol-folder";
+
+export function setFolderDrag(dt: DataTransfer, accountId: number, folderId: number) {
+  dt.setData(FOLDER_MIME, String(folderId));
+  dt.setData(accountMime(accountId), "1");
+  dt.effectAllowed = "move";
+}
+
+export function readFolderDrag(dt: DataTransfer): number | null {
+  const raw = dt.getData(FOLDER_MIME);
+  const n = Number(raw);
+  return raw !== "" && Number.isInteger(n) ? n : null;
+}
+
+export function hasFolderDrag(dt: DataTransfer): boolean {
+  return Array.from(dt.types).includes(FOLDER_MIME);
+}
+
+// Dónde cae el puntero sobre una fila: el cuarto de arriba es antes, el de
+// abajo es después y el resto es adentro.
+export function dropZone(offsetY: number, height: number): "before" | "into" | "after" {
+  if (offsetY < height / 4) return "before";
+  if (offsetY > (height * 3) / 4) return "after";
+  return "into";
+}
+
 // Lo que arranca una fila: de qué cuenta es y qué lleva.
 export type DragInfo = { accountId: number; payload: MessageDrag };
 

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,7 +25,7 @@ import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { ShellState } from "../layout/MailShell";
-import { setMessageDrag } from "@/lib/dnd";
+import { setFolderDrag, setMessageDrag } from "@/lib/dnd";
 import { FakeDataTransfer } from "../../test/dataTransfer";
 import { toast } from "sonner";
 import { FolderSidebar } from "./FolderSidebar";
@@ -294,6 +294,157 @@ describe("FolderSidebar", () => {
       // La carpeta que se está mirando tampoco es destino.
       const inboxRow = await screen.findByRole("button", { name: "Entrada" });
       expect(fireEvent.dragOver(inboxRow, { dataTransfer: drag(7, { ids: [1] }) })).toBe(true);
+    });
+  });
+
+  describe("arrastrar carpetas", () => {
+    const folder = (id: number, name: string, position = 0) =>
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position }) as const;
+    const TOP = 2, MID = 20, BOT = 38;
+
+    beforeEach(() => {
+      vi.mocked(svc.MoveFolder).mockClear();
+      vi.mocked(svc.SetFolderOrder).mockClear();
+      vi.mocked(svc.MoveMessages).mockClear();
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        inbox(3, 7, 0),
+        folder(10, "Clientes"),
+        folder(11, "Clientes/Acme"),
+        folder(12, "Zeta"),
+        folder(13, "Omega"),
+        folder(14, "Zeta/Hija"),
+      ] as never);
+    });
+
+    const rowOf = async (name: string) => {
+      const row = await screen.findByRole("button", { name });
+      row.getBoundingClientRect = () => ({ top: 0, height: 40, left: 0, width: 100, right: 100, bottom: 40, x: 0, y: 0, toJSON() {} });
+      return row;
+    };
+    // Arranca el arrastre en `from` y lo lleva sobre `to` a la altura `y`.
+    const folderDt = (id: number, accountId = 7) => {
+      const dt = new FakeDataTransfer();
+      setFolderDrag(dt as unknown as DataTransfer, accountId, id);
+      return dt;
+    };
+    // jsdom no trae DragEvent: clientY se agrega a mano.
+    const fire = (type: "dragOver" | "drop", row: HTMLElement, dt: FakeDataTransfer, y: number) => {
+      const ev = createEvent[type](row, { dataTransfer: dt });
+      Object.defineProperty(ev, "clientY", { value: y });
+      return fireEvent(row, ev);
+    };
+    const over = (row: HTMLElement, dt: FakeDataTransfer, y: number) => fire("dragOver", row, dt, y);
+    const dropOn = (row: HTMLElement, dt: FakeDataTransfer, y: number) => fire("drop", row, dt, y);
+
+    it("soltar una carpeta en el medio de otra la mete adentro", async () => {
+      renderSidebar([account]);
+      const row = await rowOf("Clientes");
+      const dt = folderDt(12);
+      expect(over(row, dt, MID)).toBe(false);
+      expect(row.className).toContain("outline-primary");
+      dropOn(row, dt, MID);
+      await waitFor(() => expect(svc.MoveFolder).toHaveBeenCalledWith(12, 10));
+      expect(svc.SetFolderOrder).not.toHaveBeenCalled();
+    });
+
+    it("soltar entre dos cambia el orden", async () => {
+      renderSidebar([account]);
+      // Raíz: Entrada, Clientes, Omega, Zeta. Zeta va antes de Clientes.
+      const row = await rowOf("Clientes");
+      const dt = folderDt(12);
+      expect(over(row, dt, TOP)).toBe(false);
+      expect(row.querySelector('[data-drop="before"]')).not.toBeNull();
+      dropOn(row, dt, TOP);
+      await waitFor(() => expect(svc.SetFolderOrder).toHaveBeenCalledWith(7, [3, 12, 10, 13]));
+      expect(svc.MoveFolder).not.toHaveBeenCalled();
+    });
+
+    it("soltar debajo de una fila la pone después", async () => {
+      renderSidebar([account]);
+      const row = await rowOf("Omega");
+      const dt = folderDt(10);
+      over(row, dt, BOT);
+      expect(row.querySelector('[data-drop="after"]')).not.toBeNull();
+      dropOn(row, dt, BOT);
+      await waitFor(() => expect(svc.SetFolderOrder).toHaveBeenCalledWith(7, [3, 13, 10, 12]));
+    });
+
+    it("si viene de otro nivel, primero se mueve al padre de destino y después se ordena", async () => {
+      renderSidebar([account]);
+      const row = await rowOf("Omega");
+      const dt = folderDt(11); // Acme, hija de Clientes, a primer nivel
+      dropOn(row, dt, TOP);
+      await waitFor(() => expect(svc.SetFolderOrder).toHaveBeenCalledWith(7, [3, 10, 11, 13, 12]));
+      expect(svc.MoveFolder).toHaveBeenCalledWith(11, 0);
+      expect(vi.mocked(svc.MoveFolder).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(svc.SetFolderOrder).mock.invocationCallOrder[0],
+      );
+    });
+
+    it("no se ofrece soltar sobre una descendiente", async () => {
+      renderSidebar([account]);
+      const dt = folderDt(12); // Zeta, que tiene a Hija adentro
+      const hija = await rowOf("Hija");
+      expect(over(hija, dt, MID)).toBe(true);
+      expect(over(hija, dt, TOP)).toBe(true);
+      dropOn(hija, dt, MID);
+      // Tampoco sobre sí misma.
+      const zeta = await rowOf("Zeta");
+      expect(over(zeta, dt, MID)).toBe(true);
+      expect(svc.MoveFolder).not.toHaveBeenCalled();
+      expect(svc.SetFolderOrder).not.toHaveBeenCalled();
+    });
+
+    it("una especial se puede arrastrar solo para reordenar", async () => {
+      renderSidebar([account]);
+      const dt = folderDt(3); // Entrada
+      const omega = await rowOf("Omega");
+      expect(over(omega, dt, MID)).toBe(true); // into: no
+      dropOn(omega, dt, MID);
+      expect(svc.MoveFolder).not.toHaveBeenCalled();
+      expect(over(omega, dt, BOT)).toBe(false); // after entre hermanos: sí
+      dropOn(omega, dt, BOT);
+      await waitFor(() => expect(svc.SetFolderOrder).toHaveBeenCalledWith(7, [10, 13, 3, 12]));
+      // Entre otro nivel no: Acme es hija de Clientes.
+      const acme = await rowOf("Acme");
+      expect(over(acme, dt, TOP)).toBe(true);
+    });
+
+    it("se puede soltar una carpeta dentro de una especial", async () => {
+      renderSidebar([account]);
+      const entrada = await rowOf("Entrada");
+      const dt = folderDt(12);
+      expect(over(entrada, dt, MID)).toBe(false);
+      dropOn(entrada, dt, MID);
+      await waitFor(() => expect(svc.MoveFolder).toHaveBeenCalledWith(12, 3));
+    });
+
+    it("una carpeta de otra cuenta no se acepta", async () => {
+      renderSidebar([account]);
+      const row = await rowOf("Clientes");
+      expect(over(row, folderDt(99, 8), MID)).toBe(true);
+    });
+
+    it("un error del núcleo se muestra", async () => {
+      vi.mocked(toast.error).mockClear();
+      vi.mocked(svc.MoveFolder).mockRejectedValueOnce(new Error("nope"));
+      renderSidebar([account]);
+      const row = await rowOf("Clientes");
+      dropOn(row, folderDt(12), MID);
+      await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    });
+
+    it("correos y carpetas no se confunden", async () => {
+      renderSidebar([account]);
+      const row = await rowOf("Clientes");
+      const dt = new FakeDataTransfer();
+      setMessageDrag(dt as unknown as DataTransfer, 7, { ids: [1], folderId: 3 });
+      expect(over(row, dt, TOP)).toBe(false);
+      expect(row.className).toContain("outline-primary");
+      expect(row.querySelector("[data-drop]")).toBeNull();
+      dropOn(row, dt, TOP);
+      await waitFor(() => expect(svc.MoveMessages).toHaveBeenCalledWith([1], 10));
+      expect(svc.SetFolderOrder).not.toHaveBeenCalled();
     });
   });
 
