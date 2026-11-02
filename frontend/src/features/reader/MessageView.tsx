@@ -16,6 +16,7 @@ import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
 import { MessageActions } from "./MessageActions";
 import { SafeHtmlFrame } from "./SafeHtmlFrame";
+import { ReaderBackdrop } from "./ReaderBackdrop";
 
 export type ComposeMode = "reply" | "replyAll" | "forward";
 
@@ -183,9 +184,9 @@ export function MessageView({
 
   if (messageId == null) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-        Elegí un correo para leerlo.
-      </div>
+      <ReaderBackdrop>
+        <p className="text-sm text-muted-foreground">Elegí un correo para leerlo.</p>
+      </ReaderBackdrop>
     );
   }
   if (message.isPending) return <div className={embedded ? "h-24" : "h-full"} aria-busy />;

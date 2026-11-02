@@ -1,5 +1,15 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
+  BackgroundImage: vi.fn(() => Promise.resolve("")),
+}));
+
+function render(ui: ReactElement) {
+  return rtlRender(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>);
+}
 import { MarkedPane } from "./MarkedPane";
 
 describe("MarkedPane", () => {

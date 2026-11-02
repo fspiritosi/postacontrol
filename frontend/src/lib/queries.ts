@@ -86,6 +86,16 @@ export function useSettings() {
   });
 }
 
+// Data URL del fondo del panel de lectura ("" si no hay). Cambia solo cuando
+// llega mail:settings-changed.
+export function useBackground() {
+  return useQuery({
+    queryKey: ["background"],
+    queryFn: () => svc.BackgroundImage(),
+    staleTime: Infinity,
+  });
+}
+
 function messagesKey(view: View | null, unreadOnly: boolean) {
   if (view?.kind === "unified") return ["messages", "unified", view.role, unreadOnly];
   return ["messages", view?.kind === "folder" ? view.folderId : null, unreadOnly];

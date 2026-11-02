@@ -21,6 +21,7 @@ import { errorMessage } from "@/lib/errors";
 import { useAccounts, useContact } from "@/lib/queries";
 import type { ShellState } from "../layout/MailShell";
 import { useComposer } from "../compose/ComposerContext";
+import { ReaderBackdrop } from "../reader/ReaderBackdrop";
 
 const NEW_CONTACT: Contact = { id: 0, name: "", emails: [], phones: [], company: "", notes: "" };
 
@@ -29,9 +30,9 @@ export function ContactPanel({ state }: { state: ShellState }) {
   const contact = useContact(id);
   if (id == null) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-        Elegí un contacto o creá uno nuevo.
-      </div>
+      <ReaderBackdrop>
+        <p className="text-sm text-muted-foreground">Elegí un contacto o creá uno nuevo.</p>
+      </ReaderBackdrop>
     );
   }
   if (id === 0) return <ContactCard key="new" contact={NEW_CONTACT} state={state} />;

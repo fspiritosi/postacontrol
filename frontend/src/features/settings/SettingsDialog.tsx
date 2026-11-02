@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
-import { useSettings } from "@/lib/queries";
+import { useBackground, useSettings } from "@/lib/queries";
 import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
 import { SignaturesSection } from "./SignaturesSection";
 
@@ -29,7 +29,24 @@ type Props = { open: boolean; onOpenChange: (open: boolean) => void };
 export function SettingsDialog({ open, onOpenChange }: Props) {
   const queryClient = useQueryClient();
   const settings = useSettings();
+  const background = useBackground();
   const unified = settings.data?.unifiedInbox ?? false;
+
+  const pickBackground = async () => {
+    try {
+      if (await svc.PickBackground()) await queryClient.invalidateQueries({ queryKey: ["background"] });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+  const clearBackground = async () => {
+    try {
+      await svc.ClearBackground();
+      await queryClient.invalidateQueries({ queryKey: ["background"] });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
 
   // Se guarda al instante, sin botón Guardar.
   const setUnified = async (v: boolean) => {
@@ -139,6 +156,25 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               <SelectItem value="top">Arriba</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <Label>Fondo del panel de lectura</Label>
+            <p className="text-sm text-muted-foreground">Se ve cuando no hay un correo abierto.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {background.data ? (
+              <img src={background.data} alt="Fondo actual" className="h-10 w-16 rounded object-cover" />
+            ) : null}
+            <Button variant="outline" size="sm" onClick={() => void pickBackground()}>
+              Elegir imagen…
+            </Button>
+            {background.data ? (
+              <Button variant="ghost" size="sm" onClick={() => void clearBackground()}>
+                Quitar
+              </Button>
+            ) : null}
+          </div>
         </div>
         <SignaturesSection />
         <DialogFooter>

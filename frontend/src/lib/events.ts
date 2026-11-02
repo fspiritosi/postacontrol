@@ -224,6 +224,7 @@ export function useMailEvents(queryClient: QueryClient): void {
       }),
       Events.On("mail:settings-changed", () => {
         void queryClient.invalidateQueries({ queryKey: ["settings"] });
+        void queryClient.invalidateQueries({ queryKey: ["background"] });
       }),
       Events.On("mail:sync-progress", (ev) => {
         const p = ev.data as SyncProgress;

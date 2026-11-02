@@ -10,6 +10,9 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SetStartAtLogin: vi.fn(() => Promise.resolve()),
   ListAccounts: vi.fn(() => Promise.resolve([])),
   ListSignatures: vi.fn(() => Promise.resolve([])),
+  BackgroundImage: vi.fn(() => Promise.resolve("")),
+  PickBackground: vi.fn(() => Promise.resolve(true)),
+  ClearBackground: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -104,5 +107,27 @@ describe("SettingsDialog", () => {
         readingPane: "right",
       }),
     );
+  });
+
+  it("Elegir imagen… llama a PickBackground", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(await screen.findByRole("button", { name: "Elegir imagen…" }));
+    await waitFor(() => expect(svc.PickBackground).toHaveBeenCalled());
+  });
+
+  it("Quitar llama a ClearBackground y solo aparece con fondo puesto", async () => {
+    renderDialog();
+    await screen.findByRole("button", { name: "Elegir imagen…" });
+    expect(screen.queryByRole("button", { name: "Quitar" })).toBeNull();
+  });
+
+  it("con fondo muestra la miniatura y Quitar", async () => {
+    vi.mocked(svc.BackgroundImage).mockResolvedValue("data:image/png;base64,AAAA");
+    const user = userEvent.setup();
+    renderDialog();
+    expect(await screen.findByAltText("Fondo actual")).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: "Quitar" }));
+    await waitFor(() => expect(svc.ClearBackground).toHaveBeenCalled());
   });
 });
