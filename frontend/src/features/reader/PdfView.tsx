@@ -2,11 +2,22 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PdfDoc } from "@/lib/pdf";
 
 const ERROR_MESSAGE = "No pudimos abrir el PDF. Podés descargarlo y abrirlo con otro programa.";
+const PAGE_ERROR_MESSAGE = "No pudimos mostrar esta página.";
+// Igual a RENDER_CANCELLED de @/lib/pdf, que se carga aparte.
+const RENDER_CANCELLED = "RenderCancelled";
 
 // Margen a cada lado de las páginas (p-4). "Ajustar" usa el ancho que queda.
 const GUTTER = 16;
+// Espera tras un cambio de tamaño antes de volver a dibujar.
+const RESIZE_DELAY = 150;
+// Se dibujan las páginas a menos de un alto de pantalla de lo visible; las
+// demás quedan como un recuadro del tamaño de la página, sin canvas.
+const NEAR_MARGIN = "100% 0px";
+// Tamaño de una página que no se pudo medir (carta, en puntos).
+const FALLBACK_SIZE = { width: 612, height: 792 };
 
-type State = { doc: PdfDoc | null; failed: boolean };
+type Size = { width: number; height: number };
+type State = { doc: PdfDoc; sizes: Size[] } | { failed: true } | null;
 
 // PdfView muestra las páginas del PDF una debajo de otra. `zoom` null es
 // "Ajustar": cada página se escala al ancho del contenedor. `onPageChange`
@@ -20,8 +31,10 @@ export function PdfView({
   zoom: number | null;
   onPageChange?: (page: number, total: number) => void;
 }) {
-  const [state, setState] = useState<State>({ doc: null, failed: false });
+  const [state, setState] = useState<State>(null);
   const [width, setWidth] = useState<number | null>(null);
+  // Páginas cerca de lo visible. Sin IntersectionObserver se dibujan todas.
+  const [near, setNear] = useState<ReadonlySet<number>>(() => new Set());
   const scroller = useRef<HTMLDivElement>(null);
   const pages = useRef<(HTMLDivElement | null)[]>([]);
   const notify = useRef(onPageChange);
@@ -29,48 +42,59 @@ export function PdfView({
     notify.current = onPageChange;
   });
 
-  // Abre el documento y lo destruye al desmontar o al cambiar `data`, también
-  // si llega cuando ya no se lo espera. pdf.js se carga recién con el primer
-  // PDF, aparte del bundle principal.
+  // Abre el documento, mide sus páginas y lo destruye al desmontar o al
+  // cambiar `data`, también si llega cuando ya no se lo espera. pdf.js se
+  // carga recién con el primer PDF, aparte del bundle principal.
   useEffect(() => {
     let live = true;
     let doc: PdfDoc | null = null;
-    import("@/lib/pdf")
-      .then((m) => m.loadPdf(data))
-      .then(
-        (d) => {
-          if (!live) {
-            d.destroy();
-            return;
-          }
-          doc = d;
-          setState({ doc: d, failed: false });
-        },
-        () => {
-          if (live) setState({ doc: null, failed: true });
-        },
+    const open = async () => {
+      const d = await (await import("@/lib/pdf")).loadPdf(data);
+      if (!live) {
+        d.destroy();
+        return;
+      }
+      doc = d;
+      const measured = await Promise.all(
+        Array.from({ length: d.numPages }, (_, i) => d.pageSize(i + 1).catch(() => null)),
       );
+      if (!live) return;
+      const known = measured.find((s) => s !== null) ?? FALLBACK_SIZE;
+      setState({ doc: d, sizes: measured.map((s) => s ?? known) });
+    };
+    open().catch(() => {
+      if (live) setState({ failed: true });
+    });
     return () => {
       live = false;
       doc?.destroy();
-      setState({ doc: null, failed: false });
+      setState(null);
     };
   }, [data]);
 
-  // Ancho disponible para "Ajustar".
-  const doc = state.doc;
+  const doc = state && "doc" in state ? state.doc : null;
+
+  // Ancho disponible para "Ajustar": se mide enseguida y, al cambiar el
+  // tamaño, después de RESIZE_DELAY para no redibujar en cada paso.
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
     const measure = () => setWidth(Math.max(0, el.clientWidth - 2 * GUTTER));
     measure();
     if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(measure);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(measure, RESIZE_DELAY);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      clearTimeout(timer);
+      ro.disconnect();
+    };
   }, [doc]);
 
-  // Página visible: la que más se ve dentro del contenedor.
+  // Página visible (la que más se ve) y páginas cercanas a lo visible.
   useEffect(() => {
     if (!doc) return;
     const total = doc.numPages;
@@ -78,10 +102,13 @@ export function PdfView({
     notify.current?.(current, total);
     const root = scroller.current;
     if (!root || typeof IntersectionObserver === "undefined") return;
+    const els = pages.current.slice(0, total).filter((el) => el !== null);
+    const pageOf = (e: IntersectionObserverEntry) => Number((e.target as HTMLElement).dataset.page);
+
     const ratios = new Map<number, number>();
-    const io = new IntersectionObserver(
+    const visible = new IntersectionObserver(
       (entries) => {
-        for (const e of entries) ratios.set(Number((e.target as HTMLElement).dataset.page), e.intersectionRatio);
+        for (const e of entries) ratios.set(pageOf(e), e.intersectionRatio);
         let best = current;
         let bestRatio = -1;
         for (const [n, r] of ratios) {
@@ -97,11 +124,30 @@ export function PdfView({
       },
       { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
     );
-    for (const el of pages.current.slice(0, total)) if (el) io.observe(el);
-    return () => io.disconnect();
+
+    const close = new Set<number>();
+    const nearby = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) close.add(pageOf(e));
+          else close.delete(pageOf(e));
+        }
+        setNear(new Set(close));
+      },
+      { root, rootMargin: NEAR_MARGIN },
+    );
+
+    for (const el of els) {
+      visible.observe(el);
+      nearby.observe(el);
+    }
+    return () => {
+      visible.disconnect();
+      nearby.disconnect();
+    };
   }, [doc]);
 
-  if (state.failed) {
+  if (state && "failed" in state) {
     return (
       <div className="flex size-full items-center justify-center">
         <p className="max-w-md px-6 text-center text-sm text-zinc-300">{ERROR_MESSAGE}</p>
@@ -109,72 +155,103 @@ export function PdfView({
     );
   }
 
+  const everyPage = typeof IntersectionObserver === "undefined";
+
   return (
     <div ref={scroller} className="size-full overflow-auto">
-      {!doc ? (
+      {!state ? (
         <div className="flex size-full items-center justify-center">
           <p className="text-sm text-zinc-400">Cargando…</p>
         </div>
       ) : (
         <div className="flex w-max min-w-full flex-col items-center gap-4 p-4">
-          {Array.from({ length: doc.numPages }, (_, i) => (
-            <div
-              key={i}
-              data-page={i + 1}
-              ref={(el) => {
-                pages.current[i] = el;
-              }}
-            >
-              <PdfPage doc={doc} n={i + 1} zoom={zoom} width={width} />
-            </div>
-          ))}
+          {state.sizes.map((size, i) => {
+            // Sin zoom ni ancho medido todavía no hay escala.
+            const scale = zoom ?? (width === null ? null : width > 0 ? width / size.width : 1);
+            return (
+              <div
+                key={i}
+                data-page={i + 1}
+                ref={(el) => {
+                  pages.current[i] = el;
+                }}
+              >
+                <PdfPage
+                  doc={state.doc}
+                  n={i + 1}
+                  size={size}
+                  scale={scale}
+                  near={everyPage || near.has(i + 1)}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-// PdfPage dibuja una página al montarse y otra vez cuando cambia el zoom o,
-// con "Ajustar", el ancho disponible (null mientras no se midió).
-function PdfPage({ doc, n, zoom, width }: { doc: PdfDoc; n: number; zoom: number | null; width: number | null }) {
+// PdfPage es un recuadro del tamaño de la página. Cerca de lo visible dibuja
+// la página, y la vuelve a dibujar si cambia la escala; lejos, libera la
+// canvas.
+function PdfPage({
+  doc,
+  n,
+  size,
+  scale,
+  near,
+}: {
+  doc: PdfDoc;
+  n: number;
+  size: Size;
+  scale: number | null;
+  near: boolean;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  // Ancho de la página a escala 1, que se conoce después del primer dibujo.
-  const natural = useRef<number | null>(null);
-  // Escala de lo que hay dibujado; null si no se sabe.
+  // Escala de lo que hay dibujado; null si no hay nada o no se sabe.
   const drawn = useRef<number | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const c = canvas.current;
-    if (!c || (zoom === null && width === null)) return;
+    if (!c) return;
+    if (!near) {
+      doc.releaseCanvas(c);
+      drawn.current = null;
+      return;
+    }
+    if (scale === null || scale === drawn.current) return;
     let live = true;
-    let busy = false;
-    const render = async (scale: number) => {
-      busy = true;
-      const size = await doc.renderPage(n, c, scale);
-      busy = false;
-      natural.current = size.width / scale;
-      drawn.current = scale;
-    };
-    const draw = async () => {
-      let scale = zoom;
-      if (scale === null) {
-        if (natural.current === null) {
-          await render(1);
-          if (!live) return;
-        }
-        const w = natural.current ?? 0;
-        scale = width && w > 0 ? width / w : 1;
-      }
-      if (scale !== drawn.current) await render(scale);
-    };
-    // Una página cancelada (otro zoom, desmontaje) o rota queda en blanco.
-    draw().catch(() => {});
+    drawn.current = null;
+    doc.renderPage(n, c, scale).then(
+      () => {
+        if (!live) return;
+        drawn.current = scale;
+        setFailed(false);
+      },
+      (e: unknown) => {
+        // Cancelada por otro dibujo o al desmontar: no es un error.
+        if (live && !(e instanceof Error && e.name === RENDER_CANCELLED)) setFailed(true);
+      },
+    );
     return () => {
       live = false;
-      // Lo que estaba dibujando puede terminar con otra escala.
-      if (busy) drawn.current = null;
     };
-  }, [doc, n, zoom, width]);
+  }, [doc, n, scale, near]);
 
-  return <canvas ref={canvas} className="block bg-white shadow-md" />;
+  const s = scale ?? 1;
+  return (
+    <div
+      className="relative bg-white shadow-md"
+      style={{ width: Math.floor(size.width * s), height: Math.floor(size.height * s) }}
+    >
+      <canvas ref={canvas} className="block" />
+      {failed && (
+        <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-zinc-500">
+          {PAGE_ERROR_MESSAGE}
+        </p>
+      )}
+    </div>
+  );
 }

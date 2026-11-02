@@ -7,14 +7,21 @@ import { getDocument, GlobalWorkerOptions, type RenderTask } from "pdfjs-dist";
 import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 import jbig2Wasm from "pdfjs-dist/wasm/jbig2.wasm?url";
 import openjpegWasm from "pdfjs-dist/wasm/openjpeg.wasm?url";
-import qcmsWasm from "pdfjs-dist/wasm/qcms_bg.wasm?url";
 
 export type PdfDoc = {
   numPages: number;
-  // Dibuja la página n (desde 1) en la canvas y devuelve su tamaño en px CSS.
+  // Tamaño de la página n (desde 1) a escala 1, en px CSS, sin dibujarla.
+  pageSize(n: number): Promise<{ width: number; height: number }>;
+  // Dibuja la página n en la canvas y devuelve su tamaño en px CSS. Si otro
+  // pedido o releaseCanvas la interrumpe, rechaza con un error de nombre
+  // RENDER_CANCELLED.
   renderPage(n: number, canvas: HTMLCanvasElement, scale: number): Promise<{ width: number; height: number }>;
+  // Corta lo que se esté dibujando en la canvas y libera su memoria (0×0).
+  releaseCanvas(canvas: HTMLCanvasElement): void;
   destroy(): void;
 };
+
+export const RENDER_CANCELLED = "RenderCancelled";
 
 let workerStarted = false;
 
@@ -29,11 +36,10 @@ function startWorker() {
 const WASM: Record<string, string> = {
   "jbig2.wasm": jbig2Wasm,
   "openjpeg.wasm": openjpegWasm,
-  "qcms_bg.wasm": qcmsWasm,
 };
 
-// LocalData le da a pdf.js los wasm del bundle (imágenes JBIG2 y JPEG 2000,
-// perfiles de color). Para lo demás falla y pdf.js usa su alternativa.
+// LocalData le da a pdf.js los wasm del bundle (imágenes JBIG2 y JPEG 2000).
+// Para lo demás falla y pdf.js usa su alternativa.
 class LocalData {
   async fetch({ kind, filename }: { kind: string; filename: string }): Promise<Uint8Array> {
     const url = kind === "wasmUrl" ? WASM[filename] : undefined;
@@ -44,7 +50,9 @@ class LocalData {
   }
 }
 
-class Cancelled extends Error {}
+class Cancelled extends Error {
+  name = RENDER_CANCELLED;
+}
 
 // loadPdf abre el PDF. pdf.js transfiere el buffer al worker, así que le
 // pasamos una copia y `data` sigue sirviendo.
@@ -72,6 +80,10 @@ export async function loadPdf(data: Uint8Array): Promise<PdfDoc> {
 
   return {
     numPages: doc.numPages,
+    async pageSize(n) {
+      const { width, height } = (await doc.getPage(n)).getViewport({ scale: 1 });
+      return { width, height };
+    },
     async renderPage(n, canvas, scale) {
       const mine = (gen.get(canvas) ?? 0) + 1;
       gen.set(canvas, mine);
@@ -94,10 +106,19 @@ export async function loadPdf(data: Uint8Array): Promise<PdfDoc> {
       running.set(canvas, render);
       try {
         await render.promise;
+      } catch (e) {
+        if (e instanceof Error && e.name === "RenderingCancelledException") throw new Cancelled();
+        throw e;
       } finally {
         if (running.get(canvas) === render) running.delete(canvas);
       }
       return { width: viewport.width, height: viewport.height };
+    },
+    releaseCanvas(canvas) {
+      gen.set(canvas, (gen.get(canvas) ?? 0) + 1);
+      running.get(canvas)?.cancel();
+      canvas.width = 0;
+      canvas.height = 0;
     },
     destroy() {
       void task.destroy();
