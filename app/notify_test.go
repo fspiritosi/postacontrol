@@ -125,3 +125,43 @@ func TestOpenMessagePayload(t *testing.T) {
 		t.Fatalf("got %+v", p)
 	}
 }
+
+// Un envío que falla con la ventana principal escondida (en la bandeja del
+// sistema) avisa con una notificación: el aviso de la app no se vería.
+func TestSendFailedNotification(t *testing.T) {
+	failed := map[string]any{"draftId": int64(30), "ok": false, "message": "El servidor rechazó <a@b>.", "warning": ""}
+	n, ok := SendFailedNotification(failed, false)
+	if !ok {
+		t.Fatal("con la ventana escondida tiene que avisar")
+	}
+	if n.ID != "send-failed-30" || n.Title != "No se pudo enviar el correo" {
+		t.Fatalf("got %+v", n)
+	}
+	if n.Body != "El servidor rechazó &lt;a@b&gt;. Quedó en la Bandeja de salida." {
+		t.Fatalf("body %q", n.Body)
+	}
+	if n.Data["kind"] != "send-failed" || n.Data["draftId"] != int64(30) {
+		t.Fatalf("data %+v", n.Data)
+	}
+	if notificationOpensMessage(n.Data) {
+		t.Fatal("tocarla solo muestra la ventana: no abre un mensaje")
+	}
+
+	if _, ok := SendFailedNotification(failed, true); ok {
+		t.Fatal("con la ventana a la vista el aviso se ve en la app")
+	}
+	sent := map[string]any{"draftId": int64(30), "ok": true, "message": "", "warning": ""}
+	if _, ok := SendFailedNotification(sent, false); ok {
+		t.Fatal("un envío que salió no avisa")
+	}
+	if _, ok := SendFailedNotification(nil, false); ok {
+		t.Fatal("un payload que no es el de mail:send-finished no avisa")
+	}
+}
+
+func TestNotificationOpensMessage_NewMail(t *testing.T) {
+	n := NewMailNotification(model.NewMail{FolderID: 9, Count: 1, Items: []model.NewMailItem{{MessageID: 7}}}, "")
+	if !notificationOpensMessage(n.Data) {
+		t.Fatal("la de correo nuevo abre el mensaje")
+	}
+}

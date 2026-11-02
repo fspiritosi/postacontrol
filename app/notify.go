@@ -48,6 +48,41 @@ func NewMailNotification(ev model.NewMail, accountEmail string) notifications.No
 	return n
 }
 
+// notifKindSendFailed marca en Data la notificación de un envío que falló.
+const notifKindSendFailed = "send-failed"
+
+// SendFailedNotification arma la notificación de un envío que falló cuando la
+// ventana principal no está a la vista (escondida en la bandeja del sistema o
+// minimizada): el aviso de la app sale ahí y no se vería. data es el payload
+// de mail:send-finished; false si no corresponde avisar.
+func SendFailedNotification(data any, mainVisible bool) (notifications.NotificationOptions, bool) {
+	m, ok := data.(map[string]any)
+	if !ok || mainVisible {
+		return notifications.NotificationOptions{}, false
+	}
+	if sent, _ := m["ok"].(bool); sent {
+		return notifications.NotificationOptions{}, false
+	}
+	id := toInt64(m["draftId"])
+	msg, _ := m["message"].(string)
+	body := "Quedó en la Bandeja de salida."
+	if msg != "" {
+		body = msg + " " + body
+	}
+	return notifications.NotificationOptions{
+		ID:    fmt.Sprintf("send-failed-%d", id),
+		Title: "No se pudo enviar el correo",
+		Body:  escapeBody(body),
+		Data:  map[string]interface{}{"kind": notifKindSendFailed, "draftId": id},
+	}, true
+}
+
+// notificationOpensMessage dice si tocar la notificación abre un mensaje (la
+// de correo nuevo) o solo muestra la ventana (la de un envío que falló).
+func notificationOpensMessage(data map[string]interface{}) bool {
+	return data["kind"] != notifKindSendFailed
+}
+
 // bodyEscaper escapa lo que el cuerpo de una notificación de freedesktop
 // interpreta como markup (incluido el subtítulo, que en Linux va dentro del
 // cuerpo). El título se muestra tal cual y no se escapa.
@@ -118,8 +153,18 @@ func (h *notifyHub) newMail(ev model.NewMail) {
 	}
 }
 
+func (h *notifyHub) sendFinished(data any) {
+	if h == nil {
+		return
+	}
+	if d := h.p.Load(); d != nil {
+		go d.handleSendFinished(data)
+	}
+}
+
 // SetupNotifications conecta las notificaciones de escritorio: correo nuevo
-// con la ventana escondida o sin foco, y clic que abre el mensaje.
+// con la ventana escondida o sin foco, y clic que abre el mensaje; un envío
+// que falló con la ventana escondida, y clic que la muestra.
 func SetupNotifications(app *application.App, svc *MailService, d *Desktop, notif *notifications.NotificationService) {
 	n := &desktopNotifier{app: app, svc: svc, desktop: d, notif: notif}
 	notif.OnNotificationResponse(func(r notifications.NotificationResult) {
@@ -127,7 +172,9 @@ func SetupNotifications(app *application.App, svc *MailService, d *Desktop, noti
 			return
 		}
 		n.desktop.ShowWindow()
-		n.app.Event.Emit(EventOpenMessage, OpenMessagePayload(r.Response.UserInfo))
+		if notificationOpensMessage(r.Response.UserInfo) {
+			n.app.Event.Emit(EventOpenMessage, OpenMessagePayload(r.Response.UserInfo))
+		}
 	})
 	svc.hub.p.Store(n)
 }
@@ -154,6 +201,19 @@ func (n *desktopNotifier) handle(ev model.NewMail) {
 		}
 	}
 	if err := n.notif.SendNotification(NewMailNotification(ev, email)); err != nil {
+		slog.Warn("no se pudo mostrar la notificación", "err", err)
+	}
+}
+
+// handleSendFinished avisa de un envío que falló si la ventana principal no
+// está a la vista. No mira DisableNotifications: ese ajuste es del correo
+// nuevo, y un correo que no salió no puede pasar inadvertido.
+func (n *desktopNotifier) handleSendFinished(data any) {
+	opts, ok := SendFailedNotification(data, n.desktop.windowVisible())
+	if !ok {
+		return
+	}
+	if err := n.notif.SendNotification(opts); err != nil {
 		slog.Warn("no se pudo mostrar la notificación", "err", err)
 	}
 }

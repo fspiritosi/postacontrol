@@ -194,6 +194,15 @@ func (s *MailService) AttachmentData(ctx context.Context, messageID int64, index
 	return s.core.AttachmentData(ctx, messageID, index)
 }
 
+// dialogParent es la ventana sobre la que se abre un diálogo: la que hizo la
+// llamada (Wails la pone en el contexto) o, si no viene, la activa.
+func dialogParent(ctx context.Context, current func() application.Window) application.Window {
+	if w, ok := ctx.Value(application.WindowKey).(application.Window); ok && w != nil {
+		return w
+	}
+	return current()
+}
+
 // SaveAttachment abre el diálogo nativo "Guardar como" con el nombre del
 // adjunto sugerido. Devuelve saved=false (sin error) si se cancela.
 func (s *MailService) SaveAttachment(ctx context.Context, messageID int64, index int) (saved bool, err error) {
@@ -207,7 +216,7 @@ func (s *MailService) SaveAttachment(ctx context.Context, messageID int64, index
 		return false, s.core.SaveAttachment(ctx, messageID, index, "")
 	}
 	dlg := s.app.Dialog.SaveFile().SetFilename(suggestedFilename(d.Attachments[index].Filename))
-	if w := s.app.Window.Current(); w != nil {
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
 		dlg.AttachToWindow(w) // modal respecto de la ventana
 	}
 	dest, err := dlg.PromptForSingleSelection()
@@ -227,7 +236,7 @@ func (s *MailService) SaveAttachment(ctx context.Context, messageID int64, index
 // deja preparados. Devuelve una lista vacía (sin error) si se cancela.
 func (s *MailService) PickAttachments(ctx context.Context) ([]model.StagedAttachment, error) {
 	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Adjuntar archivos")
-	if w := s.app.Window.Current(); w != nil {
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
 		dlg.AttachToWindow(w)
 	}
 	paths, err := dlg.PromptForMultipleSelection()
@@ -250,7 +259,7 @@ const imagePatterns = "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.PNG;*.JPG;*.JPEG;*.GIF;
 func (s *MailService) PickImage(ctx context.Context) (model.PickedImage, error) {
 	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Insertar imagen").
 		AddFilter("Imágenes", imagePatterns)
-	if w := s.app.Window.Current(); w != nil {
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
 		dlg.AttachToWindow(w)
 	}
 	path, err := dlg.PromptForSingleSelection()
@@ -268,7 +277,7 @@ func (s *MailService) PickImage(ctx context.Context) (model.PickedImage, error) 
 func (s *MailService) PickBackground(ctx context.Context) (bool, error) {
 	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Elegir fondo").
 		AddFilter("Imágenes", imagePatterns)
-	if w := s.app.Window.Current(); w != nil {
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
 		dlg.AttachToWindow(w)
 	}
 	path, err := dlg.PromptForSingleSelection()

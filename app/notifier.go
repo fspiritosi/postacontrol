@@ -18,6 +18,9 @@ func (n wailsNotifier) Emit(event string, data any) {
 	if ev, ok := data.(model.NewMail); ok && event == mail.EventNewMail {
 		n.hub.newMail(ev)
 	}
+	if event == mail.EventSendFinished {
+		n.hub.sendFinished(data)
+	}
 	if data == nil {
 		n.app.Event.Emit(event)
 		return
