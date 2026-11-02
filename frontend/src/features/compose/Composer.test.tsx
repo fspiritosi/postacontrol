@@ -1,10 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Composer } from "./Composer";
 import { ComposerProvider, useComposer } from "./ComposerContext";
+import { parseInit } from "@/lib/composeWindow";
+import type { ComposerInit } from "./ComposerContext";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
+  OpenComposeWindow: vi.fn(),
   ListAccounts: vi.fn(),
   PrepareCompose: vi.fn(),
   QueueSend: vi.fn(),
@@ -138,6 +143,17 @@ const staged = (id: number, filename: string, size = 1000) => ({ id, filename, m
 
 let qc: QueryClient;
 
+// El redactor vive en su propia ventana: el test hace de ventana y monta el
+// Composer con lo que el contexto pidió abrir.
+let showInit: (init: ComposerInit | null) => void = () => {};
+function WindowHost() {
+  const [state, setState] = useState<{ key: number; init: ComposerInit } | null>(null);
+  useEffect(() => {
+    showInit = (init) => setState((s) => (init ? { key: (s?.key ?? 0) + 1, init } : null));
+  }, []);
+  return state && <Composer key={state.key} init={state.init} onClose={() => setState(null)} />;
+}
+
 function setup() {
   const user = userEvent.setup();
   qc = new QueryClient();
@@ -146,6 +162,7 @@ function setup() {
       <ComposerProvider>
         <Harness />
         <DraftHarness />
+        <WindowHost />
       </ComposerProvider>
     </QueryClientProvider>,
   );
@@ -176,6 +193,10 @@ beforeAll(() => {
 describe("Composer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(svc.OpenComposeWindow).mockImplementation((json: string) => {
+      showInit(parseInit(json));
+      return Promise.resolve() as never;
+    });
     vi.mocked(svc.ListAccounts).mockResolvedValue([account] as never);
     vi.mocked(svc.ListLocalDrafts).mockResolvedValue([]);
     vi.mocked(svc.ListSignatures).mockResolvedValue([]);

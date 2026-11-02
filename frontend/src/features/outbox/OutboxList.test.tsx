@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
+  OpenComposeWindow: vi.fn(() => Promise.resolve()),
   ListAccounts: vi.fn(() => Promise.resolve([])),
   ListLocalDrafts: vi.fn(),
   DeleteLocalDraft: vi.fn(() => Promise.resolve()),
@@ -79,7 +80,10 @@ describe("OutboxList", () => {
     const user = setup();
     await screen.findByText("Presupuesto");
     await user.click(screen.getAllByRole("button", { name: "Abrir" })[0]);
-    expect(await screen.findByLabelText("Asunto")).toHaveValue("Presupuesto");
+    await waitFor(() => expect(svc.OpenComposeWindow).toHaveBeenCalled());
+    const [json, key] = vi.mocked(svc.OpenComposeWindow).mock.calls[0];
+    expect(JSON.parse(json).subject).toBe("Presupuesto");
+    expect(key).toBe("outbox:3");
   });
 
   it("Eliminar pide confirmación", async () => {

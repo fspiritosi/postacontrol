@@ -2,9 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { composeWindowId } from "./lib/composeWindow";
+import { ComposeWindowApp } from "./features/compose/ComposeWindowApp";
 import { Toaster } from "./components/ui/sonner";
 import { ThemeProvider } from "./features/theme/ThemeProvider";
 import "./index.css";
+
+const composeId = composeWindowId();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: false } },
@@ -14,7 +18,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <App />
+        {composeId !== null ? <ComposeWindowApp id={composeId} /> : <App />}
         <Toaster position="bottom-right" />
       </QueryClientProvider>
     </ThemeProvider>

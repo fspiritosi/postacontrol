@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -13,8 +13,9 @@ import type {
   StagedAttachment,
 } from "../../../bindings/postacontrol/core/model/models";
 import { errorMessage } from "@/lib/errors";
-import { Composer } from "./Composer";
-import { useSendNotices } from "./sendNotices";
+import { Events } from "@wailsio/runtime";
+import { serializeInit } from "@/lib/composeWindow";
+import { sendStarted, useSendNotices } from "./sendNotices";
 
 export type ComposerInit = {
   accountId: number;
@@ -54,9 +55,16 @@ export function useComposer(): ComposerApi {
 }
 
 export function ComposerProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<{ key: number; init: ComposerInit } | null>(null);
   const qc = useQueryClient();
-  const open = useCallback((init: ComposerInit) => setState((s) => ({ key: (s?.key ?? 0) + 1, init })), []);
+  // Abre el redactor en su propia ventana. Con key, si ya hay una ventana con
+  // esa clave se trae adelante en vez de abrir otra.
+  const open = useCallback(async (init: ComposerInit, key: string) => {
+    try {
+      await svc.OpenComposeWindow(serializeInit(init), key);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }, []);
 
   const api = useMemo<ComposerApi>(() => {
     // Arma el redactor a partir de un pedido guardado (de la bandeja de salida
@@ -96,18 +104,18 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         signatureId: req.signatureId,
       } satisfies ComposerInit;
     };
-    const openDraft = async (d: LocalDraft) => open({ ...(await fromRequest(d.request)), draftId: d.id });
+    const openDraft = async (d: LocalDraft) => open({ ...(await fromRequest(d.request)), draftId: d.id }, `outbox:${d.id}`);
     const openComposeDraft = async (d: Draft) =>
-      open({ ...(await fromRequest(d.request)), composeDraftId: d.id, draftMessageId: d.messageId });
+      open({ ...(await fromRequest(d.request)), composeDraftId: d.id, draftMessageId: d.messageId }, `draft:${d.id}`);
     return {
       openNew: (accountId, to = []) =>
-        open({ accountId, to, cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
+        void open({ accountId, to, cc: [], bcc: [], subject: "", bodyHtml: "", quotedHtml: "", reply: null,
           attachments: [], originalAttachments: [], skipOriginalAttachments: [],
-          signatureId: qc.getQueryData<Account[]>(["accounts"])?.find((a) => a.id === accountId)?.defaultSignatureId ?? 0 }),
+          signatureId: qc.getQueryData<Account[]>(["accounts"])?.find((a) => a.id === accountId)?.defaultSignatureId ?? 0 }, ""),
       openFrom: async (messageId, mode) => {
         try {
           const d = await svc.PrepareCompose(messageId, mode);
-          open({
+          await open({
             accountId: d.accountId,
             to: d.to ?? [],
             cc: d.cc ?? [],
@@ -120,7 +128,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             originalAttachments: d.originalAttachments ?? [],
             skipOriginalAttachments: [],
             signatureId: d.signatureId,
-          });
+          }, "");
         } catch (e) {
           toast.error(errorMessage(e));
         }
@@ -139,11 +147,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
     };
   }, [open, qc]);
   useSendNotices(api.openDraftById);
+  // El envío arranca en la ventana del redactor; el aviso se muestra en todas.
+  useEffect(() => Events.On("compose:send-started", (ev) => sendStarted(ev.data as number)), []);
 
-  return (
-    <Ctx.Provider value={api}>
-      {children}
-      {state && <Composer key={state.key} init={state.init} onClose={() => setState(null)} />}
-    </Ctx.Provider>
-  );
+  return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }
