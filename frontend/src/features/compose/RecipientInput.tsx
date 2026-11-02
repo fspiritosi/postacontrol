@@ -45,7 +45,12 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
   const [dismissed, setDismissed] = useState<string | null>(null);
   // La opción elegida con las flechas (o el mouse) va con la lista y el texto a
   // los que corresponde: si cambia cualquiera de los dos, deja de valer.
-  const [active, setActive] = useState<{ list: Suggestion[]; text: string; index: number } | null>(null);
+  const [active, setActive] = useState<{
+    list: Suggestion[];
+    text: string;
+    index: number;
+    via: "keys" | "mouse";
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const tokens = splitRecipientTokens(value);
@@ -61,13 +66,16 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
   // Sin texto no hay lista, aunque keepPreviousData conserve la última.
   const items = (typed !== "" && suggestions.data) || NO_SUGGESTIONS;
   const open = items.length > 0 && dismissed !== pending;
-  const chosen = active?.list === items && active.text === typed ? active.index : null;
   // Sin elegir nada, Enter toma lo escrito (y no se marca ninguna) si la lista
   // es de una búsqueda anterior o si ya es una dirección entera y la primera es
   // otra: no cambia "ana@x.com" por "mariana@x.com".
   const typedEmail = singleEmail(typed);
   const keepTyped =
     suggestions.isPlaceholderData || (typedEmail !== null && items[0]?.email.toLowerCase() !== typedEmail);
+  // Pasar el mouse no alcanza para cambiar lo escrito por otra persona: en ese
+  // caso solo vale lo elegido con las flechas (o un clic, que elige directo).
+  const current = active?.list === items && active.text === typed ? active : null;
+  const chosen = current && !(keepTyped && current.via === "mouse") ? current.index : null;
   const index = chosen ?? (keepTyped ? -1 : 0);
 
   const notifySuggestions = useEffectEvent((close: (() => void) | null) => onSuggestionsChange?.(close));
@@ -101,7 +109,7 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
       e.preventDefault();
       const step = e.key === "ArrowDown" ? 1 : -1;
       const next = index < 0 ? (step > 0 ? 0 : items.length - 1) : (index + step + items.length) % items.length;
-      setActive({ list: items, text: typed, index: next });
+      setActive({ list: items, text: typed, index: next, via: "keys" });
     } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
       // Sin nada escrito, Tab deja pasar el foco.
       if (open && index >= 0) {
@@ -210,9 +218,9 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
                   e.preventDefault();
                   pick(s);
                 }}
-                onMouseEnter={() => setActive({ list: items, text: typed, index: i })}
+                onMouseEnter={() => setActive({ list: items, text: typed, index: i, via: "mouse" })}
                 className={cn(
-                  "flex cursor-pointer gap-2 rounded-sm px-2 py-1.5",
+                  "flex cursor-pointer gap-2 rounded-sm px-2 py-1.5 hover:bg-accent/60",
                   i === index && "bg-accent text-accent-foreground",
                 )}
               >

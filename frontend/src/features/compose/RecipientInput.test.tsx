@@ -205,6 +205,17 @@ describe("RecipientInput", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
+  it("con texto a medio escribir, pasar el mouse marca esa y Enter la elige", async () => {
+    suggestFor("jua", suggestions);
+    const { user, onChange, input } = setup();
+    await user.type(input, "jua");
+    await screen.findByRole("listbox");
+    await user.hover(screen.getAllByRole("option")[1]);
+    expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Enter}");
+    expect(lastValue(onChange)).toBe("juana@y.com");
+  });
+
   it("las flechas recorren la lista en círculo", async () => {
     vi.mocked(svc.SuggestRecipients).mockResolvedValue(suggestions as never);
     const { user, input } = setup();
@@ -262,6 +273,26 @@ describe("RecipientInput", () => {
       await user.keyboard("{ArrowDown}");
       expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
       await user.keyboard("{ArrowDown}{ArrowUp}{Enter}");
+      expect(lastValue(onChange)).toBe("Mariana <mariana@x.com>");
+    });
+
+    it("pasar el mouse por otra sugerencia no la elige: Enter deja lo escrito", async () => {
+      answer([mariana, otra]);
+      const { user, onChange, input } = setup();
+      await user.type(input, "ana@x.com");
+      await screen.findByRole("listbox");
+      await user.hover(screen.getAllByRole("option")[0]);
+      expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "false");
+      await user.keyboard("{Enter}");
+      expect(lastValue(onChange)).toBe("ana@x.com");
+    });
+
+    it("un clic en otra sugerencia sí la elige", async () => {
+      answer([mariana, otra]);
+      const { user, onChange, input } = setup();
+      await user.type(input, "ana@x.com");
+      await screen.findByRole("listbox");
+      await user.click(screen.getAllByRole("option")[0]);
       expect(lastValue(onChange)).toBe("Mariana <mariana@x.com>");
     });
 

@@ -23,6 +23,7 @@
 | 563c219 | Enter/Tab no cambian una dirección completa por otra sugerencia |
 | fe51f18 | sin botón de contactos en Enviados |
 | 5c84ef1 | la lista de contactos no se vacía con cada tecla |
+| (este) | pasar el mouse no cambia una dirección completa por otra sugerencia |
 
 ## Pre-flight
 
@@ -47,10 +48,12 @@ La revisión de los pares de tareas (lo que una produce y la otra consume) y de 
      - sin botón en Enviados;
      - la lista de contactos conserva los resultados mientras busca.
    - Si me equivoqué: la ola quedó apenas más grande.
-5. **Pendiente para decidir: pasar el mouse por la lista.** Si se pasa el mouse sobre una sugerencia, esa cuenta como elegida, y Enter la toma aunque lo escrito sea una dirección completa (`RecipientInput.tsx`, `onMouseEnter`).
-   - Es acotado: hay que mover el mouse sobre la lista, y la fila se resalta.
-   - No hubo segunda ola de arreglos.
-   - Si se deja así: un Enter justo después de rozar la lista con el mouse puede poner a otra persona.
+5. **Pasar el mouse por la lista (resuelto después de la revisión, a pedido de Fabricio).**
+   - Antes: pasar el mouse sobre una sugerencia contaba como elegirla, y Enter la tomaba aunque lo escrito fuera una dirección completa.
+   - Ahora:
+     - con una dirección completa escrita, el mouse solo resalta la fila y Enter deja lo escrito;
+     - con texto a medio escribir, el mouse sigue eligiendo;
+     - un clic o las flechas eligen siempre.
 
 ## Desvíos aceptados en la ola final
 
