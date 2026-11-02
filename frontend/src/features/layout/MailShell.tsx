@@ -215,6 +215,24 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     openContact,
   };
 
+  // Los dos paneles del grupo interior se arman una vez; solo cambia el orden.
+  const listPanel = (
+    <ResizablePanel id="list" defaultSize={`${layout.inner.list}%`} minSize={vertical ? "20%" : "22%"}>
+      {list ? list(state) : <Placeholder>Elegí una carpeta</Placeholder>}
+    </ResizablePanel>
+  );
+  const readerPanel = (
+    <ResizablePanel id="reader" defaultSize={`${layout.inner.reader}%`} minSize={vertical ? "20%" : "30%"}>
+      {reader ? (
+        reader(state)
+      ) : (
+        <Placeholder>
+          <MailIcon className="mr-2 size-4" /> Elegí un correo para leerlo
+        </Placeholder>
+      )}
+    </ResizablePanel>
+  );
+
   return (
     <div className="h-screen bg-background text-foreground">
       {extras?.(state)}
@@ -259,35 +277,15 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
           >
             {pane === "top" ? (
               <>
-                <ResizablePanel id="reader" defaultSize={`${layout.inner.reader}%`} minSize={vertical ? "20%" : "30%"}>
-              {reader ? (
-                reader(state)
-              ) : (
-                <Placeholder>
-                  <MailIcon className="mr-2 size-4" /> Elegí un correo para leerlo
-                </Placeholder>
-              )}
-            </ResizablePanel>
+                {readerPanel}
                 <ResizableHandle />
-                <ResizablePanel id="list" defaultSize={`${layout.inner.list}%`} minSize={vertical ? "20%" : "22%"}>
-              {list ? list(state) : <Placeholder>Elegí una carpeta</Placeholder>}
-            </ResizablePanel>
+                {listPanel}
               </>
             ) : (
               <>
-                <ResizablePanel id="list" defaultSize={`${layout.inner.list}%`} minSize={vertical ? "20%" : "22%"}>
-              {list ? list(state) : <Placeholder>Elegí una carpeta</Placeholder>}
-            </ResizablePanel>
+                {listPanel}
                 <ResizableHandle />
-                <ResizablePanel id="reader" defaultSize={`${layout.inner.reader}%`} minSize={vertical ? "20%" : "30%"}>
-              {reader ? (
-                reader(state)
-              ) : (
-                <Placeholder>
-                  <MailIcon className="mr-2 size-4" /> Elegí un correo para leerlo
-                </Placeholder>
-              )}
-            </ResizablePanel>
+                {readerPanel}
               </>
             )}
           </ResizablePanelGroup>
