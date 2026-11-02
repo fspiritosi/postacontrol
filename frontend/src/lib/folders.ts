@@ -120,13 +120,28 @@ export function siblingsOf(tree: FolderNode[], node: FolderNode): FolderNode[] {
   return parentList(tree, node) ?? [];
 }
 
-function parentOf(tree: FolderNode[], node: FolderNode): FolderNode | null {
+// El padre del nodo en el árbol, o null si está en el primer nivel.
+export function parentOf(tree: FolderNode[], node: FolderNode): FolderNode | null {
   for (const n of tree) {
     if (has(n.children, node)) return n;
     const r = parentOf(n.children, node);
     if (r) return r;
   }
   return null;
+}
+
+export function findById(list: FolderNode[], id: number): FolderNode | null {
+  for (const n of list) {
+    if (n.id === id) return n;
+    const r = findById(n.children, id);
+    if (r) return r;
+  }
+  return null;
+}
+
+// `name` es el nodo o alguno de sus descendientes.
+export function inSubtree(root: FolderNode, name: string): boolean {
+  return root.name === name || root.children.some((c) => inSubtree(c, name));
 }
 
 // Padres posibles para mover el nodo: de la misma cuenta, seleccionables o no

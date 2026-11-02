@@ -434,6 +434,39 @@ describe("FolderSidebar", () => {
       await waitFor(() => expect(toast.error).toHaveBeenCalled());
     });
 
+    // Como los navegadores: en `dragover` los datos no se leen, solo los tipos.
+    class OpaqueDt extends FakeDataTransfer {
+      reading = false;
+      getData(type: string) {
+        return this.reading ? "" : super.getData(type);
+      }
+    }
+
+    it("el arrastre real: dragstart guarda la carpeta y dragover no lee datos", async () => {
+      renderSidebar([account]);
+      const src = await rowOf("Zeta");
+      const dt = new OpaqueDt();
+      fireEvent.dragStart(src, { dataTransfer: dt });
+      dt.reading = true;
+      const row = await rowOf("Clientes");
+      expect(over(row, dt, MID)).toBe(false);
+      dropOn(row, dt, MID);
+      await waitFor(() => expect(svc.MoveFolder).toHaveBeenCalledWith(12, 10));
+    });
+
+    it("dragend limpia la carpeta guardada", async () => {
+      renderSidebar([account]);
+      const src = await rowOf("Zeta");
+      const dt = new OpaqueDt();
+      fireEvent.dragStart(src, { dataTransfer: dt });
+      fireEvent.dragEnd(src, { dataTransfer: dt });
+      dt.reading = true;
+      const row = await rowOf("Clientes");
+      expect(over(row, dt, MID)).toBe(true);
+      dropOn(row, dt, MID);
+      expect(svc.MoveFolder).not.toHaveBeenCalled();
+    });
+
     it("correos y carpetas no se confunden", async () => {
       renderSidebar([account]);
       const row = await rowOf("Clientes");

@@ -53,7 +53,11 @@ import { toastSyncError } from "@/lib/events";
 import {
   buildFolderTree,
   canModify,
+  findById,
+  inSubtree,
   isSpecialTree,
+  moveTargets,
+  parentOf,
   siblingsOf,
   type FolderNode,
 } from "@/lib/folders";
@@ -89,28 +93,6 @@ type FolderActions = {
 
 type FolderZone = "before" | "into" | "after";
 
-function findById(list: FolderNode[], id: number): FolderNode | null {
-  for (const n of list) {
-    if (n.id === id) return n;
-    const r = findById(n.children, id);
-    if (r) return r;
-  }
-  return null;
-}
-
-function inSubtree(root: FolderNode, name: string): boolean {
-  return root.name === name || root.children.some((c) => inSubtree(c, name));
-}
-
-function parentOf(tree: FolderNode[], node: FolderNode): FolderNode | null {
-  for (const n of tree) {
-    if (n.children.some((c) => c.name === node.name)) return n;
-    const r = parentOf(n.children, node);
-    if (r) return r;
-  }
-  return null;
-}
-
 // Si `dragged` puede soltarse en esa zona de `target`. El núcleo vuelve a
 // validar todo; esto solo evita ofrecer lo que no va.
 function folderZoneAllowed(
@@ -124,7 +106,7 @@ function folderZoneAllowed(
   const sameLevel = siblingsOf(tree, dragged).some((n) => n.name === target.name);
   // Una especial solo se reordena entre sus hermanos.
   if (isSpecialTree(dragged)) return zone !== "into" && sameLevel;
-  if (zone === "into") return parentOf(tree, dragged)?.name !== target.name;
+  if (zone === "into") return moveTargets(tree, dragged).some((n) => n.name === target.name);
   if (sameLevel) return true;
   // Cambiar de nivel pide un padre real (los sintetizados no tienen id).
   const parent = parentOf(tree, target);
