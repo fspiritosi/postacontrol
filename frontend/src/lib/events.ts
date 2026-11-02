@@ -147,6 +147,33 @@ export function resetSyncStateForTests(): void {
   notify();
 }
 
+// Lo que usa el redactor (cuentas, firmas y contactos para las sugerencias).
+// Lo escuchan la ventana principal y cada ventana del redactor.
+function onComposeDataEvents(queryClient: QueryClient): (() => void)[] {
+  return [
+    Events.On("mail:accounts-changed", () => {
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    }),
+    Events.On("mail:signatures-changed", () => {
+      void queryClient.invalidateQueries({ queryKey: ["signatures"] });
+    }),
+    Events.On("mail:contacts-changed", () => {
+      for (const key of ["contacts", "contact", "contact-for", "suggest"]) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    }),
+  ];
+}
+
+// useComposeDataEvents es lo que escucha una ventana del redactor, que no
+// monta useMailEvents.
+export function useComposeDataEvents(queryClient: QueryClient): void {
+  useEffect(() => {
+    const offs = onComposeDataEvents(queryClient);
+    return () => offs.forEach((off) => off());
+  }, [queryClient]);
+}
+
 // El payload emitido por Go llega en `ev.data`.
 export function useMailEvents(queryClient: QueryClient): void {
   useEffect(() => {
@@ -195,17 +222,7 @@ export function useMailEvents(queryClient: QueryClient): void {
     };
 
     const offs = [
-      Events.On("mail:accounts-changed", () => {
-        void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      }),
-      Events.On("mail:signatures-changed", () => {
-        void queryClient.invalidateQueries({ queryKey: ["signatures"] });
-      }),
-      Events.On("mail:contacts-changed", () => {
-        for (const key of ["contacts", "contact", "contact-for", "suggest"]) {
-          void queryClient.invalidateQueries({ queryKey: [key] });
-        }
-      }),
+      ...onComposeDataEvents(queryClient),
       Events.On("mail:folders-updated", (ev) => {
         const { accountId } = ev.data as { accountId: number };
         void queryClient.invalidateQueries({ queryKey: ["folders", accountId] });

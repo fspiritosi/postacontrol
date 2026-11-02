@@ -831,7 +831,13 @@ describe("Composer: en su ventana", () => {
       const { user } = mount(base);
       await user.type(screen.getByLabelText("Asunto"), "algo");
       emit("compose:flush");
-      await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, false, "disco lleno"));
+      await waitFor(() =>
+        expect(svc.ComposeFlushed).toHaveBeenCalledWith(
+          WIN,
+          false,
+          "No pudimos guardar este borrador; la app sigue abierta. disco lleno",
+        ),
+      );
     });
 
     it("un reintento de la Bandeja de salida con cambios bloquea la salida", async () => {
@@ -873,15 +879,25 @@ describe("Composer: en su ventana", () => {
       expect(svc.ComposeFlushed).not.toHaveBeenCalled();
       await act(async () => fail(new Error("Agregá al menos un destinatario.")));
       await waitFor(() =>
-        expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, false, "Agregá al menos un destinatario."),
+        expect(svc.ComposeFlushed).toHaveBeenCalledWith(
+          WIN,
+          false,
+          "No pudimos guardar este borrador; la app sigue abierta. Agregá al menos un destinatario.",
+        ),
       );
     });
   });
 
-  it("compose:quit-blocked muestra el mensaje", async () => {
-    mount(base);
-    await screen.findByLabelText("Asunto");
-    emit("compose:quit-blocked", "No pudimos guardar este borrador; la app sigue abierta. disco lleno");
+  it("compose:quit-blocked muestra el mensaje con que el redactor respondió a compose:flush", async () => {
+    vi.mocked(svc.SaveDraft).mockRejectedValue(new Error("disco lleno"));
+    const { user } = mount(base);
+    await user.type(screen.getByLabelText("Asunto"), "algo");
+    emit("compose:flush");
+    await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledTimes(1));
+    // Go le devuelve a la ventana el mensaje de su propia respuesta.
+    const [, ok, message] = vi.mocked(svc.ComposeFlushed).mock.calls[0];
+    expect(ok).toBe(false);
+    emit("compose:quit-blocked", message);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "No pudimos guardar este borrador; la app sigue abierta. disco lleno",
     );
@@ -901,11 +917,83 @@ describe("Composer: en su ventana", () => {
   });
 
   it("un borrador que ya tenía id no vuelve a registrar la clave", async () => {
+    // Guardar un borrador que existe devuelve el mismo id.
+    vi.mocked(svc.SaveDraft).mockResolvedValue({ ...composeDraft, id: 8 } as never);
     const { user } = mount({ ...base, composeDraftId: 8, draftMessageId: "<b8@ej.com>" });
     await user.type(screen.getByLabelText("Asunto"), "algo");
     emit("compose:flush");
     await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, true, ""));
     expect(svc.SetComposeKey).not.toHaveBeenCalled();
+  });
+
+  // El borrador se borró de Borradores (desde la principal) con el redactor
+  // abierto: lo escrito después no se pierde.
+  describe("un borrador que ya no existe", () => {
+    const reopened: ComposerInit = { ...base, subject: "s", composeDraftId: 8, draftMessageId: "<b8@ej.com>" };
+    const notFound = () => new Error("No encontramos lo que buscabas.");
+
+    it("cerrar lo vuelve a crear, registra la nueva clave y avisa", async () => {
+      vi.mocked(svc.SaveDraft)
+        .mockRejectedValueOnce(notFound())
+        .mockResolvedValue({ ...composeDraft, id: 12, messageId: "<b12@ej.com>" } as never);
+      const { user, onClose } = mount(reopened);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:close-request");
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      const calls = vi.mocked(svc.SaveDraft).mock.calls;
+      expect(calls.map(([id]) => id)).toEqual([8, 0]);
+      expect(calls[1][1].subject).toBe("s más");
+      expect(svc.ComposeNotice).toHaveBeenCalledWith("success", "Guardado en Borradores.");
+      await waitFor(() => expect(svc.SetComposeKey).toHaveBeenCalledWith(WIN, "draft:12"));
+    });
+
+    it("si no se puede volver a crear, cerrar muestra el error y no cierra", async () => {
+      vi.mocked(svc.SaveDraft).mockRejectedValueOnce(notFound()).mockRejectedValueOnce(new Error("disco lleno"));
+      const { user, onClose } = mount(reopened);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:close-request");
+      expect(await screen.findByRole("alert")).toHaveTextContent("disco lleno");
+      expect(onClose).not.toHaveBeenCalled();
+      expect(svc.ComposeNotice).not.toHaveBeenCalled();
+    });
+
+    it("sin cambios después de que desapareció, cerrar no avisa Guardado", async () => {
+      vi.mocked(svc.SaveDraft).mockResolvedValue({ ...composeDraft, id: 8 } as never);
+      vi.mocked(svc.UploadDraft).mockRejectedValue(notFound());
+      const { user, onClose } = mount(reopened);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:flush");
+      await waitFor(() => expect(svc.UploadDraft).toHaveBeenCalledWith(8));
+      emit("compose:close-request");
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(svc.SaveDraft).toHaveBeenCalledTimes(1);
+      expect(svc.ComposeNotice).not.toHaveBeenCalled();
+    });
+
+    it("compose:flush lo vuelve a crear y responde ok", async () => {
+      vi.mocked(svc.SaveDraft)
+        .mockRejectedValueOnce(notFound())
+        .mockResolvedValue({ ...composeDraft, id: 12, messageId: "<b12@ej.com>" } as never);
+      const { user } = mount(reopened);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:flush");
+      await waitFor(() => expect(svc.ComposeFlushed).toHaveBeenCalledWith(WIN, true, ""));
+      expect(vi.mocked(svc.SaveDraft).mock.calls.map(([id]) => id)).toEqual([8, 0]);
+    });
+
+    it("si no se puede volver a crear, compose:flush responde con el error", async () => {
+      vi.mocked(svc.SaveDraft).mockRejectedValueOnce(notFound()).mockRejectedValueOnce(new Error("disco lleno"));
+      const { user } = mount(reopened);
+      await user.type(screen.getByLabelText("Asunto"), " más");
+      emit("compose:flush");
+      await waitFor(() =>
+        expect(svc.ComposeFlushed).toHaveBeenCalledWith(
+          WIN,
+          false,
+          "No pudimos guardar este borrador; la app sigue abierta. disco lleno",
+        ),
+      );
+    });
   });
 
   it("enviar avisa a la principal", async () => {

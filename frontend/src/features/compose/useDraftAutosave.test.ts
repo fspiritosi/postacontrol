@@ -29,6 +29,8 @@ function setup(opts: { empty?: boolean; initialDraftId?: number } = {}) {
   );
 }
 
+const notFound = () => new Error("No encontramos lo que buscabas.");
+
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
 describe("useDraftAutosave", () => {
@@ -139,16 +141,51 @@ describe("useDraftAutosave", () => {
     expect(svc.UploadDraft).toHaveBeenCalledWith(9);
   });
 
-  it("un borrador que ya no existe se ignora y deja de guardarse", async () => {
-    vi.mocked(svc.SaveDraft).mockRejectedValue(new Error("No encontramos lo que buscabas."));
+  // Se borró de Borradores con el redactor abierto: lo escrito no se pierde.
+  it("un borrador que ya no existe se vuelve a crear con lo escrito", async () => {
+    vi.mocked(svc.SaveDraft)
+      .mockRejectedValueOnce(notFound())
+      .mockResolvedValue(draft({ id: 12, messageId: "<n@x>" }));
     const { result } = setup({ initialDraftId: 4 });
     act(() => result.current.notifyChange());
     await act(() => result.current.flush());
-    expect(svc.SaveDraft).toHaveBeenCalledWith(4, req);
+    expect(vi.mocked(svc.SaveDraft).mock.calls).toEqual([[4, req], [0, req]]);
+    expect(result.current.current()).toEqual({ draftId: 12, messageId: "<n@x>" });
+    expect(result.current.draftId).toBe(12);
+    // Sigue autoguardando sobre el nuevo.
     act(() => result.current.notifyChange());
     await advance(DRAFT_UPLOAD_DEBOUNCE_MS);
+    expect(svc.SaveDraft).toHaveBeenLastCalledWith(12, req);
+    expect(svc.UploadDraft).toHaveBeenLastCalledWith(12);
+  });
+
+  it("si no se puede volver a crear, flush rechaza y lo deja pendiente", async () => {
+    vi.mocked(svc.SaveDraft).mockRejectedValueOnce(notFound()).mockRejectedValueOnce(new Error("disco lleno"));
+    const { result } = setup({ initialDraftId: 4 });
+    act(() => result.current.notifyChange());
+    await expect(act(() => result.current.flush())).rejects.toThrow("disco lleno");
+    expect(result.current.current().draftId).toBe(0);
+    await act(() => result.current.flush());
+    expect(svc.SaveDraft).toHaveBeenLastCalledWith(0, req);
+    expect(result.current.current().draftId).toBe(9);
+  });
+
+  it("si desaparece al subirlo, no guarda nada hasta el próximo cambio", async () => {
+    vi.mocked(svc.UploadDraft).mockRejectedValue(notFound());
+    const { result } = setup({ initialDraftId: 4 });
+    act(() => result.current.notifyChange());
+    await act(() => result.current.flush());
+    await advance(0);
+    expect(svc.UploadDraft).toHaveBeenCalledWith(9);
+    expect(result.current.current().draftId).toBe(0);
+    expect(result.current.status).toBe("idle");
+    // Sin cambios nuevos no hay nada que guardar.
+    await act(() => result.current.flush());
     expect(svc.SaveDraft).toHaveBeenCalledTimes(1);
-    expect(svc.UploadDraft).not.toHaveBeenCalled();
+    // Un cambio después lo vuelve a crear.
+    act(() => result.current.notifyChange());
+    await act(() => result.current.flush());
+    expect(svc.SaveDraft).toHaveBeenLastCalledWith(0, req);
   });
 
   it("cancel espera la llamada en vuelo", async () => {

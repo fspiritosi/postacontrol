@@ -59,10 +59,13 @@ const init: ComposerInit = {
   reply: null, attachments: [], originalAttachments: [], skipOriginalAttachments: [], signatureId: 0,
 };
 
+let qc: QueryClient;
+
 function setup() {
   const user = userEvent.setup();
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={qc}>
       <ComposeWindowApp id={3} />
     </QueryClientProvider>,
   );
@@ -116,6 +119,23 @@ describe("ComposeWindowApp", () => {
     expect(svc.CloseComposeWindow).toHaveBeenCalledWith(3);
     emit("compose:flush");
     expect(svc.ComposeFlushed).toHaveBeenCalledWith(3, true, "");
+  });
+
+  // La ventana no monta useMailEvents: escucha lo que usa el redactor.
+  it("recarga cuentas, firmas y sugerencias cuando cambian", async () => {
+    vi.mocked(svc.ComposeInit).mockResolvedValue(serializeInit(init));
+    setup();
+    await screen.findByLabelText("Asunto");
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const keys = () => invalidate.mock.calls.map(([f]) => (f as { queryKey: unknown[] }).queryKey[0]);
+    emit("mail:accounts-changed");
+    expect(keys()).toEqual(["accounts"]);
+    emit("mail:signatures-changed");
+    expect(keys()).toEqual(["accounts", "signatures"]);
+    emit("mail:contacts-changed");
+    expect(keys()).toEqual(["accounts", "signatures", "contacts", "contact", "contact-for", "suggest"]);
+    await waitFor(() => expect(svc.ListAccounts).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(svc.ListSignatures).toHaveBeenCalledTimes(2));
   });
 
   it("cerrar llama a CloseComposeWindow", async () => {

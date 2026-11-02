@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
-import type { SendRequest } from "../../../bindings/postacontrol/core/model/models";
+import type { Draft, SendRequest } from "../../../bindings/postacontrol/core/model/models";
 import { isNotFoundError } from "@/lib/errors";
 
 // Cuánto después del último cambio se guarda en la compu y se sube al servidor.
@@ -35,7 +35,9 @@ export type DraftAutosave = {
   // Cancela y borra el borrador (también del servidor). Puede rechazar con el
   // aviso de que no se pudo borrar del servidor (lo local ya se borró).
   discard(): Promise<void>;
-  // El id y el Message-ID actuales, para leerlos después de un await.
+  // El id y el Message-ID actuales, para leerlos después de un await. El id
+  // es 0 mientras no haya un borrador guardado (todavía, o porque se borró en
+  // otro lado y no hubo cambios después).
   current(): { draftId: number; messageId: string };
 };
 
@@ -48,7 +50,7 @@ type State = {
   unuploaded: boolean; // hay una versión guardada que no se intentó subir
   local: boolean; // la última subida dejó needsUpload en true
   stopped: boolean; // cancelado para enviar: no se guarda nada hasta resume()
-  dead: boolean; // descartado o ya no existe (se envió o descartó en otro lado)
+  dead: boolean; // descartado: no se guarda nada más
   chain: Promise<void>;
   localTimer?: Timer;
   uploadTimer?: Timer;
@@ -92,6 +94,28 @@ export function useDraftAutosave(opts: Options): DraftAutosave {
 
     const settledStatus = (): DraftStatus => (st.id === 0 ? "idle" : st.local ? "local" : "saved");
 
+    // El borrador ya no existe (por ejemplo, se borró de Borradores con el
+    // redactor abierto): el próximo guardado crea uno nuevo, con otro
+    // Message-ID, para no perder lo escrito.
+    const forget = () => {
+      st.id = 0;
+      st.messageId = "";
+      st.unuploaded = false;
+      st.local = false;
+      setDraftId(0);
+    };
+
+    const saveDraft = async (): Promise<Draft | null> => {
+      try {
+        return await svc.SaveDraft(st.id, optsRef.current.buildRequest());
+      } catch (e) {
+        if (st.id === 0 || !isNotFoundError(e)) throw e;
+        forget();
+        if (optsRef.current.isEmpty()) return null;
+        return svc.SaveDraft(0, optsRef.current.buildRequest());
+      }
+    };
+
     const save = async () => {
       if (st.dead || !st.unsaved) return;
       st.unsaved = false;
@@ -99,19 +123,17 @@ export function useDraftAutosave(opts: Options): DraftAutosave {
       if (st.id === 0 && optsRef.current.isEmpty()) return;
       setStatus("saving");
       try {
-        const d = await svc.SaveDraft(st.id, optsRef.current.buildRequest());
+        const d = await saveDraft();
+        if (!d) {
+          setStatus(settledStatus());
+          return;
+        }
         st.id = d.id;
         st.messageId = d.messageId;
         st.unuploaded = true;
         setDraftId(d.id);
         setStatus(settledStatus());
       } catch (e) {
-        if (isNotFoundError(e)) {
-          st.dead = true;
-          clearTimers();
-          setStatus("idle");
-          return;
-        }
         st.unsaved = true;
         setStatus(settledStatus());
         throw e;
@@ -129,9 +151,9 @@ export function useDraftAutosave(opts: Options): DraftAutosave {
         setStatus(settledStatus());
       } catch (e) {
         if (isNotFoundError(e)) {
-          st.dead = true;
-          clearTimers();
-          setStatus("idle");
+          // Lo guardado ya no está; lo que se cambie después lo vuelve a crear.
+          forget();
+          setStatus(settledStatus());
           return;
         }
         st.unuploaded = true;

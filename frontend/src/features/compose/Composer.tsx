@@ -53,6 +53,10 @@ const TITLES: Record<string, string> = {
 const OUTBOX_UNSENT_MESSAGE =
   "Tenés cambios sin enviar en este correo de la Bandeja de salida. Envialo o descartá los cambios antes de salir.";
 
+// Lo que ve una ventana que no pudo guardar al salir de la app; sigue el error.
+const QUIT_SAVE_FAILED = "No pudimos guardar este borrador; la app sigue abierta.";
+const quitSaveFailed = (e: unknown) => `${QUIT_SAVE_FAILED} ${errorMessage(e)}`;
+
 const DRAFT_STATUS_TEXT: Record<DraftStatus, string> = {
   idle: "",
   saving: "Guardando…",
@@ -252,7 +256,9 @@ export function Composer({ init, onClose, windowId }: Props) {
       setClosing(false);
       return;
     }
-    notify("success", "Guardado en Borradores.");
+    // Sin borrador no se guardó nada: se borró en otro lado y no hubo cambios
+    // después.
+    if (autosave.current().draftId !== 0) notify("success", "Guardado en Borradores.");
     onClose();
   };
 
@@ -325,7 +331,7 @@ export function Composer({ init, onClose, windowId }: Props) {
         await pending;
         reply(true);
       } catch (e) {
-        reply(false, errorMessage(e));
+        reply(false, quitSaveFailed(e));
       }
       return;
     }
@@ -335,7 +341,7 @@ export function Composer({ init, onClose, windowId }: Props) {
       await autosave.flush();
       reply(true);
     } catch (e) {
-      reply(false, errorMessage(e));
+      reply(false, quitSaveFailed(e));
     }
   });
   const onCloseRequest = useEffectEvent(() => requestClose());
@@ -356,11 +362,12 @@ export function Composer({ init, onClose, windowId }: Props) {
     void Window.SetTitle(subject.trim() || title);
   }, [windowId, subject, title]);
 
-  // Cuando el autoguardado crea el borrador, la ventana queda registrada con
-  // su clave: abrirlo de nuevo trae esta ventana adelante.
+  // Cuando el autoguardado crea el borrador (o lo vuelve a crear porque se
+  // borró en otro lado), la ventana queda registrada con su clave: abrirlo de
+  // nuevo trae esta ventana adelante.
   const keyedDraft = useRef(init.composeDraftId ?? 0);
   useEffect(() => {
-    if (windowId === undefined || autosave.draftId === 0 || keyedDraft.current !== 0) return;
+    if (windowId === undefined || autosave.draftId === 0 || keyedDraft.current === autosave.draftId) return;
     keyedDraft.current = autosave.draftId;
     void svc.SetComposeKey(windowId, `draft:${autosave.draftId}`);
   }, [windowId, autosave.draftId]);

@@ -1,9 +1,11 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Events } from "@wailsio/runtime";
 import { useEffect, useState } from "react";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { parseInit } from "@/lib/composeWindow";
 import { errorMessage } from "@/lib/errors";
+import { useComposeDataEvents } from "@/lib/events";
 import { Composer } from "./Composer";
 import type { ComposerInit } from "./ComposerContext";
 
@@ -11,9 +13,11 @@ type State = { init: ComposerInit } | { error: string } | null;
 
 // ComposeWindowApp es todo lo que corre en una ventana del redactor: pide con
 // qué arranca y monta el Composer. No hay MailShell ni useMailEvents; las
-// cuentas, firmas y sugerencias las pide el Composer con sus queries.
+// cuentas, firmas y sugerencias las pide el Composer con sus queries, que se
+// recargan cuando cambian.
 export function ComposeWindowApp({ id }: { id: number }) {
   const [state, setState] = useState<State>(null);
+  useComposeDataEvents(useQueryClient());
 
   useEffect(() => {
     let alive = true;
