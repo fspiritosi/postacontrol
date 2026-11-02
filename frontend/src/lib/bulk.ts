@@ -1,9 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
 import type {
   Folder,
   MessageSummary,
 } from "../../bindings/postacontrol/core/model/models";
+import { errorMessage } from "./errors";
+import { folderLabel } from "./folders";
 
 // Lo que cambia después de mover, borrar o marcar correos.
 export function invalidateMailQueries(queryClient: QueryClient) {
@@ -83,6 +86,28 @@ export function moveMarked(targets: Target[], folder: Folder) {
   return runPerAccount(targets, (_account, ids) =>
     svc.MoveMessages(ids, folder.id),
   );
+}
+
+// Mueve y avisa, igual desde "Mover a…" que al soltar sobre una carpeta: un
+// toast por cuenta que falló, otro con lo que se movió, y refresca las
+// consultas. Devuelve qué ids salieron bien y cuáles no.
+export async function moveAndReport(
+  targets: Target[],
+  folder: Folder,
+  nameOf: (accountId: number) => string,
+  queryClient: QueryClient,
+): Promise<{ ok: number[]; failed: number[] }> {
+  const { failed } = await moveMarked(targets, folder);
+  const failedIds = new Set(failed.flatMap((f) => f.ids));
+  const done = targets.filter((t) => !failedIds.has(t.id));
+  for (const f of failed)
+    toast.error(
+      `No se pudo en ${nameOf(f.accountId)}: ${errorMessage(f.error)}`,
+    );
+  if (done.length > 0)
+    toast.success(`${done.length} movidos a ${folderLabel(folder)}`);
+  invalidateMailQueries(queryClient);
+  return { ok: done.map((t) => t.id), failed: [...failedIds] };
 }
 
 // Los marcados que siguen cargados en la lista. Un id marcado que ya no está

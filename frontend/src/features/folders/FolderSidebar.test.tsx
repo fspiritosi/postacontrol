@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false })),
   ListFolders: vi.fn(() => Promise.resolve([])),
+  MoveMessages: vi.fn(() => Promise.resolve()),
   ListLocalDrafts: vi.fn(() => Promise.resolve([])),
   RemoveAccount: vi.fn(() => Promise.resolve()),
   SetSaveSentCopy: vi.fn(() => Promise.resolve()),
@@ -18,6 +19,9 @@ import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { ShellState } from "../layout/MailShell";
+import { setMessageDrag } from "@/lib/dnd";
+import { FakeDataTransfer } from "../../test/dataTransfer";
+import { toast } from "sonner";
 import { FolderSidebar } from "./FolderSidebar";
 
 const account: Account = {
@@ -237,5 +241,53 @@ describe("FolderSidebar", () => {
     expect(item.getAttribute("aria-checked")).toBe("true");
     await user.click(item);
     await waitFor(() => expect(svc.SetSaveSentCopy).toHaveBeenCalledWith(7, false));
+  });
+
+  describe("soltar correos sobre una carpeta", () => {
+    const drag = (accountId: number, payload: Parameters<typeof setMessageDrag>[2]) => {
+      const dt = new FakeDataTransfer();
+      setMessageDrag(dt as unknown as DataTransfer, accountId, payload);
+      return dt;
+    };
+    beforeEach(() => {
+      vi.mocked(svc.MoveMessages).mockClear();
+      vi.mocked(toast.success).mockClear();
+      vi.mocked(svc.ListFolders).mockImplementation(((id: number) =>
+        Promise.resolve(id === 7 ? [inbox(3, 7, 0), proyectos] : [inbox(4, 8, 0)])) as never);
+    });
+
+    it("soltar correos en una carpeta los mueve", async () => {
+      renderSidebar([account]);
+      const row = await screen.findByRole("button", { name: "Proyectos" });
+      const dt = drag(7, { ids: [1, 2], folderId: 3 });
+      expect(fireEvent.dragOver(row, { dataTransfer: dt })).toBe(false);
+      expect(row.className).toContain("outline-primary");
+      fireEvent.drop(row, { dataTransfer: dt });
+      await waitFor(() => expect(svc.MoveMessages).toHaveBeenCalledWith([1, 2], 9));
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith("2 movidos a Proyectos"));
+      expect(row.className).not.toContain("outline-primary");
+    });
+
+    it("soltar en una carpeta de otra cuenta no hace nada", async () => {
+      renderSidebar([account, account2]);
+      const others = await screen.findAllByRole("button", { name: /Entrada/ });
+      const dt = drag(7, { ids: [1], folderId: 9 });
+      const target = others[others.length - 1]; // la de la cuenta 8
+      expect(fireEvent.dragOver(target, { dataTransfer: dt })).toBe(true);
+      fireEvent.drop(target, { dataTransfer: dt });
+      expect(svc.MoveMessages).not.toHaveBeenCalled();
+    });
+
+    it("soltar en la misma carpeta no hace nada", async () => {
+      renderSidebar([account]);
+      const row = await screen.findByRole("button", { name: "Proyectos" });
+      const dt = drag(7, { ids: [1], folderId: 9 });
+      fireEvent.dragOver(row, { dataTransfer: dt });
+      fireEvent.drop(row, { dataTransfer: dt });
+      expect(svc.MoveMessages).not.toHaveBeenCalled();
+      // La carpeta que se está mirando tampoco es destino.
+      const inboxRow = await screen.findByRole("button", { name: "Entrada" });
+      expect(fireEvent.dragOver(inboxRow, { dataTransfer: drag(7, { ids: [1] }) })).toBe(true);
+    });
   });
 });

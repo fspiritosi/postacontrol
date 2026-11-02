@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   invalidateMailQueries,
-  moveMarked,
+  moveAndReport,
   runPerAccount,
   type AccountFailure,
   type Target,
@@ -183,12 +183,8 @@ export function SelectionBar({
     setBusy(true);
     try {
       const all = await targets();
-      const { failed } = await moveMarked(all, dest);
-      finish(all, failed, {
-        removed: true,
-        onOk: (done) =>
-          toast.success(`${done.length} movidos a ${folderLabel(dest)}`),
-      });
+      const r = await moveAndReport(all, dest, nameOf, queryClient);
+      onDone({ ...r, removed: true });
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {

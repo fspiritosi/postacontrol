@@ -5,6 +5,7 @@ import type {
 } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { Button } from "@/components/ui/button";
+import { flatDrag } from "@/lib/dnd";
 import { loadedTargets } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
@@ -182,6 +183,7 @@ export function SearchResults({ accounts, state, search }: Props) {
               anyMarked={marking.any}
               onToggle={marking.toggle}
               folderLabel={labelOf(m.folderId)}
+              dragOf={(row) => flatDrag(items, state.marked.keys, row)}
             />
           ))}
         </ul>

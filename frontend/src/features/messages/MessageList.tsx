@@ -5,6 +5,7 @@ import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { flatDrag } from "@/lib/dnd";
 import { loadedTargets, threadTargets, type Target } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { useFolderSyncing, useSyncProgress } from "@/lib/events";
@@ -20,7 +21,7 @@ import { MessageRow } from "./MessageRow";
 import { SelectionBar, type BulkResult } from "./SelectionBar";
 import { ThreadList } from "./ThreadList";
 import { UnsyncedDraftsBanner } from "./UnsyncedDraftsBanner";
-import { finishFlat, useMarking } from "./useMarking";
+import { finishFlat, finishThreads, useMarking } from "./useMarking";
 import type { ThreadSummary } from "../../../bindings/postacontrol/core/model/models";
 
 export function MessageList({
@@ -109,22 +110,10 @@ export function MessageList({
     unreadOnly,
   ]);
 
-  const barDone = (r: BulkResult) => {
-    if (!threadedMarks) return finishFlat(state, r);
-    const rootsOf = (ids: number[]) => [
-      ...new Set(ids.flatMap((id) => rootOf.current.get(id) ?? [])),
-    ];
-    const failedRoots = rootsOf(r.failed);
-    state.setMarkedThreads({ keys: failedRoots, anchor: null });
-    if (
-      (r.removed || r.unread) &&
-      state.threadRoot != null &&
-      !failedRoots.includes(state.threadRoot) &&
-      rootsOf(r.ok).includes(state.threadRoot)
-    ) {
-      state.selectThread(null);
-    }
-  };
+  const barDone = (r: BulkResult) =>
+    threadedMarks
+      ? finishThreads(state, r, rootOf.current)
+      : finishFlat(state, r);
 
   // Se guarda al instante, conservando el resto de la configuración.
   const setThreaded = async (v: boolean) => {
@@ -284,6 +273,7 @@ export function MessageList({
                 marked={state.marked.keys.includes(m.id)}
                 anyMarked={marking.any}
                 onToggle={marking.toggle}
+                dragOf={(row) => flatDrag(items, state.marked.keys, row)}
               />
             ))}
           </ul>

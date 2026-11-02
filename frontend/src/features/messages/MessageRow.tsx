@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { MessageSummary } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import { startMessageDrag, type DragInfo } from "@/lib/dnd";
 import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
 import { useReadingPane } from "@/lib/settings";
@@ -22,6 +23,8 @@ type Props = {
   onToggle: (id: number) => void;
   // Etiqueta de la carpeta (en los resultados de búsqueda).
   folderLabel?: string;
+  // Qué lleva al arrastrarla a una carpeta (null: no se puede arrastrar ahora).
+  dragOf?: (m: MessageSummary) => DragInfo | null;
 };
 
 export function MessageRow({
@@ -33,6 +36,7 @@ export function MessageRow({
   anyMarked,
   onToggle,
   folderLabel,
+  dragOf,
 }: Props) {
   const queryClient = useQueryClient();
   // Con el lector abajo o arriba la lista es ancha: cada correo ocupa un renglón.
@@ -53,6 +57,8 @@ export function MessageRow({
     <li
       className={cn("group relative", marked && "bg-primary/10")}
       data-density={compact ? "compact" : "comfortable"}
+      draggable={dragOf != null}
+      onDragStart={dragOf && ((e) => startMessageDrag(e, dragOf(m)))}
     >
       <input
         type="checkbox"

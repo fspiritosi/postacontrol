@@ -64,14 +64,42 @@ export function useMarking<K>({
 
 // Lo que pasa en la lista plana (y en la búsqueda) al terminar una acción
 // sobre lo marcado: quedan marcados solo los que fallaron, y si lo que estaba
-// abierto se movió o se borró, se cierra el lector.
-export function finishFlat(state: ShellState, r: BulkResult) {
-  state.setMarked({ keys: r.failed, anchor: null });
+// abierto se movió o se borró, se cierra el lector. Con `keepMarks` (se movió
+// algo que no estaba marcado) la selección no se toca.
+export function finishFlat(
+  state: ShellState,
+  r: BulkResult,
+  keepMarks = false,
+) {
+  if (!keepMarks) state.setMarked({ keys: r.failed, anchor: null });
   if (
     (r.removed || r.unread) &&
     state.messageId != null &&
     r.ok.includes(state.messageId)
   ) {
     state.selectMessage(null);
+  }
+}
+
+// Lo mismo para la lista de conversaciones. `rootOf` dice a qué conversación
+// pertenece cada mensaje tocado, para saber cuáles quedan marcadas si algo falla.
+export function finishThreads(
+  state: ShellState,
+  r: BulkResult,
+  rootOf: Map<number, string>,
+  keepMarks = false,
+) {
+  const rootsOf = (ids: number[]) => [
+    ...new Set(ids.flatMap((id) => rootOf.get(id) ?? [])),
+  ];
+  const failedRoots = rootsOf(r.failed);
+  if (!keepMarks) state.setMarkedThreads({ keys: failedRoots, anchor: null });
+  if (
+    (r.removed || r.unread) &&
+    state.threadRoot != null &&
+    !failedRoots.includes(state.threadRoot) &&
+    rootsOf(r.ok).includes(state.threadRoot)
+  ) {
+    state.selectThread(null);
   }
 }

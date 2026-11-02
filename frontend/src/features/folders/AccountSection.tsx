@@ -10,7 +10,7 @@ import {
   ShieldAlertIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
@@ -32,12 +32,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { dragAccount, hasMessageDrag, readMessageDrag } from "@/lib/dnd";
 import { errorMessage } from "@/lib/errors";
 import { toastSyncError } from "@/lib/events";
 import { buildFolderTree, type FolderNode } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
+import { dropMessages } from "../messages/dropMessages";
 
 export const ROLE_ICON: Record<string, ReactNode> = {
   inbox: <InboxIcon />,
@@ -52,25 +54,69 @@ function FolderRow({
   node,
   depth,
   state,
+  accountName,
 }: {
   node: FolderNode;
   depth: number;
   state: ShellState;
+  accountName: string;
 }) {
+  const queryClient = useQueryClient();
+  const [over, setOver] = useState(false);
   const active = node.id !== 0 && state.view?.kind === "folder" && state.view.folderId === node.id;
   // selectView también pide sincronizar la carpeta.
   const select = () => state.selectView({ kind: "folder", folderId: node.id });
+  // Zona para soltar correos: carpeta seleccionable de la misma cuenta que lo
+  // arrastrado y que no sea la que se está mirando. La carpeta de origen exacta
+  // se vuelve a chequear al soltar (en `dragover` no se pueden leer los datos).
+  const droppable = (e: DragEvent) =>
+    node.selectable &&
+    node.id !== 0 &&
+    hasMessageDrag(e.dataTransfer) &&
+    dragAccount(e.dataTransfer) === node.accountId &&
+    !(
+      state.search == null &&
+      state.view?.kind === "folder" &&
+      state.view.folderId === node.id
+    );
+  const onDragOver = (e: DragEvent) => {
+    if (!droppable(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setOver(true);
+  };
+  const onDragLeave = (e: DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+  };
+  const onDrop = (e: DragEvent) => {
+    setOver(false);
+    if (!droppable(e)) return;
+    e.preventDefault();
+    const drag = readMessageDrag(e.dataTransfer);
+    if (!drag) return;
+    void dropMessages({
+      drag,
+      dest: node,
+      state,
+      queryClient,
+      nameOf: () => accountName,
+    }).catch((err) => toast.error(errorMessage(err)));
+  };
   return (
     <>
       {node.selectable && node.id !== 0 ? (
         <button
           type="button"
           onClick={select}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
           aria-current={active ? "true" : undefined}
           style={{ paddingLeft: 8 + depth * 14 }}
           className={cn(
             "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
             active && "bg-sidebar-accent font-medium",
+            over && "outline outline-2 outline-primary bg-primary/10",
           )}
         >
           <span className="text-muted-foreground [&>svg]:size-4">
@@ -93,7 +139,13 @@ function FolderRow({
         </div>
       )}
       {node.children.map((c) => (
-        <FolderRow key={c.name} node={c} depth={depth + 1} state={state} />
+        <FolderRow
+          key={c.name}
+          node={c}
+          depth={depth + 1}
+          state={state}
+          accountName={accountName}
+        />
       ))}
     </>
   );
@@ -204,7 +256,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
           <p className="p-2 text-xs text-destructive">{errorMessage(folders.error)}</p>
         )}
         {tree.map((n) => (
-          <FolderRow key={n.name} node={n} depth={1} state={state} />
+          <FolderRow key={n.name} node={n} depth={1} state={state} accountName={name} />
         ))}
       </CollapsibleContent>
 

@@ -1,6 +1,7 @@
 import { PaperclipIcon, StarIcon } from "lucide-react";
 import type { ThreadSummary } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
+import { startMessageDrag, threadDrag, type DragInfo } from "@/lib/dnd";
 import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
 import { useThreads } from "@/lib/queries";
@@ -33,6 +34,7 @@ function ThreadRow({
   marked,
   anyMarked,
   onToggle,
+  dragOf,
 }: {
   thread: ThreadSummary;
   color?: string;
@@ -41,6 +43,7 @@ function ThreadRow({
   marked: boolean;
   anyMarked: boolean;
   onToggle: (root: string) => void;
+  dragOf: (t: ThreadSummary) => DragInfo | null;
 }) {
   const compact = useReadingPane() !== "right";
   const m = t.latest;
@@ -51,6 +54,8 @@ function ThreadRow({
     <li
       className={cn("group relative", marked && "bg-primary/10")}
       data-density={compact ? "compact" : "comfortable"}
+      draggable
+      onDragStart={(e) => startMessageDrag(e, dragOf(t))}
     >
       <input
         type="checkbox"
@@ -230,6 +235,7 @@ export function ThreadList({
             marked={marked.keys.includes(t.threadRoot)}
             anyMarked={marking.any}
             onToggle={marking.toggle}
+            dragOf={(row) => threadDrag(folderId, items, marked.keys, row)}
           />
         ))}
       </ul>
