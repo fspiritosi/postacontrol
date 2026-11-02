@@ -588,3 +588,65 @@ describe("MessageList selección múltiple", () => {
     await waitFor(() => expect(clearMarks).toHaveBeenCalled());
   });
 });
+
+describe("MessageList no leídos", () => {
+  beforeEach(() => {
+    resetSyncStateForTests();
+    vi.clearAllMocks();
+  });
+
+  const unreadPair = () => [
+    { ...summary(1, 7), seen: false },
+    { ...summary(2, 7), seen: true },
+  ];
+
+  it.each(["bottom", "right"])(
+    "una fila no leída tiene fondo y remitente resaltados (%s)",
+    async (readingPane) => {
+      vi.mocked(svc.GetSettings).mockResolvedValue({
+        unifiedInbox: false,
+        disableNotifications: false,
+        threadedList: false,
+        readingPane,
+      });
+      vi.mocked(svc.ListUnified).mockResolvedValue(unreadPair());
+      renderStateful(inbox);
+      const unread = await screen.findByRole("button", { name: /Asunto 1/ });
+      const read = screen.getByRole("button", { name: /Asunto 2/ });
+      expect(unread.closest("li")!.getAttribute("data-unread")).toBe("true");
+      expect(unread.className).toContain("bg-unread");
+      expect(screen.getByText("Remitente 1").className).toContain(
+        "text-unread-foreground",
+      );
+      expect(read.closest("li")!.hasAttribute("data-unread")).toBe(false);
+      expect(read.className).not.toContain("bg-unread");
+      expect(screen.getByText("Remitente 2").className).not.toContain(
+        "text-unread-foreground",
+      );
+    },
+  );
+
+  it("abierto o marcado gana el fondo, pero el remitente sigue azul", async () => {
+    vi.mocked(svc.ListUnified).mockResolvedValue([
+      { ...summary(1, 7), seen: false },
+      { ...summary(2, 7), seen: false },
+      { ...summary(3, 7), seen: false },
+    ]);
+    renderStateful(inbox, 1);
+    const opened = await screen.findByRole("button", { name: /Asunto 1/ });
+    expect(opened.getAttribute("aria-current")).toBe("true");
+    expect(opened.className).toContain("bg-accent");
+    expect(opened.className).not.toContain("bg-unread");
+    expect(screen.getByText("Remitente 1").className).toContain(
+      "text-unread-foreground",
+    );
+
+    const marked = screen.getByRole("button", { name: /Asunto 3/ });
+    fireEvent.click(marked, { ctrlKey: true });
+    expect(marked.closest("li")!.className).toContain("bg-primary/10");
+    expect(marked.className).not.toContain("bg-unread");
+    expect(screen.getByText("Remitente 3").className).toContain(
+      "text-unread-foreground",
+    );
+  });
+});

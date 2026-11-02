@@ -53,6 +53,7 @@ function ThreadRow({
   return (
     <li
       className={cn("group relative", marked && "bg-primary/10")}
+      data-unread={unread || undefined}
       data-density={compact ? "compact" : "comfortable"}
       draggable
       onDragStart={(e) => startMessageDrag(e, dragOf(t))}
@@ -82,6 +83,7 @@ function ThreadRow({
             ? "flex w-full items-center gap-2 border-b px-4 py-1.5 text-left transition-colors hover:bg-accent/60"
             : "flex w-full flex-col gap-0.5 border-b px-4 py-2.5 text-left transition-colors hover:bg-accent/60",
           selected && !marked && "bg-accent",
+          unread && !selected && !marked && "bg-unread",
         )}
       >
         {compact ? (
@@ -94,7 +96,9 @@ function ThreadRow({
             <span
               className={cn(
                 "w-[28%] shrink-0 truncate text-sm",
-                unread ? "font-semibold" : "text-muted-foreground",
+                unread
+                  ? "font-semibold text-unread-foreground"
+                  : "text-muted-foreground",
               )}
             >
               {participants}
@@ -142,7 +146,9 @@ function ThreadRow({
               <span
                 className={cn(
                   "min-w-0 flex-1 truncate text-sm",
-                  unread ? "font-semibold" : "text-muted-foreground",
+                  unread
+                  ? "font-semibold text-unread-foreground"
+                  : "text-muted-foreground",
                 )}
               >
                 {participants}

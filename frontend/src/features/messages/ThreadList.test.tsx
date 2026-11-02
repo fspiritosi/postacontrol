@@ -88,6 +88,40 @@ describe("ThreadList", () => {
   });
 });
 
+describe("ThreadList no leídos", () => {
+  it("una conversación con no leídos tiene fondo y remitente resaltados", async () => {
+    vi.mocked(svc.ListThreads).mockResolvedValue([
+      { ...threads[0], unread: 2 },
+      threads[1],
+    ]);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ThreadList
+          folderId={3}
+          unreadOnly={false}
+          syncing={false}
+          selected={null}
+          onSelect={vi.fn()}
+          marked={NO_MARKS}
+          onMark={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    const unread = await screen.findByRole("button", { name: /Asunto 1/ });
+    const read = screen.getByRole("button", { name: /Asunto 2/ });
+    expect(unread.closest("li")!.getAttribute("data-unread")).toBe("true");
+    expect(unread.className).toContain("bg-unread");
+    expect(screen.getByText("Ana, Beto").className).toContain(
+      "text-unread-foreground",
+    );
+    expect(read.closest("li")!.hasAttribute("data-unread")).toBe(false);
+    expect(read.className).not.toContain("bg-unread");
+    expect(screen.getByText("Carla").className).not.toContain(
+      "text-unread-foreground",
+    );
+  });
+});
+
 describe("ThreadList selección múltiple", () => {
   // Hace de MailShell: abrir un hilo suelta lo marcado.
   function Stateful() {

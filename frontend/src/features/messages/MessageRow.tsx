@@ -56,6 +56,7 @@ export function MessageRow({
   return (
     <li
       className={cn("group relative", marked && "bg-primary/10")}
+      data-unread={!m.seen || undefined}
       data-density={compact ? "compact" : "comfortable"}
       draggable={dragOf != null}
       onDragStart={dragOf && ((e) => startMessageDrag(e, dragOf(m)))}
@@ -82,6 +83,7 @@ export function MessageRow({
             ? "flex w-full items-center gap-2 border-b px-4 py-1.5 text-left transition-colors hover:bg-accent/60"
             : "flex w-full flex-col gap-0.5 border-b px-4 py-2.5 text-left transition-colors hover:bg-accent/60",
           selected && !marked && "bg-accent",
+          !m.seen && !selected && !marked && "bg-unread",
         )}
       >
         {compact ? (
@@ -94,7 +96,9 @@ export function MessageRow({
             <span
               className={cn(
                 "w-[28%] shrink-0 truncate text-sm",
-                m.seen ? "text-muted-foreground" : "font-semibold",
+                m.seen
+                  ? "text-muted-foreground"
+                  : "font-semibold text-unread-foreground",
               )}
             >
               {m.from.name || m.from.email}
@@ -137,7 +141,9 @@ export function MessageRow({
               <span
                 className={cn(
                   "min-w-0 flex-1 truncate text-sm",
-                  m.seen ? "text-muted-foreground" : "font-semibold",
+                  m.seen
+                  ? "text-muted-foreground"
+                  : "font-semibold text-unread-foreground",
                 )}
               >
                 {m.from.name || m.from.email}
