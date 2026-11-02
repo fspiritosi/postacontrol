@@ -411,6 +411,9 @@ func (c *Core) RefreshLabel(ctx context.Context, labelID, accountID int64) error
 // refreshLabelAccount recorre las carpetas de la cuenta. Las cuentas que
 // guardan las etiquetas solo acá no se tocan: el servidor no las tiene.
 func (c *Core) refreshLabelAccount(ctx context.Context, accountID, labelID int64, kw string) error {
+	if c.authPaused(accountID) {
+		return nil // contraseña rechazada: no se insiste con el servidor
+	}
 	local, err := c.store.AccountLabelsLocal(ctx, accountID)
 	if err != nil {
 		return c.ctxOrUserError(ctx, err)
@@ -431,9 +434,8 @@ func (c *Core) refreshLabelAccount(ctx context.Context, accountID, labelID int64
 			if first == nil {
 				first = err
 			}
-			var ue *UserError
-			if !errors.As(err, &ue) {
-				break // la conexión falló: no tiene sentido seguir con la cuenta
+			if connFailure(err) {
+				break // la cuenta no responde: no se la reintenta carpeta por carpeta
 			}
 		}
 	}
@@ -454,10 +456,11 @@ func (c *Core) refreshLabelFolder(ctx context.Context, f model.Folder, labelID i
 		return c.ctxOrUserError(ctx, err)
 	}
 	var (
-		changed bool
-		info    imapx.SelectInfo
-		remote  []uint32
-		heads   []imapx.RemoteHeader
+		changed    bool
+		noKeywords bool
+		info       imapx.SelectInfo
+		remote     []uint32
+		heads      []imapx.RemoteHeader
 	)
 	known, err := c.store.KnownUIDs(ctx, f.ID)
 	if err != nil {
@@ -471,6 +474,10 @@ func (c *Core) refreshLabelFolder(ctx context.Context, f model.Folder, labelID i
 		var err error
 		if info, err = selectInfoChecked(conn, f, last, false); err != nil {
 			return err
+		}
+		if info.Keywords == imapx.KeywordsNo {
+			noKeywords = true // sin keywords en el servidor, la búsqueda vacía no dice nada
+			return nil
 		}
 		if remote, err = conn.SearchKeyword(kw); err != nil {
 			return err
@@ -492,6 +499,9 @@ func (c *Core) refreshLabelFolder(ctx context.Context, f model.Folder, labelID i
 	})
 	if err != nil {
 		return err
+	}
+	if noKeywords {
+		return nil
 	}
 	if len(heads) > 0 {
 		// Carpeta nunca sincronizada: se anota el UIDVALIDITY antes de insertar

@@ -630,3 +630,58 @@ func TestRefreshLabelDropsStale(t *testing.T) {
 	require.NoError(t, err)
 	requireUserError(t, c.RefreshLabel(ctx, 9999, 0), "notfound")
 }
+
+func TestRefreshLabelKeepsCacheWhenServerHasNoKeywords(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	deliverN(t, imap, 2, "m")
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	for _, m := range listAll(t, c, inboxID) {
+		require.NoError(t, c.store.AddMessageLabel(ctx, []int64{m.ID}, l.ID, true))
+	}
+	imap.NoKeywords()
+
+	require.NoError(t, c.RefreshLabel(ctx, l.ID, 0))
+	for uid, ls := range labelsByUID(t, c, inboxID) {
+		assert.Equal(t, []int64{l.ID}, ls, "UID %d", uid)
+	}
+}
+
+func TestRefreshLabelDeadAccountDoesNotStopOthers(t *testing.T) {
+	tlsEnv := testenv.NewTLS(t)
+	imapA := testenv.StartIMAP(t, tlsEnv, testUser, testPass)
+	smtpA := testenv.StartSMTP(t, tlsEnv, testUser, testPass)
+	imapB := testenv.StartIMAP(t, tlsEnv, "g@ej.com", testPass)
+	smtpB := testenv.StartSMTP(t, tlsEnv, "g@ej.com", testPass)
+	n := &recNotifier{}
+	c, err := New(Config{DBPath: t.TempDir() + "/t.db", Secrets: secrets.NewMemory(), Notifier: n,
+		TLS: tlsEnv.Client, SkipInitialSync: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	ctx := context.Background()
+	require.NoError(t, imapA.User.Create("Archivo", nil))
+	require.NoError(t, imapB.User.Create("Archivo", nil))
+	accA, err := c.AddAccount(ctx, inputFor(imapA, smtpA, testPass))
+	require.NoError(t, err)
+	inB := inputFor(imapB, smtpB, testPass)
+	inB.Account.Email = "g@ej.com"
+	accB, err := c.AddAccount(ctx, inB)
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(ctx, accA.ID))
+	require.NoError(t, c.SyncAccount(ctx, accB.ID))
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	imapB.Deliver(t, "Archivo", rawMail("Bea <bea@ej.com>", "oculto-b"), goimap.Flag(kw))
+	imapA.Close()
+	errsBefore := len(n.matching(EventSyncError))
+
+	err = c.RefreshLabel(ctx, l.ID, 0)
+	require.Error(t, err, "devuelve el error de la cuenta caída")
+	assert.True(t, connFailure(err), "%v", err)
+	assert.Equal(t, []string{"oculto-b"}, labeledSubjects(t, c, l.ID, 0))
+	assert.Equal(t, 1, len(n.matching(EventSyncError))-errsBefore, "la cuenta caída se intenta una sola vez")
+}
