@@ -75,6 +75,7 @@ function summary(id: number, accountId: number): MessageSummary {
     flagged: false,
     answered: false,
     hasAttachments: false,
+    labels: [],
   };
 }
 
@@ -217,6 +218,7 @@ describe("MessageList conversaciones", () => {
         count: 2,
         unread: 0,
         participants: ["Ana", "Beto"],
+        labels: [],
       },
     ]);
     renderList({ kind: "folder", folderId: 3 });

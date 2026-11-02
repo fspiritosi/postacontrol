@@ -42,7 +42,7 @@ function summary(id: number, folderId: number): MessageSummary {
     id, accountId: 7, folderId, uid: id,
     from: { name: `Remitente ${id}`, email: "x@y.z" },
     subject: `Asunto ${id}`, snippet: "", date: "2026-10-30T10:00:00Z",
-    seen: true, flagged: false, answered: false, hasAttachments: false,
+    seen: true, flagged: false, answered: false, hasAttachments: false, labels: [],
   };
 }
 
@@ -98,7 +98,7 @@ describe("buscador", () => {
     expect(svc.Search).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(300);
     expect(await screen.findByRole("button", { name: /Asunto 1/ })).toBeTruthy();
-    expect(svc.Search).toHaveBeenCalledWith({ text: "factura", folderId: 0, limit: 100, offset: 0 });
+    expect(svc.Search).toHaveBeenCalledWith({ text: "factura", folderId: 0, labelId: 0, limit: 100, offset: 0 });
     expect((await screen.findByTestId("folder-label")).textContent).toBe("Facturas");
   });
 
@@ -123,7 +123,7 @@ describe("buscador", () => {
     await waitFor(() => expect(svc.Search).toHaveBeenCalled());
     await user.click(await screen.findByRole("button", { name: "Solo en esta carpeta" }));
     await waitFor(() =>
-      expect(svc.Search).toHaveBeenLastCalledWith({ text: "hola", folderId: 3, limit: 100, offset: 0 }),
+      expect(svc.Search).toHaveBeenLastCalledWith({ text: "hola", folderId: 3, labelId: 0, limit: 100, offset: 0 }),
     );
   });
 

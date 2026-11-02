@@ -19,6 +19,7 @@ export type {
     Folder,
     FolderDeleteInfo,
     FolderRole,
+    Label,
     ListQuery,
     LocalDraft,
     MessageDetail,

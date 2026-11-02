@@ -176,7 +176,7 @@ export function useSearch(text: string, folderId: number) {
     queryKey: ["search", text, folderId],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
-      const r = await svc.Search({ text, folderId, limit: PAGE_SIZE, offset: pageParam });
+      const r = await svc.Search({ text, folderId, labelId: 0, limit: PAGE_SIZE, offset: pageParam });
       return { messages: r.messages ?? [], pending: r.pending };
     },
     getNextPageParam: (last, all) =>

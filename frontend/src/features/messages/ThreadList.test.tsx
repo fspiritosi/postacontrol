@@ -32,6 +32,7 @@ function summary(
     flagged: false,
     answered: false,
     hasAttachments: false,
+    labels: [],
     ...over,
   };
 }
@@ -43,6 +44,7 @@ const threads: ThreadSummary[] = [
     count: 3,
     unread: 1,
     participants: ["Ana", "Beto"],
+    labels: [],
   },
   {
     threadRoot: "<b@x>",
@@ -50,6 +52,7 @@ const threads: ThreadSummary[] = [
     count: 1,
     unread: 0,
     participants: ["Carla"],
+    labels: [],
   },
 ];
 

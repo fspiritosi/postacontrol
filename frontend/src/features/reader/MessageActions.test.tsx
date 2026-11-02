@@ -37,7 +37,7 @@ function msg(folderId: number, flagged = false): MessageDetail {
     subject: "s", snippet: "", date: "2026-10-30T10:00:00Z", seen: true, flagged,
     answered: false, hasAttachments: false, messageId: "", inReplyTo: "",
     references: null, to: null, cc: null, replyTo: null, html: "", text: "",
-    hasRemoteImages: false, attachments: null,
+    hasRemoteImages: false, attachments: null, labels: [],
   };
 }
 

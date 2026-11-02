@@ -244,6 +244,28 @@ func (s *Store) ListLabeled(ctx context.Context, labelID, accountID int64, q mod
 	return s.listWhere(ctx, where, args, q)
 }
 
+// LabeledInFolder devuelve los mensajes en caché de la carpeta que tienen la
+// etiqueta, como UID -> id del mensaje.
+func (s *Store) LabeledInFolder(ctx context.Context, folderID, labelID int64) (map[uint32]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT m.uid, m.id FROM messages m
+		JOIN message_labels ml ON ml.message_id = m.id
+		WHERE m.folder_id = ? AND ml.label_id = ?`, folderID, labelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uint32]int64{}
+	for rows.Next() {
+		var uid uint32
+		var id int64
+		if err := rows.Scan(&uid, &id); err != nil {
+			return nil, err
+		}
+		out[uid] = id
+	}
+	return out, rows.Err()
+}
+
 // PendingLabelCleanups devuelve los keywords que faltan limpiar en la cuenta.
 func (s *Store) PendingLabelCleanups(ctx context.Context, accountID int64) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT keyword FROM label_cleanup WHERE account_id = ? ORDER BY keyword`, accountID)

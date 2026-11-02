@@ -45,7 +45,7 @@ function summary(id: number, folderId: number, from: string, day: number): Messa
   return {
     id, accountId: 7, folderId, uid: id, from: { name: from, email: `${id}@x.y` },
     subject: "Presupuesto", snippet: `Resumen ${id}`, date: `2026-10-${day}T10:00:00Z`,
-    seen: true, flagged: false, answered: false, hasAttachments: false,
+    seen: true, flagged: false, answered: false, hasAttachments: false, labels: [],
   };
 }
 

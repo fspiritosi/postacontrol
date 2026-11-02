@@ -152,6 +152,16 @@ export interface FolderDeleteInfo {
  */
 export type FolderRole = string;
 
+/**
+ * Label es una etiqueta de usuario. Su keyword IMAP ($pc_…) no se expone.
+ */
+export interface Label {
+    "id": number;
+    "name": string;
+    "color": string;
+    "position": number;
+}
+
 export interface ListQuery {
     "unreadOnly": boolean;
     "offset": number;
@@ -187,6 +197,11 @@ export interface MessageDetail {
     "flagged": boolean;
     "answered": boolean;
     "hasAttachments": boolean;
+
+    /**
+     * Labels son los ids de las etiquetas del mensaje, por posición; nunca nil.
+     */
+    "labels": number[] | null;
     "messageId": string;
     "inReplyTo": string;
     "references": string[] | null;
@@ -216,6 +231,11 @@ export interface MessageSummary {
     "flagged": boolean;
     "answered": boolean;
     "hasAttachments": boolean;
+
+    /**
+     * Labels son los ids de las etiquetas del mensaje, por posición; nunca nil.
+     */
+    "labels": number[] | null;
 }
 
 /**
@@ -248,6 +268,11 @@ export interface ReplyContext {
 export interface SearchQuery {
     "text": string;
     "folderId": number;
+
+    /**
+     * 0 = sin filtro por etiqueta
+     */
+    "labelId": number;
     "limit": number;
     "offset": number;
 }
@@ -406,6 +431,11 @@ export interface ThreadSummary {
     "count": number;
     "unread": number;
     "participants": string[] | null;
+
+    /**
+     * Labels es la unión de las etiquetas de los mensajes del hilo, por posición; nunca nil.
+     */
+    "labels": number[] | null;
 }
 
 /**

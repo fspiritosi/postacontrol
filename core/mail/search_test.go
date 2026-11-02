@@ -96,3 +96,28 @@ func TestListThreads_DefaultLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, msgs, 1)
 }
+
+func TestSearchWithLabel(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	imap.Deliver(t, "INBOX", datedMail("presupuesto uno", time.Now(), "hola"))
+	imap.Deliver(t, "INBOX", datedMail("presupuesto dos", time.Now(), "hola"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", "#2563eb")
+	require.NoError(t, err)
+	var one int64
+	for _, m := range listAll(t, c, inboxID) {
+		if m.Subject == "presupuesto dos" {
+			one = m.ID
+		}
+	}
+	require.NoError(t, c.SetLabel(ctx, []int64{one}, l.ID, true))
+
+	res, err := c.Search(ctx, model.SearchQuery{Text: "presupuesto", LabelID: l.ID})
+	require.NoError(t, err)
+	require.Len(t, res.Messages, 1)
+	assert.Equal(t, "presupuesto dos", res.Messages[0].Subject)
+	res, err = c.Search(ctx, model.SearchQuery{Text: "presupuesto"})
+	require.NoError(t, err)
+	assert.Len(t, res.Messages, 2)
+}

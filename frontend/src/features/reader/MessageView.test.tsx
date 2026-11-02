@@ -38,7 +38,7 @@ function setup(role: string) {
     id: 1, accountId: 7, folderId: 3, uid: 1, from: ana, subject: "Hola", snippet: "",
     date: "2026-10-20T10:00:00Z", seen: true, flagged: false, answered: false, hasAttachments: false,
     messageId: "", inReplyTo: "", references: null, to: null, cc: null, replyTo: null,
-    html: "", text: "Cuerpo", hasRemoteImages: false, attachments: null,
+    html: "", text: "Cuerpo", hasRemoteImages: false, attachments: null, labels: [],
   };
   vi.mocked(svc.GetMessage).mockResolvedValue(msg);
   vi.mocked(svc.ListFolders).mockResolvedValue([folder]);

@@ -14,6 +14,7 @@ import (
 
 	"postacontrol/core/imapx"
 	"postacontrol/core/model"
+	"postacontrol/core/secrets"
 	"postacontrol/core/testenv"
 )
 
@@ -498,4 +499,134 @@ func TestSetLabelUnknownPermanentFlags(t *testing.T) {
 			assert.Empty(t, n.matching(EventLabelsLocalOnly))
 		})
 	}
+}
+
+// labeledSubjects devuelve los asuntos de ListLabeled.
+func labeledSubjects(t *testing.T, c *Core, labelID, accountID int64) []string {
+	t.Helper()
+	ms, err := c.ListLabeled(context.Background(), labelID, accountID, model.ListQuery{})
+	require.NoError(t, err)
+	return subjects(ms)
+}
+
+func TestListLabeledAcrossFolders(t *testing.T) {
+	tlsEnv := testenv.NewTLS(t)
+	imapA := testenv.StartIMAP(t, tlsEnv, testUser, testPass)
+	smtpA := testenv.StartSMTP(t, tlsEnv, testUser, testPass)
+	imapB := testenv.StartIMAP(t, tlsEnv, "g@ej.com", testPass)
+	smtpB := testenv.StartSMTP(t, tlsEnv, "g@ej.com", testPass)
+	c, err := New(Config{DBPath: t.TempDir() + "/t.db", Secrets: secrets.NewMemory(), Notifier: &recNotifier{},
+		TLS: tlsEnv.Client, SkipInitialSync: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	ctx := context.Background()
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+
+	require.NoError(t, imapA.User.Create("Archivo", nil))
+	imapA.DeliverAt(t, "INBOX", rawMail("Bea <bea@ej.com>", "a-inbox"), day(1))
+	imapA.DeliverAt(t, "INBOX", rawMail("Bea <bea@ej.com>", "a-sin"), day(2))
+	imapA.DeliverAt(t, "Archivo", rawMail("Bea <bea@ej.com>", "a-archivo"), day(3))
+	imapB.DeliverAt(t, "INBOX", rawMail("Bea <bea@ej.com>", "b-inbox"), day(4))
+	accA, err := c.AddAccount(ctx, inputFor(imapA, smtpA, testPass))
+	require.NoError(t, err)
+	inB := inputFor(imapB, smtpB, testPass)
+	inB.Account.Email = "g@ej.com"
+	accB, err := c.AddAccount(ctx, inB)
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(ctx, accA.ID))
+	require.NoError(t, c.SyncAccount(ctx, accB.ID))
+	archivoID := folderID(t, c, accA.ID, "Archivo")
+	require.NoError(t, c.SyncFolder(ctx, archivoID))
+
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	var ids []int64
+	for _, f := range []int64{folderID(t, c, accA.ID, "INBOX"), archivoID, folderID(t, c, accB.ID, "INBOX")} {
+		for _, m := range listAll(t, c, f) {
+			if m.Subject != "a-sin" {
+				ids = append(ids, m.ID)
+			}
+		}
+	}
+	// SetLabel exige una sola cuenta: se pone por cuenta.
+	for _, acc := range []int64{accA.ID, accB.ID} {
+		var accIDs []int64
+		for _, id := range ids {
+			ms, err := c.store.MessageRefs(ctx, []int64{id})
+			require.NoError(t, err)
+			if ms[0].AccountID == acc {
+				accIDs = append(accIDs, id)
+			}
+		}
+		require.NoError(t, c.SetLabel(ctx, accIDs, l.ID, true))
+	}
+
+	assert.Equal(t, []string{"a-archivo", "a-inbox"}, labeledSubjects(t, c, l.ID, accA.ID))
+	assert.Equal(t, []string{"b-inbox", "a-archivo", "a-inbox"}, labeledSubjects(t, c, l.ID, 0))
+
+	_, err = c.ListLabeled(ctx, 9999, 0, model.ListQuery{})
+	requireUserError(t, err, "notfound")
+}
+
+func TestRefreshLabelFindsUnsyncedFolder(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	acc, _ := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	imap.Deliver(t, "Archivo", rawMail("Bea <bea@ej.com>", "oculto"), goimap.Flag(kw))
+	imap.Deliver(t, "Archivo", rawMail("Bea <bea@ej.com>", "sin-etiqueta"))
+	archivoID := folderID(t, c, acc.ID, "Archivo")
+	assert.Empty(t, labeledSubjects(t, c, l.ID, 0))
+
+	n0 := len(n.matching(EventFolderUpdated))
+	require.NoError(t, c.RefreshLabel(ctx, l.ID, 0))
+	ms, err := c.ListLabeled(ctx, l.ID, 0, model.ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, ms, 1)
+	assert.Equal(t, []int64{l.ID}, ms[0].Labels)
+	assert.Len(t, listAll(t, c, archivoID), 1, "solo baja lo que tiene el keyword")
+	assert.Contains(t, n.matching(EventFolderUpdated)[n0:], map[string]any{"folderId": archivoID})
+
+	// Un sync posterior completa el resto sin duplicar ni perder la etiqueta.
+	require.NoError(t, c.SyncFolder(ctx, archivoID))
+	assert.Len(t, listAll(t, c, archivoID), 2)
+	assert.Equal(t, []string{"oculto"}, labeledSubjects(t, c, l.ID, 0))
+}
+
+func TestRefreshLabelDropsStale(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "uno"))
+	imap.Deliver(t, "INBOX", rawMail("Bea <bea@ej.com>", "dos"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	l, err := c.CreateLabel(ctx, "Facturas", okColor)
+	require.NoError(t, err)
+	var ids []int64
+	for _, m := range listAll(t, c, inboxID) {
+		ids = append(ids, m.ID)
+	}
+	require.NoError(t, c.SetLabel(ctx, ids, l.ID, true))
+	// Otro cliente le saca el keyword a un mensaje.
+	kw, err := c.store.LabelKeyword(ctx, l.ID)
+	require.NoError(t, err)
+	conn, err := imapx.Dial(ctx, imap.Settings, testUser, testPass, c.cfg.TLS)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	_, err = conn.SelectRW("INBOX")
+	require.NoError(t, err)
+	require.NoError(t, conn.StoreFlags([]uint32{1}, false, goimap.Flag(kw)))
+	assert.Len(t, labeledSubjects(t, c, l.ID, 0), 2)
+
+	require.NoError(t, c.RefreshLabel(ctx, l.ID, 0))
+	got := labelsByUID(t, c, inboxID)
+	assert.Equal(t, []int64{}, got[1])
+	assert.Equal(t, []int64{l.ID}, got[2])
+
+	_, err = c.ListLabeled(ctx, l.ID, 0, model.ListQuery{})
+	require.NoError(t, err)
+	requireUserError(t, c.RefreshLabel(ctx, 9999, 0), "notfound")
 }

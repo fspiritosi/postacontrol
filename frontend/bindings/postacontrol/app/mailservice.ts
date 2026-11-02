@@ -103,6 +103,10 @@ export function CreateFolder(accountID: number, parentFolderID: number, name: st
     return $Call.ByID(3961481947, accountID, parentFolderID, name);
 }
 
+export function CreateLabel(name: string, color: string): $CancellablePromise<model$0.Label> {
+    return $Call.ByID(837288471, name, color);
+}
+
 export function DeleteContact(id: number): $CancellablePromise<void> {
     return $Call.ByID(3876242856, id);
 }
@@ -128,6 +132,10 @@ export function DeleteFolder(folderID: number): $CancellablePromise<number> {
  */
 export function DeleteFolderPreview(folderID: number): $CancellablePromise<model$0.FolderDeleteInfo> {
     return $Call.ByID(4054868388, folderID);
+}
+
+export function DeleteLabel(id: number): $CancellablePromise<void> {
+    return $Call.ByID(3324811474, id);
 }
 
 export function DeleteLocalDraft(id: number): $CancellablePromise<void> {
@@ -169,6 +177,10 @@ export function GetThread(folderID: number, threadRoot: string): $CancellablePro
     return $Call.ByID(4271611221, folderID, threadRoot);
 }
 
+export function LabelUsage(id: number): $CancellablePromise<number> {
+    return $Call.ByID(2406668782, id);
+}
+
 export function ListAccounts(): $CancellablePromise<model$0.Account[] | null> {
     return $Call.ByID(837905259);
 }
@@ -182,6 +194,14 @@ export function ListContacts(query: string): $CancellablePromise<model$0.Contact
 
 export function ListFolders(accountID: number): $CancellablePromise<model$0.Folder[] | null> {
     return $Call.ByID(4066439256, accountID);
+}
+
+export function ListLabeled(labelID: number, accountID: number, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
+    return $Call.ByID(1106578742, labelID, accountID, q);
+}
+
+export function ListLabels(): $CancellablePromise<model$0.Label[] | null> {
+    return $Call.ByID(868827596);
 }
 
 export function ListLocalDrafts(): $CancellablePromise<model$0.LocalDraft[] | null> {
@@ -281,6 +301,10 @@ export function QueueSend(req: model$0.SendRequest): $CancellablePromise<number>
     return $Call.ByID(2221525140, req);
 }
 
+export function RefreshLabel(labelID: number, accountID: number): $CancellablePromise<void> {
+    return $Call.ByID(3913716112, labelID, accountID);
+}
+
 export function RemoveAccount(id: number): $CancellablePromise<void> {
     return $Call.ByID(670503326, id);
 }
@@ -290,6 +314,10 @@ export function RemoveAccount(id: number): $CancellablePromise<void> {
  */
 export function RenameFolder(folderID: number, name: string): $CancellablePromise<model$0.Folder> {
     return $Call.ByID(2263741205, folderID, name);
+}
+
+export function ReorderLabels(ids: number[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4154652925, ids);
 }
 
 /**
@@ -350,6 +378,10 @@ export function SetFolderOrder(accountID: number, folderIDs: number[] | null): $
     return $Call.ByID(2643839527, accountID, folderIDs);
 }
 
+export function SetLabel(ids: number[] | null, labelID: number, on: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2294959173, ids, labelID, on);
+}
+
 /**
  * SetSaveSentCopy cambia si se guarda la copia de lo enviado en Enviados.
  */
@@ -401,6 +433,10 @@ export function SyncUnified(view: model$0.UnifiedView): $CancellablePromise<void
 
 export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void> {
     return $Call.ByID(1412243062, $in);
+}
+
+export function UpdateLabel(l: model$0.Label): $CancellablePromise<model$0.Label> {
+    return $Call.ByID(2968828892, l);
 }
 
 export function UpdatePassword(accountID: number, password: string): $CancellablePromise<void> {

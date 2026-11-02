@@ -348,3 +348,189 @@ func (c *Core) storeLabelKeyword(ctx context.Context, accountID, folderID int64,
 	}
 	return true, nil
 }
+
+// ListLabeled lista, de todas las carpetas de la cuenta (o de todas las
+// cuentas con accountID 0), los mensajes en caché que tienen la etiqueta, por
+// fecha descendente. Limit 0 devuelve 100.
+func (c *Core) ListLabeled(ctx context.Context, labelID, accountID int64, q model.ListQuery) ([]model.MessageSummary, error) {
+	if _, err := c.store.LabelKeyword(ctx, labelID); errors.Is(err, store.ErrNotFound) {
+		return nil, &UserError{Code: "notfound", Msg: msgLabelMissing}
+	} else if err != nil {
+		return nil, c.ctxOrUserError(ctx, err)
+	}
+	if q.Limit <= 0 {
+		q.Limit = defaultPageSize
+	}
+	ms, err := c.store.ListLabeled(ctx, labelID, accountID, q)
+	if err != nil {
+		return nil, c.ctxOrUserError(ctx, err)
+	}
+	return ms, nil
+}
+
+// RefreshLabel completa desde el servidor lo que la caché no sabe de la
+// etiqueta: en cada carpeta seleccionable de cada cuenta del alcance (accountID
+// 0 = todas) que guarde keywords, busca los mensajes con el keyword, baja los
+// encabezados de los que la caché no tiene y le saca la etiqueta a los que ya
+// no la tienen en el servidor. Un error de una cuenta no corta a las demás;
+// devuelve el primero.
+func (c *Core) RefreshLabel(ctx context.Context, labelID, accountID int64) error {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	if err := c.ctxErr(ctx); err != nil {
+		return err
+	}
+	kw, err := c.store.LabelKeyword(ctx, labelID)
+	if errors.Is(err, store.ErrNotFound) {
+		return &UserError{Code: "notfound", Msg: msgLabelMissing}
+	}
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	var accIDs []int64
+	if accountID != 0 {
+		accIDs = []int64{accountID}
+	} else {
+		accs, err := c.store.ListAccounts(ctx)
+		if err != nil {
+			return c.ctxOrUserError(ctx, err)
+		}
+		for _, a := range accs {
+			accIDs = append(accIDs, a.ID)
+		}
+	}
+	var first error
+	for _, accID := range accIDs {
+		if err := c.refreshLabelAccount(ctx, accID, labelID, kw); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// refreshLabelAccount recorre las carpetas de la cuenta. Las cuentas que
+// guardan las etiquetas solo acá no se tocan: el servidor no las tiene.
+func (c *Core) refreshLabelAccount(ctx context.Context, accountID, labelID int64, kw string) error {
+	local, err := c.store.AccountLabelsLocal(ctx, accountID)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	if local {
+		return nil
+	}
+	folders, err := c.store.ListFolders(ctx, accountID)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	var first error
+	for _, f := range folders {
+		if !f.Selectable {
+			continue
+		}
+		if err := c.refreshLabelFolder(ctx, f, labelID, kw); err != nil {
+			if first == nil {
+				first = err
+			}
+			var ue *UserError
+			if !errors.As(err, &ue) {
+				break // la conexión falló: no tiene sentido seguir con la cuenta
+			}
+		}
+	}
+	return first
+}
+
+// refreshLabelFolder aplica a una carpeta lo que dice el servidor sobre el
+// keyword. Toma el lock de sincronización de la carpeta, como SyncFolder.
+func (c *Core) refreshLabelFolder(ctx context.Context, f model.Folder, labelID int64, kw string) error {
+	mu := c.folderSyncLock(f.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := c.ctxErr(ctx); err != nil {
+		return err
+	}
+	_, last, err := c.store.GetFolder(ctx, f.ID)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	var (
+		changed bool
+		info    imapx.SelectInfo
+		remote  []uint32
+		heads   []imapx.RemoteHeader
+	)
+	known, err := c.store.KnownUIDs(ctx, f.ID)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	knownSet := make(map[uint32]bool, len(known))
+	for _, u := range known {
+		knownSet[u] = true
+	}
+	err = c.withConn(ctx, f.AccountID, func(_ context.Context, conn *imapx.Conn) error {
+		var err error
+		if info, err = selectInfoChecked(conn, f, last, false); err != nil {
+			return err
+		}
+		if remote, err = conn.SearchKeyword(kw); err != nil {
+			return err
+		}
+		missing := []uint32{}
+		for _, u := range remote {
+			if !knownSet[u] {
+				missing = append(missing, u)
+			}
+		}
+		for i := 0; i < len(missing); i += headerBatch {
+			hs, err := conn.FetchHeaders(missing[i:min(i+headerBatch, len(missing))])
+			if err != nil {
+				return err
+			}
+			heads = append(heads, hs...)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(heads) > 0 {
+		// Carpeta nunca sincronizada: se anota el UIDVALIDITY antes de insertar
+		// filas, como prepareSync, para que el próximo sync calcule bien.
+		if last.UIDValidity == 0 {
+			if err := c.store.SetFolderSync(ctx, f.ID, store.FolderSync{UIDValidity: info.UIDValidity}); err != nil {
+				return c.ctxOrUserError(ctx, err)
+			}
+		}
+		if err := c.store.UpsertHeaders(ctx, f.ID, headerRows(heads)); err != nil {
+			return c.ctxOrUserError(ctx, err)
+		}
+		changed = true
+	}
+	labeled, err := c.store.LabeledInFolder(ctx, f.ID, labelID)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	onServer := make(map[uint32]bool, len(remote))
+	for _, u := range remote {
+		onServer[u] = true
+	}
+	stale := []int64{}
+	for uid, id := range labeled {
+		if !onServer[uid] {
+			stale = append(stale, id)
+		}
+	}
+	if len(stale) > 0 {
+		if err := c.store.AddMessageLabel(ctx, stale, labelID, false); err != nil {
+			return c.ctxOrUserError(ctx, err)
+		}
+		changed = true
+	}
+	if changed {
+		if err := c.store.RecountFolder(ctx, f.ID); err != nil {
+			return c.ctxOrUserError(ctx, err)
+		}
+		c.emit(EventFolderUpdated, map[string]any{"folderId": f.ID})
+	}
+	return nil
+}

@@ -470,6 +470,44 @@ func (s *MailService) SetFlagged(ctx context.Context, ids []int64, flagged bool)
 	return s.core.SetFlagged(ctx, ids, flagged)
 }
 
+// Etiquetas: delegan en el núcleo.
+
+func (s *MailService) ListLabels(ctx context.Context) ([]model.Label, error) {
+	return s.core.ListLabels(ctx)
+}
+
+func (s *MailService) CreateLabel(ctx context.Context, name, color string) (model.Label, error) {
+	return s.core.CreateLabel(ctx, name, color)
+}
+
+func (s *MailService) UpdateLabel(ctx context.Context, l model.Label) (model.Label, error) {
+	return s.core.UpdateLabel(ctx, l)
+}
+
+func (s *MailService) ReorderLabels(ctx context.Context, ids []int64) error {
+	return s.core.ReorderLabels(ctx, ids)
+}
+
+func (s *MailService) LabelUsage(ctx context.Context, id int64) (int, error) {
+	return s.core.LabelUsage(ctx, id)
+}
+
+func (s *MailService) DeleteLabel(ctx context.Context, id int64) error {
+	return s.core.DeleteLabel(ctx, id)
+}
+
+func (s *MailService) SetLabel(ctx context.Context, ids []int64, labelID int64, on bool) error {
+	return s.core.SetLabel(ctx, ids, labelID, on)
+}
+
+func (s *MailService) ListLabeled(ctx context.Context, labelID, accountID int64, q model.ListQuery) ([]model.MessageSummary, error) {
+	return s.core.ListLabeled(ctx, labelID, accountID, q)
+}
+
+func (s *MailService) RefreshLabel(ctx context.Context, labelID, accountID int64) error {
+	return s.core.RefreshLabel(ctx, labelID, accountID)
+}
+
 func (s *MailService) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) error {
 	return s.core.MoveMessages(ctx, ids, destFolderID)
 }
