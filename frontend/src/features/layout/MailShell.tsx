@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
 import { onOpenMessage, syncFolder, syncUnified } from "@/lib/events";
 import { useAllFolders, useSettings } from "@/lib/queries";
+import { NO_MARKS, type Marks } from "@/lib/selection";
 import { useReadingPane, type ReadingPane } from "@/lib/settings";
 import { defaultView, loadView, saveView, viewAccount, viewIsValid, type View } from "@/lib/view";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -78,6 +79,14 @@ export type ShellState = {
   selectContact: (id: number | null) => void;
   // Pasa a la libreta con esa ficha abierta.
   openContact: (id: number) => void;
+  // Correos marcados para actuar sobre varios (listas planas y búsqueda) y
+  // conversaciones marcadas (por raíz). Abrir algo, cambiar de vista o buscar
+  // los suelta: si no, una acción tocaría correos que ya no se ven.
+  marked: Marks<number>;
+  markedThreads: Marks<string>;
+  setMarked: (m: Marks<number>) => void;
+  setMarkedThreads: (m: Marks<string>) => void;
+  clearMarks: () => void;
 };
 
 type Props = {
@@ -116,6 +125,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [search, setSearchState] = useState<SearchState | null>(null);
   const [threadRoot, setThreadRoot] = useState<string | null>(null);
   const [contactId, setContactId] = useState<number | null>(null);
+  const [marked, setMarked] = useState<Marks<number>>(NO_MARKS);
+  const [markedThreads, setMarkedThreads] = useState<Marks<string>>(NO_MARKS);
   const { folders, pending } = useAllFolders(accounts);
   const settings = useSettings();
   const pane = useReadingPane();
@@ -142,6 +153,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
       setSearchState(null);
       setThreadRoot(null);
       setContactId(null);
+      setMarked(NO_MARKS);
+      setMarkedThreads(NO_MARKS);
     }
   }
 
@@ -155,36 +168,46 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     syncView(chosen, folders);
   }, [ready, valid, chosen, folders]);
 
+  const clearMarks = useCallback(() => {
+    setMarked(NO_MARKS);
+    setMarkedThreads(NO_MARKS);
+  }, []);
+
   const selectView = useCallback((v: View) => {
+    clearMarks();
     setChosen(v);
     setMessageId(null);
     setSearchState(null);
     setThreadRoot(null);
     setContactId(null);
-  }, []);
+  }, [clearMarks]);
 
   const openContact = useCallback((id: number) => {
+    clearMarks();
     setChosen({ kind: "contacts" });
     setMessageId(null);
     setSearchState(null);
     setThreadRoot(null);
     setContactId(id);
-  }, []);
+  }, [clearMarks]);
 
   const selectMessage = useCallback((id: number | null) => {
+    if (id != null) clearMarks();
     setMessageId(id);
     setThreadRoot(null);
-  }, []);
+  }, [clearMarks]);
 
   const selectThread = useCallback((root: string | null) => {
+    if (root != null) clearMarks();
     setThreadRoot(root);
     setMessageId(null);
-  }, []);
+  }, [clearMarks]);
 
   const setSearch = useCallback((s: SearchState | null) => {
+    clearMarks();
     setSearchState(s);
     setThreadRoot(null);
-  }, []);
+  }, [clearMarks]);
 
   // Abrir desde una notificación: primero la carpeta (que limpia el mensaje) y
   // después el mensaje. Ambos set* se agrupan en un solo render y el último gana.
@@ -213,6 +236,11 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     contactId,
     selectContact: setContactId,
     openContact,
+    marked,
+    markedThreads,
+    setMarked,
+    setMarkedThreads,
+    clearMarks,
   };
 
   // Los dos paneles del grupo interior se arman una vez; solo cambia el orden.

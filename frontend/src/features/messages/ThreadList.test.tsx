@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
@@ -8,6 +9,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
 
 import type { MessageSummary, ThreadSummary } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import { NO_MARKS, type Marks } from "@/lib/selection";
 import { ThreadList } from "./ThreadList";
 
 function summary(id: number, over: Partial<MessageSummary> = {}): MessageSummary {
@@ -41,6 +43,8 @@ describe("ThreadList", () => {
           color="#f00"
           selected={null}
           onSelect={selectThread}
+          marked={NO_MARKS}
+          onMark={vi.fn()}
         />
       </QueryClientProvider>,
     );
@@ -58,5 +62,66 @@ describe("ThreadList", () => {
 
     fireEvent.click(first);
     expect(selectThread).toHaveBeenCalledWith("<a@x>");
+  });
+});
+
+describe("ThreadList selección múltiple", () => {
+  // Hace de MailShell: abrir un hilo suelta lo marcado.
+  function Stateful() {
+    const [marked, setMarked] = useState<Marks<string>>(NO_MARKS);
+    const [open, setOpen] = useState<string | null>(null);
+    return (
+      <>
+        <p data-testid="open">{open ?? ""}</p>
+        <ThreadList
+          folderId={3}
+          unreadOnly={false}
+          syncing={false}
+          selected={open}
+          onSelect={(r) => { setOpen(r); setMarked(NO_MARKS); }}
+          marked={marked}
+          onMark={setMarked}
+        />
+        <p data-testid="count">{marked.keys.length}</p>
+      </>
+    );
+  }
+
+  it("Ctrl + clic en dos hilos los marca; un clic común abre uno y suelta", async () => {
+    vi.mocked(svc.ListThreads).mockResolvedValue(threads);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Stateful />
+      </QueryClientProvider>,
+    );
+    const first = await screen.findByRole("button", { name: /Asunto 1/ });
+    const second = screen.getByRole("button", { name: /Asunto 2/ });
+    fireEvent.click(first, { ctrlKey: true });
+    // Con uno solo marcado y nada abierto se abre ese.
+    expect(screen.getByTestId("open").textContent).toBe("<a@x>");
+    fireEvent.click(second, { ctrlKey: true });
+    expect(screen.getByTestId("count").textContent).toBe("2");
+    expect(second.closest("li")!.className).toContain("bg-primary/10");
+    fireEvent.keyDown(second, { key: "Escape" });
+    expect(screen.getByTestId("count").textContent).toBe("0");
+    fireEvent.click(second, { ctrlKey: true });
+    fireEvent.click(first);
+    expect(screen.getByTestId("count").textContent).toBe("0");
+    expect(screen.getByTestId("open").textContent).toBe("<a@x>");
+  });
+
+  it("la casilla de un hilo lo marca sin abrirlo", async () => {
+    vi.mocked(svc.ListThreads).mockResolvedValue(threads);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Stateful />
+      </QueryClientProvider>,
+    );
+    const first = await screen.findByRole("button", { name: /Asunto 1/ });
+    fireEvent.click(first);
+    const box = screen.getByRole("button", { name: /Asunto 2/ }).closest("li")!.querySelector("input")!;
+    fireEvent.click(box);
+    expect(screen.getByTestId("count").textContent).toBe("2");
+    expect(screen.getByTestId("open").textContent).toBe("<a@x>");
   });
 });

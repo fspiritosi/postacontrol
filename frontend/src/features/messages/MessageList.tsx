@@ -16,8 +16,10 @@ import type { ShellState } from "../layout/MailShell";
 import { SearchBox } from "../search/SearchBox";
 import { SearchResults } from "../search/SearchResults";
 import { MessageRow } from "./MessageRow";
+import { SelectionBar } from "./SelectionBar";
 import { ThreadList } from "./ThreadList";
 import { UnsyncedDraftsBanner } from "./UnsyncedDraftsBanner";
+import { useMarking } from "./useMarking";
 
 export function MessageList({
   accounts,
@@ -55,11 +57,21 @@ export function MessageList({
     progress != null && folderId != null && progress.folderId === folderId;
   const colorOf = (accountId: number) =>
     accounts.find((a) => a.id === accountId)?.color;
+  const markCount =
+    threaded && search == null ? state.markedThreads.keys.length : state.marked.keys.length;
+  const marking = useMarking({
+    marks: state.marked,
+    onMark: state.setMarked,
+    order: items.map((m) => m.id),
+    open: state.messageId,
+    onOpen: state.selectMessage,
+  });
 
   // Se guarda al instante, conservando el resto de la configuración.
   const setThreaded = async (v: boolean) => {
     try {
       await saveSettings(queryClient, settings.data, { threadedList: v });
+      state.clearMarks();
       if (!v) state.selectThread(null);
     } catch (e) {
       toast.error(errorMessage(e));
@@ -145,6 +157,14 @@ export function MessageList({
         <UnsyncedDraftsBanner accountId={folder ? folder.accountId : null} />
       )}
 
+      {markCount > 1 && (
+        <SelectionBar
+          count={markCount}
+          threads={threaded && search == null}
+          onClear={state.clearMarks}
+        />
+      )}
+
       {search != null ? (
         <SearchResults accounts={accounts} state={state} search={search} />
       ) : threaded && folderId != null ? (
@@ -155,9 +175,15 @@ export function MessageList({
           color={folder ? colorOf(folder.accountId) : undefined}
           selected={state.threadRoot}
           onSelect={state.selectThread}
+          marked={state.markedThreads}
+          onMark={state.setMarkedThreads}
         />
       ) : (
-        <div className="flex-1 overflow-y-auto">
+        <div
+          className="flex-1 overflow-y-auto outline-none"
+          tabIndex={-1}
+          onKeyDown={marking.onKeyDown}
+        >
           {messages.isError && (
             <p className="p-4 text-sm text-destructive">
               {errorMessage(messages.error)}
@@ -182,7 +208,10 @@ export function MessageList({
                 message={m}
                 color={colorOf(m.accountId)}
                 selected={state.messageId === m.id}
-                onSelect={state.selectMessage}
+                onSelect={marking.select}
+                marked={state.marked.keys.includes(m.id)}
+                anyMarked={marking.any}
+                onToggle={marking.toggle}
               />
             ))}
           </ul>

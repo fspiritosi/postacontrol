@@ -22,6 +22,7 @@ import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { resetSyncStateForTests } from "@/lib/events";
 import type { View } from "@/lib/view";
 import { MessageList } from "../messages/MessageList";
+import type { Marks } from "@/lib/selection";
 import type { SearchState } from "../layout/MailShell";
 
 const accounts: Account[] = [7].map((id) => ({
@@ -51,6 +52,7 @@ const selectMessage = vi.fn();
 function Harness({ initial }: { initial: View }) {
   const [view, setView] = useState<View>(initial);
   const [search, setSearch] = useState<SearchState | null>(null);
+  const [marked, setMarked] = useState<Marks<number>>({ keys: [], anchor: null });
   return (
     <>
       <button onClick={() => { setView({ kind: "folder", folderId: 4 }); setSearch(null); }}>otra</button>
@@ -60,6 +62,8 @@ function Harness({ initial }: { initial: View }) {
           view, messageId: null, selectView: vi.fn(), selectMessage, search, setSearch,
           threadRoot: null, selectThread: vi.fn(),
           contactId: null, selectContact: vi.fn(), openContact: vi.fn(),
+          marked, markedThreads: { keys: [], anchor: null },
+          setMarked, setMarkedThreads: vi.fn(), clearMarks: () => setMarked({ keys: [], anchor: null }),
         }}
       />
     </>
@@ -164,6 +168,20 @@ describe("buscador", () => {
     await user.type(screen.getByRole("searchbox", { name: "Buscar correo" }), "hola{Enter}");
     await user.click(await screen.findByRole("button", { name: /Asunto 1/ }));
     expect(selectMessage).toHaveBeenCalledWith(1);
+  });
+
+  it("Ctrl + A en los resultados marca todos y muestra la barra", async () => {
+    vi.mocked(svc.Search).mockResolvedValue({
+      messages: [summary(1, 3), summary(2, 4), summary(3, 3)], pending: 0,
+    });
+    const user = setup();
+    await user.type(screen.getByRole("searchbox", { name: "Buscar correo" }), "hola{Enter}");
+    const first = await screen.findByRole("button", { name: /Asunto 1/ });
+    first.focus();
+    await user.keyboard("{Control>}a{/Control}");
+    expect(screen.getByText("3 seleccionados")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Quitar selección" }));
+    expect(screen.queryByText("3 seleccionados")).toBeNull();
   });
 
   it("al cambiar de vista se vacía el campo", async () => {

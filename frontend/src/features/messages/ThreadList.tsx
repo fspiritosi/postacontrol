@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
 import { useThreads } from "@/lib/queries";
+import type { Marks } from "@/lib/selection";
 import { useReadingPane } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { useMarking, type ClickMods } from "./useMarking";
 
 type Props = {
   folderId: number;
@@ -16,6 +18,9 @@ type Props = {
   color?: string;
   selected: string | null;
   onSelect: (root: string) => void;
+  // Conversaciones marcadas para actuar sobre varias.
+  marked: Marks<string>;
+  onMark: (m: Marks<string>) => void;
 };
 
 // Fila de un hilo: mismos estilos que MessageRow, con los participantes en
@@ -25,27 +30,47 @@ function ThreadRow({
   color,
   selected,
   onSelect,
+  marked,
+  anyMarked,
+  onToggle,
 }: {
   thread: ThreadSummary;
   color?: string;
   selected: boolean;
-  onSelect: (root: string) => void;
+  onSelect: (root: string, mods: ClickMods) => void;
+  marked: boolean;
+  anyMarked: boolean;
+  onToggle: (root: string) => void;
 }) {
   const compact = useReadingPane() !== "right";
   const m = t.latest;
   const unread = t.unread > 0;
   const participants = (t.participants ?? []).join(", ") || m.from.name || m.from.email;
   return (
-    <li data-density={compact ? "compact" : "comfortable"}>
+    <li
+      className={cn("group relative", marked && "bg-primary/10")}
+      data-density={compact ? "compact" : "comfortable"}
+    >
+      <input
+        type="checkbox"
+        aria-label="Seleccionar"
+        checked={marked}
+        onChange={() => onToggle(t.threadRoot)}
+        className={cn(
+          "absolute left-0.5 z-10 size-3.5 cursor-pointer accent-primary focus-visible:opacity-100",
+          compact ? "top-1/2 -translate-y-1/2" : "top-3.5",
+          !marked && !anyMarked && "opacity-0 group-hover:opacity-100",
+        )}
+      />
       <button
         type="button"
-        onClick={() => onSelect(t.threadRoot)}
+        onClick={(e) => onSelect(t.threadRoot, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
         aria-current={selected ? "true" : undefined}
         className={cn(
           compact
             ? "flex w-full items-center gap-2 border-b px-4 py-1.5 text-left transition-colors hover:bg-accent/60"
             : "flex w-full flex-col gap-0.5 border-b px-4 py-2.5 text-left transition-colors hover:bg-accent/60",
-          selected && "bg-accent",
+          selected && !marked && "bg-accent",
         )}
       >
         {compact ? (
@@ -132,11 +157,27 @@ function ThreadRow({
   );
 }
 
-export function ThreadList({ folderId, unreadOnly, syncing, color, selected, onSelect }: Props) {
+export function ThreadList({
+  folderId,
+  unreadOnly,
+  syncing,
+  color,
+  selected,
+  onSelect,
+  marked,
+  onMark,
+}: Props) {
   const threads = useThreads(folderId, unreadOnly);
   const items = threads.data?.pages.flat() ?? [];
+  const marking = useMarking({
+    marks: marked,
+    onMark,
+    order: items.map((t) => t.threadRoot),
+    open: selected,
+    onOpen: onSelect,
+  });
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto outline-none" tabIndex={-1} onKeyDown={marking.onKeyDown}>
       {threads.isError && (
         <p className="p-4 text-sm text-destructive">{errorMessage(threads.error)}</p>
       )}
@@ -152,7 +193,10 @@ export function ThreadList({ folderId, unreadOnly, syncing, color, selected, onS
             thread={t}
             color={color}
             selected={selected === t.threadRoot}
-            onSelect={onSelect}
+            onSelect={marking.select}
+            marked={marked.keys.includes(t.threadRoot)}
+            anyMarked={marking.any}
+            onToggle={marking.toggle}
           />
         ))}
       </ul>

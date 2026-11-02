@@ -7,6 +7,7 @@ import { folderLabel } from "@/lib/folders";
 import { useAllFolders, useSearch } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { MessageRow } from "../messages/MessageRow";
+import { useMarking } from "../messages/useMarking";
 import type { SearchScope, SearchState, ShellState } from "../layout/MailShell";
 
 type Props = {
@@ -46,6 +47,14 @@ export function SearchResults({ accounts, state, search }: Props) {
   }
   const pending = results.data?.pages[0]?.pending ?? 0;
 
+  const marking = useMarking({
+    marks: state.marked,
+    onMark: state.setMarked,
+    order: items.map((m) => m.id),
+    open: state.messageId,
+    onOpen: state.selectMessage,
+  });
+
   const colorOf = (accountId: number) => accounts.find((a) => a.id === accountId)?.color;
   const labelOf = (id: number) => {
     const f = folders.find((x) => x.id === id);
@@ -70,7 +79,7 @@ export function SearchResults({ accounts, state, search }: Props) {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto outline-none" tabIndex={-1} onKeyDown={marking.onKeyDown}>
       {inFolder && (
         <div className="flex rounded-md bg-muted p-0.5 text-xs m-2" role="group" aria-label="Alcance">
           {SCOPES.map((o) => (
@@ -113,7 +122,10 @@ export function SearchResults({ accounts, state, search }: Props) {
             message={m}
             color={colorOf(m.accountId)}
             selected={state.messageId === m.id}
-            onSelect={state.selectMessage}
+            onSelect={marking.select}
+            marked={state.marked.keys.includes(m.id)}
+            anyMarked={marking.any}
+            onToggle={marking.toggle}
             folderLabel={labelOf(m.folderId)}
           />
         ))}

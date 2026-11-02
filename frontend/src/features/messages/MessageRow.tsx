@@ -7,17 +7,33 @@ import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
 import { useReadingPane } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import type { ClickMods } from "./useMarking";
 
 type Props = {
   message: MessageSummary;
   color?: string;
   selected: boolean;
-  onSelect: (id: number) => void;
+  // Clic en la fila, con las teclas que tenía apretadas.
+  onSelect: (id: number, mods: ClickMods) => void;
+  // Marcado para actuar sobre varios, y si hay algo marcado en la lista.
+  marked: boolean;
+  anyMarked: boolean;
+  // La casilla: marca o desmarca sin abrir.
+  onToggle: (id: number) => void;
   // Etiqueta de la carpeta (en los resultados de búsqueda).
   folderLabel?: string;
 };
 
-export function MessageRow({ message: m, color, selected, onSelect, folderLabel }: Props) {
+export function MessageRow({
+  message: m,
+  color,
+  selected,
+  onSelect,
+  marked,
+  anyMarked,
+  onToggle,
+  folderLabel,
+}: Props) {
   const queryClient = useQueryClient();
   // Con el lector abajo o arriba la lista es ancha: cada correo ocupa un renglón.
   const compact = useReadingPane() !== "right";
@@ -34,16 +50,30 @@ export function MessageRow({ message: m, color, selected, onSelect, folderLabel 
   };
 
   return (
-    <li className="relative" data-density={compact ? "compact" : "comfortable"}>
+    <li
+      className={cn("group relative", marked && "bg-primary/10")}
+      data-density={compact ? "compact" : "comfortable"}
+    >
+      <input
+        type="checkbox"
+        aria-label="Seleccionar"
+        checked={marked}
+        onChange={() => onToggle(m.id)}
+        className={cn(
+          "absolute left-0.5 z-10 size-3.5 cursor-pointer accent-primary focus-visible:opacity-100",
+          compact ? "top-1/2 -translate-y-1/2" : "top-3.5",
+          !marked && !anyMarked && "opacity-0 group-hover:opacity-100",
+        )}
+      />
       <button
         type="button"
-        onClick={() => onSelect(m.id)}
+        onClick={(e) => onSelect(m.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
         aria-current={selected ? "true" : undefined}
         className={cn(
           compact
             ? "flex w-full items-center gap-2 border-b px-4 py-1.5 text-left transition-colors hover:bg-accent/60"
             : "flex w-full flex-col gap-0.5 border-b px-4 py-2.5 text-left transition-colors hover:bg-accent/60",
-          selected && "bg-accent",
+          selected && !marked && "bg-accent",
         )}
       >
         {compact ? (

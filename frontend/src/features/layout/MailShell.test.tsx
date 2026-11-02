@@ -228,3 +228,56 @@ describe("MailShell posición del panel de lectura", () => {
     expect(panel("list")!.compareDocumentPosition(panel("reader")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe("MailShell selección múltiple", () => {
+  afterEach(() => localStorage.clear());
+
+  const marks = { keys: [1, 2], anchor: 2 };
+  const none = { keys: [], anchor: null };
+
+  async function marked() {
+    const h = setup({ kind: "folder", folderId: 21 }, false);
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 21 }));
+    act(() => {
+      h.state().setMarked(marks);
+      h.state().setMarkedThreads({ keys: ["<a@x>", "<b@x>"], anchor: "<b@x>" });
+    });
+    expect(h.state().marked).toEqual(marks);
+    return h.state;
+  }
+
+  it("cambiar de vista suelta la selección", async () => {
+    const state = await marked();
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().marked).toEqual(none);
+    expect(state().markedThreads).toEqual(none);
+  });
+
+  it("buscar o cerrar la búsqueda suelta la selección", async () => {
+    const state = await marked();
+    act(() => state().setSearch({ text: "factura", scope: "all" }));
+    expect(state().marked).toEqual(none);
+    expect(state().markedThreads).toEqual(none);
+  });
+
+  it("abrir un correo o un hilo suelta la selección; selectMessage(null) no", async () => {
+    const state = await marked();
+    act(() => state().selectMessage(null));
+    expect(state().marked).toEqual(marks);
+    act(() => state().selectMessage(9));
+    expect(state().marked).toEqual(none);
+    expect(state().markedThreads).toEqual(none);
+    act(() => state().setMarked(marks));
+    act(() => state().selectThread("<r@x>"));
+    expect(state().marked).toEqual(none);
+  });
+
+  it("openContact suelta la selección y clearMarks también", async () => {
+    const state = await marked();
+    act(() => state().openContact(4));
+    expect(state().marked).toEqual(none);
+    act(() => state().setMarked(marks));
+    act(() => state().clearMarks());
+    expect(state().marked).toEqual(none);
+  });
+});

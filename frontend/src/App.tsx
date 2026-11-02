@@ -9,6 +9,7 @@ import { ContactPanel } from "./features/contacts/ContactPanel";
 import { MailShell } from "./features/layout/MailShell";
 import { MessageList } from "./features/messages/MessageList";
 import { OutboxList } from "./features/outbox/OutboxList";
+import { MarkedPane } from "./features/reader/MarkedPane";
 import { MessageView } from "./features/reader/MessageView";
 import { ThreadView } from "./features/reader/ThreadView";
 import { useMailEvents } from "./lib/events";
@@ -74,6 +75,10 @@ export default function App() {
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
               Abrí un correo de la Bandeja de salida para revisarlo, o reintentá el envío.
             </div>
+          ) : s.marked.keys.length > 1 ? (
+            <MarkedPane count={s.marked.keys.length} />
+          ) : s.markedThreads.keys.length > 1 ? (
+            <MarkedPane count={s.markedThreads.keys.length} threads />
           ) : s.threadRoot != null ? (
             <ThreadView key={s.threadRoot} accounts={all} state={s} />
           ) : (
