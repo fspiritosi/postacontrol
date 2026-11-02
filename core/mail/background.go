@@ -27,6 +27,16 @@ var backgroundExt = map[string]string{
 // SetBackground copia la imagen de srcPath a la carpeta de datos y la deja como
 // fondo. El archivo anterior se borra recién después de guardar la configuración.
 func (c *Core) SetBackground(ctx context.Context, srcPath string) error {
+	if err := c.setBackgroundLocked(ctx, srcPath); err != nil {
+		return err
+	}
+	c.emit(EventSettingsChanged, nil)
+	return nil
+}
+
+func (c *Core) setBackgroundLocked(ctx context.Context, srcPath string) error {
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
 	name := filepath.Base(srcPath)
 	fi, err := os.Stat(srcPath)
 	if err != nil {
@@ -62,18 +72,26 @@ func (c *Core) SetBackground(ctx context.Context, srcPath string) error {
 		return err
 	}
 	c.removeBackgroundFile(old, file)
-	c.emit(EventSettingsChanged, nil)
 	return nil
 }
 
 // ClearBackground quita el fondo y borra su archivo.
 func (c *Core) ClearBackground(ctx context.Context) error {
+	if err := c.clearBackgroundLocked(ctx); err != nil {
+		return err
+	}
+	c.emit(EventSettingsChanged, nil)
+	return nil
+}
+
+func (c *Core) clearBackgroundLocked(ctx context.Context) error {
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
 	old, err := c.saveBackground(ctx, "")
 	if err != nil {
 		return err
 	}
 	c.removeBackgroundFile(old, "")
-	c.emit(EventSettingsChanged, nil)
 	return nil
 }
 

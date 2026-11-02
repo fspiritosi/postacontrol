@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"postacontrol/core/model"
 )
 
 var pngSig = []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
@@ -94,4 +97,31 @@ func TestBackgroundImage_MissingFileIsEmpty(t *testing.T) {
 	url, err := c.BackgroundImage(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "", url)
+}
+
+func TestBackground_ConcurrentWithSetSettings(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	src := writePNG(t, "a.png", 8)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 30; i++ {
+			assert.NoError(t, c.SetBackground(ctx, src))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 30; i++ {
+			assert.NoError(t, c.SetSettings(ctx, model.Settings{ReadingPane: "top"}))
+		}
+	}()
+	wg.Wait()
+	st, err := c.GetSettings(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, st.Background)
+	assert.FileExists(t, filepath.Join(c.dataDir, st.Background))
+	files, _ := filepath.Glob(filepath.Join(c.dataDir, "background-*"))
+	assert.Len(t, files, 1)
 }

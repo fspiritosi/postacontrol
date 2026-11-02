@@ -17,6 +17,16 @@ func (c *Core) GetSettings(ctx context.Context) (model.Settings, error) {
 
 // SetSettings guarda la configuración y avisa a la UI.
 func (c *Core) SetSettings(ctx context.Context, st model.Settings) error {
+	if err := c.setSettingsLocked(ctx, st); err != nil {
+		return err
+	}
+	c.emit(EventSettingsChanged, nil)
+	return nil
+}
+
+func (c *Core) setSettingsLocked(ctx context.Context, st model.Settings) error {
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
 	switch st.ReadingPane {
 	case "", "right", "bottom", "top":
 	default:
@@ -32,6 +42,5 @@ func (c *Core) SetSettings(ctx context.Context, st model.Settings) error {
 	if err := c.store.SaveSettings(ctx, st); err != nil {
 		return c.ctxOrUserError(ctx, err)
 	}
-	c.emit(EventSettingsChanged, nil)
 	return nil
 }

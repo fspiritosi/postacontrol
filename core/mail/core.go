@@ -44,6 +44,9 @@ type Core struct {
 	store *store.Store
 	// dataDir es la carpeta de datos (la de la base); ahí vive el fondo.
 	dataDir string
+	// settingsMu serializa leer-y-guardar la fila única de configuración
+	// (SetSettings, SetBackground, ClearBackground) y el borrado del fondo viejo.
+	settingsMu sync.Mutex
 
 	// Ciclo de vida: las goroutines propias (sincronización inicial y
 	// periódica) usan ctx y se registran en wg. Close cancela y espera.
