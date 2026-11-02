@@ -19,6 +19,8 @@ type HeaderRow struct {
 	References           []string
 	To, Cc, ReplyTo      []model.Address
 	Size                 int64
+	// Keywords son los keywords IMAP del mensaje en el servidor; los $pc_… conocidos son etiquetas.
+	Keywords []string
 }
 
 // BodyRow es el cuerpo ya procesado (HTML sanitizado) que se cachea al abrir un correo.
@@ -51,13 +53,19 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
    thread_root = CASE WHEN messages.thread_root = '' THEN excluded.thread_root ELSE messages.thread_root END,
    has_attachments = CASE WHEN messages.body_cached = 1 THEN messages.has_attachments
                           ELSE excluded.has_attachments END
- RETURNING thread_root`)
+ RETURNING thread_root, id`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	var accountID int64
-	if err := tx.QueryRowContext(ctx, `SELECT account_id FROM folders WHERE id = ?`, folderID).Scan(&accountID); err != nil {
+	var local int
+	if err := tx.QueryRowContext(ctx, `SELECT f.account_id, a.labels_local FROM folders f JOIN accounts a ON a.id = f.account_id
+ WHERE f.id = ?`, folderID).Scan(&accountID, &local); err != nil {
+		return err
+	}
+	kwMap, err := keywordMap(ctx, tx) // una vez por lote
+	if err != nil {
 		return err
 	}
 	for _, r := range rows {
@@ -90,11 +98,29 @@ func (s *Store) UpsertHeaders(ctx context.Context, folderID int64, rows []Header
 			return err
 		}
 		var stored string // la raíz que quedó guardada (al actualizar se conserva la anterior)
+		var rowID int64
+		existed := false
+		if local != 0 { // solo las cuentas locales necesitan saber si la fila es nueva
+			var n int
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE folder_id = ? AND uid = ?`, folderID, r.UID).Scan(&n); err != nil {
+				return err
+			}
+			existed = n > 0
+		}
 		if err := stmt.QueryRowContext(ctx, folderID, r.UID, r.MessageID, r.InReplyTo, refs,
 			r.From.Name, r.From.Email, to, cc, replyTo,
 			r.Subject, r.Snippet, r.Date.Unix(), r.Size, b2i(r.Seen), b2i(r.Flagged), b2i(r.Answered),
-			b2i(r.HasAttachments), root).Scan(&stored); err != nil {
+			b2i(r.HasAttachments), root).Scan(&stored, &rowID); err != nil {
 			return err
+		}
+		if local == 0 {
+			if err := replaceKeywordLabels(ctx, tx, rowID, r.Keywords, kwMap); err != nil {
+				return err
+			}
+		} else if !existed && r.MessageID != "" {
+			if err := applyCarry(ctx, tx, accountID, rowID, r.MessageID); err != nil {
+				return err
+			}
 		}
 		if r.MessageID != "" && stored != "" {
 			// Las respuestas que llegaron antes que este mensaje (la sincronización
@@ -180,19 +206,23 @@ func (s *Store) SetFlags(ctx context.Context, folderID int64, uid uint32, seen, 
 }
 
 const summaryCols = `m.id, f.account_id, m.folder_id, m.uid, m.from_name, m.from_email, m.subject, m.snippet,
- m.date, m.seen, m.flagged, m.answered, m.has_attachments`
+ m.date, m.seen, m.flagged, m.answered, m.has_attachments,
+ (SELECT group_concat(l.position || ':' || l.id) FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+   WHERE ml.message_id = m.id)`
 
 func scanSummary(sc interface{ Scan(...any) error }, extra ...any) (model.MessageSummary, error) {
 	var m model.MessageSummary
 	var date int64
 	var seen, flagged, answered, hasAtt int
+	var labels sql.NullString
 	dest := append([]any{&m.ID, &m.AccountID, &m.FolderID, &m.UID, &m.From.Name, &m.From.Email, &m.Subject,
-		&m.Snippet, &date, &seen, &flagged, &answered, &hasAtt}, extra...)
+		&m.Snippet, &date, &seen, &flagged, &answered, &hasAtt, &labels}, extra...)
 	if err := sc.Scan(dest...); err != nil {
 		return m, err
 	}
 	m.Date = time.Unix(date, 0).UTC()
 	m.Seen, m.Flagged, m.Answered, m.HasAttachments = seen != 0, flagged != 0, answered != 0, hasAtt != 0
+	m.Labels = parseLabelIDs(labels.String)
 	return m, nil
 }
 

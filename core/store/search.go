@@ -35,6 +35,10 @@ func (s *Store) Search(ctx context.Context, q model.SearchQuery) ([]model.Messag
 		where += ` AND m.folder_id = ?`
 		args = append(args, q.FolderID)
 	}
+	if q.LabelID != 0 {
+		where += ` AND m.id IN (SELECT message_id FROM message_labels WHERE label_id = ?)`
+		args = append(args, q.LabelID)
+	}
 	return s.listWhere(ctx, where, args, model.ListQuery{Limit: q.Limit, Offset: q.Offset})
 }
 

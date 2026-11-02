@@ -119,6 +119,16 @@ type MessageSummary struct {
 	Flagged        bool      `json:"flagged"`
 	Answered       bool      `json:"answered"`
 	HasAttachments bool      `json:"hasAttachments"`
+	// Labels son los ids de las etiquetas del mensaje, por posición; nunca nil.
+	Labels []int64 `json:"labels"`
+}
+
+// Label es una etiqueta de usuario. Su keyword IMAP ($pc_…) no se expone.
+type Label struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Color    string `json:"color"`
+	Position int    `json:"position"`
 }
 
 // NewMailItem es un correo nuevo dentro de un aviso NewMail.
@@ -280,6 +290,8 @@ type ThreadSummary struct {
 	Count        int            `json:"count"`
 	Unread       int            `json:"unread"`
 	Participants []string       `json:"participants"`
+	// Labels es la unión de las etiquetas de los mensajes del hilo, por posición; nunca nil.
+	Labels []int64 `json:"labels"`
 }
 
 // SearchQuery es una búsqueda en el índice local. FolderID 0 = todas las
@@ -287,6 +299,7 @@ type ThreadSummary struct {
 type SearchQuery struct {
 	Text     string `json:"text"`
 	FolderID int64  `json:"folderId"`
+	LabelID  int64  `json:"labelId"` // 0 = sin filtro por etiqueta
 	Limit    int    `json:"limit"`
 	Offset   int    `json:"offset"`
 }

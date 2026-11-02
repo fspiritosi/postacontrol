@@ -50,12 +50,14 @@ func inList(n int) string {
 }
 
 // threadsSQL arma la consulta de ListThreads para un alcance de scopeLen
-// carpetas. Parámetros: el alcance dos veces, la carpeta, limit y offset.
+// carpetas. Parámetros: el alcance tres veces, la carpeta, limit y offset.
 func threadsSQL(scopeLen int, unreadOnly bool) string {
 	in := inList(scopeLen)
 	query := `SELECT * FROM (SELECT ` + summaryCols + `, m.thread_root,
  (SELECT COUNT(*) FROM messages x WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + `) AS cnt,
- (SELECT COUNT(*) FROM messages x WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + ` AND x.seen = 0) AS unread
+ (SELECT COUNT(*) FROM messages x WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + ` AND x.seen = 0) AS unread,
+ (SELECT group_concat(DISTINCT l.position || ':' || l.id) FROM message_labels ml JOIN labels l ON l.id = ml.label_id
+  JOIN messages x ON x.id = ml.message_id WHERE x.thread_root = m.thread_root AND x.folder_id IN ` + in + `) AS tlabels
  FROM messages m JOIN folders f ON f.id = m.folder_id
  WHERE m.folder_id = ? AND m.id = (SELECT y.id FROM messages y WHERE y.folder_id = m.folder_id AND y.thread_root = m.thread_root
                                    ORDER BY y.date DESC, y.id DESC LIMIT 1))`
@@ -80,7 +82,7 @@ func (s *Store) ListThreads(ctx context.Context, folderID int64, q model.ListQue
 	if q.Offset > 0 {
 		offset = q.Offset
 	}
-	args := append(append([]any{}, scope...), scope...)
+	args := append(append(append([]any{}, scope...), scope...), scope...)
 	args = append(args, folderID, limit, offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -89,11 +91,13 @@ func (s *Store) ListThreads(ctx context.Context, folderID int64, q model.ListQue
 	out := []model.ThreadSummary{}
 	for rows.Next() {
 		var t model.ThreadSummary
-		t.Latest, err = scanSummary(rows, &t.ThreadRoot, &t.Count, &t.Unread)
+		var tlabels sql.NullString
+		t.Latest, err = scanSummary(rows, &t.ThreadRoot, &t.Count, &t.Unread, &tlabels)
 		if err != nil {
 			rows.Close()
 			return nil, err
 		}
+		t.Labels = parseLabelIDs(tlabels.String)
 		out = append(out, t)
 	}
 	if err := rows.Err(); err != nil {

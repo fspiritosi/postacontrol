@@ -28,7 +28,7 @@ func TestListThreads_PlanUsesFolderThreadIndex(t *testing.T) {
 	s := newStore(t)
 	for _, scope := range []int{1, 2} {
 		args := []any{}
-		for range 2 * scope {
+		for range 3 * scope {
 			args = append(args, int64(1))
 		}
 		args = append(args, int64(1), 50, 0)
