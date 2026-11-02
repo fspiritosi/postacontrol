@@ -7,6 +7,29 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SaveAttachment: vi.fn(() => Promise.resolve(true)),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+// pdf.js no corre en jsdom: el PdfView de prueba avisa 3 páginas al montarse
+// y destroy cuenta los desmontajes.
+const pdfDestroy = vi.fn();
+vi.mock("./PdfView", async () => {
+  const { useEffect, useRef } = await import("react");
+  return {
+    PdfView: ({ data, onPageChange }: { data: Uint8Array; onPageChange?: (p: number, t: number) => void }) => {
+      const first = useRef(onPageChange);
+      useEffect(() => {
+        first.current?.(1, 3);
+        return () => pdfDestroy();
+      }, []);
+      return (
+        <div>
+          <p>PDF de {data.length} bytes</p>
+          <button type="button" onClick={() => onPageChange?.(2, 3)}>
+            bajar
+          </button>
+        </div>
+      );
+    },
+  };
+});
 
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Attachment, AttachmentData } from "../../../bindings/postacontrol/core/model/models";
@@ -113,7 +136,7 @@ describe("AttachmentViewer", () => {
     const list = [pdf(0), xlsx(1), png(2)];
     serve(list);
     const { user } = setup(list);
-    expect(await screen.findByText("Vista previa de PDF próximamente")).toBeInTheDocument();
+    expect(await screen.findByText("PDF de 3 bytes")).toBeInTheDocument();
     await user.keyboard("{ArrowRight}");
     expect(await screen.findByRole("img", { name: "foto.png" })).toBeInTheDocument();
     expect(svc.AttachmentData).toHaveBeenLastCalledWith(7, 2);
@@ -121,9 +144,29 @@ describe("AttachmentViewer", () => {
     await user.keyboard("{ArrowRight}");
     expect(svc.AttachmentData).toHaveBeenCalledTimes(2);
     await user.keyboard("{ArrowLeft}");
-    expect(await screen.findByText("Vista previa de PDF próximamente")).toBeInTheDocument();
+    expect(await screen.findByText("PDF de 3 bytes")).toBeInTheDocument();
     expect(svc.AttachmentData).toHaveBeenLastCalledWith(7, 0);
     expect(screen.getByRole("heading", { name: "factura.pdf" })).toBeInTheDocument();
+  });
+
+  it("PDF: muestra pág. N de M y la reinicia al pasar a otro adjunto", async () => {
+    const list = [pdf(0), pdf(1, "otro.pdf"), png(2)];
+    serve(list);
+    const { user } = setup(list);
+    expect(await screen.findByText("pág. 1 de 3")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "bajar" }));
+    expect(screen.getByText("pág. 2 de 3")).toBeInTheDocument();
+
+    // Otro PDF: el anterior se desmonta y la página vuelve a 1.
+    await user.click(screen.getByRole("button", { name: /otro\.pdf/ }));
+    await screen.findByRole("heading", { name: "otro.pdf" });
+    expect(await screen.findByText("pág. 1 de 3")).toBeInTheDocument();
+    expect(pdfDestroy).toHaveBeenCalled();
+
+    // Una imagen no tiene páginas.
+    await user.keyboard("{ArrowRight}");
+    await screen.findByRole("img", { name: "foto.png" });
+    expect(screen.queryByText(/^pág\./)).not.toBeInTheDocument();
   });
 
   it("zoom: Ajustar, + y −", async () => {

@@ -56,6 +56,8 @@ export function AttachmentViewer({
   const [current, setCurrent] = useState(index);
   const [zoom, setZoom] = useState<Zoom>(null);
   const [result, setResult] = useState<Result | null>(null);
+  // Página visible del PDF, de la lectura `key` como en Result.
+  const [page, setPage] = useState<{ key: string; n: number; total: number } | null>(null);
 
   const att = attachments.find((a) => a.index === current);
   const kind = att ? viewKind(att) : null;
@@ -131,7 +133,11 @@ export function AttachmentViewer({
   if (!shown) stage = <p className="text-sm text-zinc-400">Cargando…</p>;
   else if (!shown.ok) stage = <p className="max-w-md px-6 text-center text-sm text-zinc-300">{shown.message}</p>;
   else if (shown.url) stage = <ImageView key={shown.url} url={shown.url} alt={name} zoom={zoom} />;
-  else if (shown.bytes) stage = <PdfView data={shown.bytes} zoom={zoom} />;
+  else if (shown.bytes)
+    stage = (
+      <PdfView key={key} data={shown.bytes} zoom={zoom} onPageChange={(n, total) => setPage({ key, n, total })} />
+    );
+  const pageShown = ready && kind === "pdf" && page?.key === key ? page : null;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -144,6 +150,11 @@ export function AttachmentViewer({
           <DialogDescription className="sr-only">
             Visor de adjuntos. Usá las flechas izquierda y derecha para pasar de uno a otro.
           </DialogDescription>
+          {pageShown && (
+            <span className="shrink-0 text-xs text-zinc-400 tabular-nums">
+              pág. {pageShown.n} de {pageShown.total}
+            </span>
+          )}
           <button
             type="button"
             aria-label="Alejar"
