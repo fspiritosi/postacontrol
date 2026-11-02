@@ -690,4 +690,75 @@ describe("FolderSidebar", () => {
       expect(toast.success).toHaveBeenCalledWith("Carpeta eliminada; 55 correos a la Papelera");
     });
   });
+
+  describe("plegar subcarpetas", () => {
+    const folder = (id: number, name: string, unread = 0) =>
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0 }) as const;
+
+    beforeEach(() => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        inbox(3, 7, 0),
+        folder(10, "Clientes", 1),
+        folder(11, "Clientes/Acme", 3),
+        folder(12, "Zeta"),
+      ] as never);
+    });
+
+    it("la flechita cierra y abre las subcarpetas sin abrir la carpeta, y se recuerda", async () => {
+      const selectView = vi.fn();
+      const user = userEvent.setup();
+      const { unmount } = renderSidebar([account], { ...baseState, selectView });
+      const toggle = await screen.findByRole("button", { name: "Contraer Clientes" });
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(screen.getByRole("button", { name: /^Acme/ })).toBeTruthy();
+      await user.click(toggle);
+      expect(screen.queryByRole("button", { name: /^Acme/ })).toBeNull();
+      expect(screen.getByRole("button", { name: "Expandir Clientes" }).getAttribute("aria-expanded")).toBe("false");
+      expect(selectView).not.toHaveBeenCalled();
+      unmount();
+      renderSidebar([account]);
+      expect(await screen.findByRole("button", { name: "Expandir Clientes" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /^Acme/ })).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Expandir Clientes" }));
+      expect(screen.getByRole("button", { name: /^Acme/ })).toBeTruthy();
+    });
+
+    it("una carpeta sin subcarpetas no tiene flechita", async () => {
+      renderSidebar([account]);
+      await screen.findByRole("button", { name: "Contraer Clientes" });
+      expect(screen.queryByRole("button", { name: /(Contraer|Expandir) Zeta/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /(Contraer|Expandir) Entrada/ })).toBeNull();
+    });
+
+    it("cerrada, suma los no leídos de sus subcarpetas", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      expect(await screen.findByRole("button", { name: /^Clientes\s*1$/ })).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Contraer Clientes" }));
+      expect(screen.getByRole("button", { name: /^Clientes\s*4$/ })).toBeTruthy();
+    });
+
+    it("arrastrar un correo y quedarse sobre una carpeta cerrada la abre", async () => {
+      localStorage.setItem("pc:folders-collapsed:7", JSON.stringify(["Clientes"]));
+      renderSidebar([account]);
+      const row = await screen.findByRole("button", { name: /^Clientes/ });
+      const dt = new FakeDataTransfer();
+      setMessageDrag(dt as unknown as DataTransfer, 7, { ids: [1], folderId: 3 });
+      fireEvent.dragOver(row, { dataTransfer: dt });
+      fireEvent.dragOver(row, { dataTransfer: dt });
+      expect(await screen.findByRole("button", { name: /^Acme/ }, { timeout: 2000 })).toBeTruthy();
+    });
+
+    it("si el arrastre se va antes de tiempo, no la abre", async () => {
+      localStorage.setItem("pc:folders-collapsed:7", JSON.stringify(["Clientes"]));
+      renderSidebar([account]);
+      const row = await screen.findByRole("button", { name: /^Clientes/ });
+      const dt = new FakeDataTransfer();
+      setMessageDrag(dt as unknown as DataTransfer, 7, { ids: [1], folderId: 3 });
+      fireEvent.dragOver(row, { dataTransfer: dt });
+      fireEvent.dragLeave(row, { dataTransfer: dt, relatedTarget: document.body });
+      await new Promise((r) => setTimeout(r, 900));
+      expect(screen.queryByRole("button", { name: /^Acme/ })).toBeNull();
+    });
+  });
 });

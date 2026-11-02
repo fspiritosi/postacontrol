@@ -155,6 +155,11 @@ export function findById(list: FolderNode[], id: number): FolderNode | null {
   return null;
 }
 
+// No leídos del nodo más los de todo lo que cuelga de él.
+export function subtreeUnread(node: FolderNode): number {
+  return node.children.reduce((n, c) => n + subtreeUnread(c), node.unread);
+}
+
 // `name` es el nodo o alguno de sus descendientes.
 export function inSubtree(root: FolderNode, name: string): boolean {
   return root.name === name || root.children.some((c) => inSubtree(c, name));

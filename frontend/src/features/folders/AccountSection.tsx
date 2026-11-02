@@ -10,7 +10,7 @@ import {
   ShieldAlertIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
@@ -61,6 +61,7 @@ import {
   moveTargets,
   parentOf,
   siblingsOf,
+  subtreeUnread,
   type FolderNode,
 } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
@@ -68,6 +69,7 @@ import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
 import { dropMessages } from "../messages/dropMessages";
 import { DeleteDialog, MoveDialog, NameDialog, type NameMode } from "./FolderDialogs";
+import { useCollapsedFolders } from "./useCollapsedFolders";
 
 export const ROLE_ICON: Record<string, ReactNode> = {
   inbox: <InboxIcon />,
@@ -93,7 +95,13 @@ type FolderActions = {
   dragging: () => number | null;
   setDragging: (id: number | null) => void;
   onDropFolder: (dragged: FolderNode, target: FolderNode, zone: FolderZone) => Promise<void>;
+  // Subcarpetas plegadas (se recuerda por cuenta).
+  isCollapsed: (node: FolderNode) => boolean;
+  setCollapsed: (node: FolderNode, collapsed: boolean) => void;
 };
+
+// Cuánto hay que quedarse arrastrando sobre una carpeta cerrada para que se abra.
+const EXPAND_DELAY_MS = 600;
 
 type FolderZone = "before" | "into" | "after";
 
@@ -137,6 +145,32 @@ function FolderRow({
   const queryClient = useQueryClient();
   // Qué indicador de soltar se muestra: adentro (recuadro) o antes/después (línea).
   const [hint, setHint] = useState<FolderZone | null>(null);
+  const hasChildren = node.children.length > 0;
+  const collapsed = hasChildren && actions.isCollapsed(node);
+  // Cerrada, muestra también los no leídos que quedan escondidos adentro.
+  const unread = collapsed ? subtreeUnread(node) : node.unread;
+  // Arrastrar algo de esta cuenta y quedarse encima de una carpeta cerrada la abre.
+  const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarm = () => {
+    if (expandTimer.current) clearTimeout(expandTimer.current);
+    expandTimer.current = null;
+  };
+  useEffect(() => {
+    const timer = expandTimer;
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+  const armExpand = (e: DragEvent) => {
+    if (!collapsed || expandTimer.current) return;
+    const dt = e.dataTransfer;
+    if (!(hasMessageDrag(dt) || hasFolderDrag(dt)) || dragAccount(dt) !== node.accountId) return;
+    if (actions.dragging() === node.id) return;
+    expandTimer.current = setTimeout(() => {
+      expandTimer.current = null;
+      actions.setCollapsed(node, false);
+    }, EXPAND_DELAY_MS);
+  };
   const active = node.id !== 0 && state.view?.kind === "folder" && state.view.folderId === node.id;
   // selectView también pide sincronizar la carpeta.
   const select = () => state.selectView({ kind: "folder", folderId: node.id });
@@ -171,6 +205,7 @@ function FolderRow({
     return folderZoneAllowed(actions.tree, actions.folders, dragged, node, zone) ? zone : null;
   };
   const onDragOver = (e: DragEvent) => {
+    armExpand(e);
     const zone = folderZone(e);
     if (zone || droppable(e)) {
       e.preventDefault();
@@ -179,7 +214,10 @@ function FolderRow({
     } else setHint(null);
   };
   const onDragLeave = (e: DragEvent) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHint(null);
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setHint(null);
+      disarm();
+    }
   };
   const onDragStart = (e: DragEvent) => {
     actions.setDragging(node.id);
@@ -188,9 +226,11 @@ function FolderRow({
   const onDragEnd = () => {
     actions.setDragging(null);
     setHint(null);
+    disarm();
   };
   const onDrop = (e: DragEvent) => {
     setHint(null);
+    disarm();
     const zone = folderZone(e);
     if (zone) {
       e.preventDefault();
@@ -211,10 +251,11 @@ function FolderRow({
       nameOf: () => accountName,
     }).catch((err) => toast.error(errorMessage(err)));
   };
-  // Las carpetas reales se arrastran; las sintetizadas (id 0) no.
+  // Las carpetas reales se arrastran; las sintetizadas (id 0) no, pero igual
+  // se abren si se arrastra algo encima.
   const dragProps =
     node.id === 0
-      ? {}
+      ? { onDragOver: armExpand, onDragLeave, onDrop: disarm }
       : { draggable: true, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop };
   const indicator = (hint === "before" || hint === "after") && (
     <span
@@ -245,9 +286,9 @@ function FolderRow({
             {ROLE_ICON[node.role] ?? <FolderIcon />}
           </span>
           <span className="min-w-0 flex-1 truncate">{node.label}</span>
-          {node.unread > 0 && (
+          {unread > 0 && (
             <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {node.unread}
+              {unread}
             </span>
           )}
         </button>
@@ -262,7 +303,8 @@ function FolderRow({
         >
           {indicator}
           <FolderIcon className="size-4" />
-          <span className="truncate">{node.label}</span>
+          <span className="min-w-0 flex-1 truncate">{node.label}</span>
+          {unread > 0 && <span className="text-xs font-medium tabular-nums">{unread}</span>}
         </div>
       );
   // Menú contextual: los padres sintetizados (id 0) no tienen. Una especial
@@ -273,52 +315,69 @@ function FolderRow({
   const modifiable = canModify(actions.folders, node);
   return (
     <>
-      {node.id === 0 ? (
-        row
-      ) : (
-        <ContextMenu>
-          <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuItem onSelect={() => actions.onCreate(node)}>
-              Nueva subcarpeta…
-            </ContextMenuItem>
-            <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onRename(node)}>
-              Renombrar…
-            </ContextMenuItem>
-            <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onMove(node)}>
-              Mover a…
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem disabled={idx <= 0} onSelect={() => actions.onShift(node, -1)}>
-              Subir
-            </ContextMenuItem>
-            <ContextMenuItem
-              disabled={idx < 0 || idx >= siblings.length - 1}
-              onSelect={() => actions.onShift(node, 1)}
-            >
-              Bajar
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              variant="destructive"
-              disabled={!modifiable}
-              onSelect={() => actions.onDelete(node)}
-            >
-              Eliminar…
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-      )}
-      {node.children.map((c) => (
-        <FolderRow
-          key={c.name}
-          node={c}
-          depth={depth + 1}
-          state={state}
-          accountName={accountName}
-          actions={actions}
-        />
-      ))}
+      <div className="relative">
+        {hasChildren && (
+          <button
+            type="button"
+            aria-label={`${collapsed ? "Expandir" : "Contraer"} ${node.label}`}
+            aria-expanded={!collapsed}
+            onClick={() => actions.setCollapsed(node, !collapsed)}
+            style={{ left: 4 + (depth - 1) * 14 }}
+            className="absolute top-1/2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <ChevronRightIcon
+              className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")}
+            />
+          </button>
+        )}
+        {node.id === 0 ? (
+          row
+        ) : (
+          <ContextMenu>
+            <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem onSelect={() => actions.onCreate(node)}>
+                Nueva subcarpeta…
+              </ContextMenuItem>
+              <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onRename(node)}>
+                Renombrar…
+              </ContextMenuItem>
+              <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onMove(node)}>
+                Mover a…
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem disabled={idx <= 0} onSelect={() => actions.onShift(node, -1)}>
+                Subir
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={idx < 0 || idx >= siblings.length - 1}
+                onSelect={() => actions.onShift(node, 1)}
+              >
+                Bajar
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                variant="destructive"
+                disabled={!modifiable}
+                onSelect={() => actions.onDelete(node)}
+              >
+                Eliminar…
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+        )}
+      </div>
+      {!collapsed &&
+        node.children.map((c) => (
+          <FolderRow
+            key={c.name}
+            node={c}
+            depth={depth + 1}
+            state={state}
+            accountName={accountName}
+            actions={actions}
+          />
+        ))}
     </>
   );
 }
@@ -340,6 +399,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
   const [nameMode, setNameMode] = useState<NameMode | null>(null);
   const [moving, setMoving] = useState<FolderNode | null>(null);
   const [deleting, setDeleting] = useState<FolderNode | null>(null);
+  const { collapsed, setCollapsed } = useCollapsedFolders(account.id);
 
   const list = folders.data ?? [];
   const tree = buildFolderTree(list);
@@ -427,6 +487,8 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     onMove: setMoving,
     onDelete: setDeleting,
     onShift: (node, dir) => void shift(node, dir),
+    isCollapsed: (node) => collapsed.has(node.name),
+    setCollapsed: (node, value) => setCollapsed(node.name, value),
   };
 
   const remove = async () => {
