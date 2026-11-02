@@ -160,6 +160,19 @@ describe("buscador", () => {
     expect(screen.getAllByRole("button", { name: /Asunto 1/ })).toHaveLength(1);
   });
 
+  it("con un filtro de etiqueta, de lo que trae el servidor muestra solo lo que la tiene", async () => {
+    vi.mocked(svc.Search).mockResolvedValue({ messages: [], pending: 5 });
+    vi.mocked(svc.SearchServer).mockResolvedValue([
+      { ...summary(2, 3), labels: [11] },
+      summary(3, 3),
+    ]);
+    const user = setup(undefined, 11);
+    await user.type(screen.getByRole("searchbox", { name: "Buscar correo" }), "hola{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Buscar en el servidor en Entrada" }));
+    expect(await screen.findByRole("button", { name: /Asunto 2/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Asunto 3/ })).toBeNull();
+  });
+
   it("si las páginas se corren no repite resultados", async () => {
     vi.mocked(svc.Search).mockImplementation(({ offset }) => {
       // Entró un correo nuevo entre página y página: el 100 vuelve a aparecer.

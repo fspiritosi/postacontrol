@@ -95,6 +95,8 @@ function LabelRow({ label, index, count, onUpdate, onMove, onDelete }: RowProps)
         value={name}
         onChange={(e) => setName(e.target.value)}
         onBlur={() => void commit()}
+        // Escape restaura el nombre y no cierra Configuración (ver SettingsDialog).
+        data-escape-local=""
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
           else if (e.key === "Escape") {
@@ -156,9 +158,16 @@ export function LabelsSection({ focus }: { focus?: boolean }) {
     }
   };
 
+  // Escape cancela el alta: el blur que sigue no debe crear con el texto tipeado.
+  const cancelled = useRef(false);
+
   const create = async () => {
     const name = (draft ?? "").trim();
     setDraft(null);
+    if (cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
     if (!name) return;
     try {
       await svc.CreateLabel(name, nextColor(labels.map((l) => l.color)));
@@ -232,9 +241,14 @@ export function LabelsSection({ focus }: { focus?: boolean }) {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={() => void create()}
+                // Escape cancela el alta y no cierra Configuración (ver SettingsDialog).
+                data-escape-local=""
                 onKeyDown={(e) => {
                   if (e.key === "Enter") e.currentTarget.blur();
-                  else if (e.key === "Escape") setDraft(null);
+                  else if (e.key === "Escape") {
+                    cancelled.current = true;
+                    e.currentTarget.blur();
+                  }
                 }}
                 className="h-8 flex-1"
               />

@@ -97,7 +97,14 @@ export function SettingsDialog({ open, onOpenChange, focusSection }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[85vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-2xl"
+        // En un campo que usa Escape para cancelar (las etiquetas), Escape no cierra.
+        onEscapeKeyDown={(e) => {
+          if ((e.target as Element | null)?.closest?.("[data-escape-local]"))
+            e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Configuración</DialogTitle>
           <DialogDescription className="sr-only">Ajustes de la aplicación.</DialogDescription>

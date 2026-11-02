@@ -13,6 +13,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   BackgroundImage: vi.fn(() => Promise.resolve("")),
   PickBackground: vi.fn(() => Promise.resolve(true)),
   ClearBackground: vi.fn(() => Promise.resolve()),
+  ListLabels: vi.fn(() => Promise.resolve([])),
+  CreateLabel: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -38,6 +40,24 @@ beforeAll(() => {
 
 describe("SettingsDialog", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("Escape en el nombre de la etiqueta nueva la cancela sin cerrar Configuración", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SettingsDialog open onOpenChange={onOpenChange} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "Nueva etiqueta" }));
+    await user.type(screen.getByLabelText("Nombre de la etiqueta nueva"), "Banco{Escape}");
+    expect(screen.queryByLabelText("Nombre de la etiqueta nueva")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(svc.CreateLabel).not.toHaveBeenCalled();
+    // Afuera de un campo, Escape sí cierra.
+    await user.keyboard("{Escape}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 
   it("el interruptor guarda la bandeja unificada", async () => {
     const user = userEvent.setup();

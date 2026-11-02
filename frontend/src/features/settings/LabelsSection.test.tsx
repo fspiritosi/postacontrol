@@ -110,6 +110,16 @@ describe("Etiquetas en Configuración", () => {
     expect(svc.UpdateLabel).not.toHaveBeenCalled();
   });
 
+  it("Escape en la etiqueta nueva no la crea", async () => {
+    const user = setup();
+    await screen.findByDisplayValue("Trabajo");
+    await user.click(screen.getByRole("button", { name: "Nueva etiqueta" }));
+    await user.type(screen.getByLabelText("Nombre de la etiqueta nueva"), "Banco{Escape}");
+    expect(screen.queryByLabelText("Nombre de la etiqueta nueva")).toBeNull();
+    await user.tab();
+    expect(svc.CreateLabel).not.toHaveBeenCalled();
+  });
+
   it("elegir un color de la paleta llama a UpdateLabel", async () => {
     const user = setup();
     await screen.findByDisplayValue("Trabajo");

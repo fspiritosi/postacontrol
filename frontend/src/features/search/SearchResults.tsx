@@ -93,7 +93,15 @@ export function SearchResults({ accounts, state, search }: Props) {
     setServerError(null);
     try {
       const found = (await svc.SearchServer(view.folderId, search.text)) ?? [];
-      setServer({ key, items: found });
+      // El servidor no sabe del filtro de etiqueta: se aplica acá.
+      const label = state.labelFilter;
+      setServer({
+        key,
+        items:
+          label == null
+            ? found
+            : found.filter((m) => (m.labels ?? []).includes(label)),
+      });
     } catch (e) {
       setServerError(errorMessage(e));
     } finally {
