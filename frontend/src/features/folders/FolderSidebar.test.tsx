@@ -52,6 +52,7 @@ const baseState: ShellState = {
   openContact: vi.fn(),
   marked: { keys: [], anchor: null }, markedThreads: { keys: [], anchor: null },
   setMarked: vi.fn(), setMarkedThreads: vi.fn(), clearMarks: vi.fn(),
+    labelFilter: null, setLabelFilter: vi.fn(),
 };
 
 const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X", color: "#0f0" };

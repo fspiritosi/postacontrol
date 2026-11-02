@@ -10,6 +10,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListUnified: vi.fn(() => Promise.resolve([])),
   Search: vi.fn(),
   SearchServer: vi.fn(),
+  ListLabels: vi.fn(() => Promise.resolve([])),
+  RefreshLabel: vi.fn(() => Promise.resolve()),
   SetFlagged: vi.fn(() => Promise.resolve()),
   GetSettings: vi.fn(() =>
     Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false }),
@@ -49,7 +51,7 @@ function summary(id: number, folderId: number): MessageSummary {
 const selectMessage = vi.fn();
 
 // Hace de MailShell: guarda la vista y la búsqueda.
-function Harness({ initial }: { initial: View }) {
+function Harness({ initial, labelFilter = null }: { initial: View; labelFilter?: number | null }) {
   const [view, setView] = useState<View>(initial);
   const [search, setSearch] = useState<SearchState | null>(null);
   const [marked, setMarked] = useState<Marks<number>>({ keys: [], anchor: null });
@@ -64,19 +66,20 @@ function Harness({ initial }: { initial: View }) {
           contactId: null, selectContact: vi.fn(), openContact: vi.fn(),
           marked, markedThreads: { keys: [], anchor: null },
           setMarked, setMarkedThreads: vi.fn(), clearMarks: () => setMarked({ keys: [], anchor: null }),
+          labelFilter, setLabelFilter: vi.fn(),
         }}
       />
     </>
   );
 }
 
-function setup(initial: View = { kind: "folder", folderId: 3 }) {
+function setup(initial: View = { kind: "folder", folderId: 3 }, labelFilter: number | null = null) {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   vi.mocked(svc.ListFolders).mockResolvedValue(FOLDERS);
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <Harness initial={initial} />
+      <Harness initial={initial} labelFilter={labelFilter} />
     </QueryClientProvider>,
   );
   return user;
@@ -100,6 +103,16 @@ describe("buscador", () => {
     expect(await screen.findByRole("button", { name: /Asunto 1/ })).toBeTruthy();
     expect(svc.Search).toHaveBeenCalledWith({ text: "factura", folderId: 0, labelId: 0, limit: 100, offset: 0 });
     expect((await screen.findByTestId("folder-label")).textContent).toBe("Facturas");
+  });
+
+  it("con un filtro de etiqueta, Search recibe labelId", async () => {
+    vi.mocked(svc.Search).mockResolvedValue({ messages: [], pending: 0 });
+    const user = setup(undefined, 11);
+    await user.type(screen.getByRole("searchbox", { name: "Buscar correo" }), "factura");
+    await vi.advanceTimersByTimeAsync(300);
+    await waitFor(() =>
+      expect(svc.Search).toHaveBeenCalledWith({ text: "factura", folderId: 0, labelId: 11, limit: 100, offset: 0 }),
+    );
   });
 
   it("Esc vuelve a la lista", async () => {

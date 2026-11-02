@@ -32,6 +32,7 @@ function setup(contactId: number | null = null) {
     openContact: vi.fn(),
     marked: { keys: [], anchor: null }, markedThreads: { keys: [], anchor: null },
     setMarked: vi.fn(), setMarkedThreads: vi.fn(), clearMarks: vi.fn(),
+    labelFilter: null, setLabelFilter: vi.fn(),
   };
   const user = userEvent.setup();
   render(

@@ -280,4 +280,16 @@ describe("MailShell selección múltiple", () => {
     act(() => state().clearMarks());
     expect(state().marked).toEqual(none);
   });
+
+  it("selectView suelta el filtro de etiqueta y cambiarlo suelta las marcas", async () => {
+    const state = await marked();
+    act(() => state().setLabelFilter(11));
+    expect(state().labelFilter).toBe(11);
+    expect(state().marked).toEqual(none);
+    act(() => state().setMarked(marks));
+    act(() => state().setLabelFilter(12));
+    expect(state().marked).toEqual(none);
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().labelFilter).toBeNull();
+  });
 });

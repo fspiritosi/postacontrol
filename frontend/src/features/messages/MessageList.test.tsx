@@ -30,6 +30,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ),
   SetSettings: vi.fn(() => Promise.resolve()),
   ListThreads: vi.fn(() => Promise.resolve([])),
+  ListLabeled: vi.fn(() => Promise.resolve([])),
+  RefreshLabel: vi.fn(() => Promise.resolve()),
   ListPendingDrafts: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock("../compose/ComposerContext", () => ({
@@ -83,7 +85,11 @@ function summary(id: number, accountId: number): MessageSummary {
   };
 }
 
-function renderList(view: View, selectMessage = vi.fn()) {
+function renderList(
+  view: View,
+  selectMessage = vi.fn(),
+  extra: Partial<ShellState> = {},
+) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MessageList
@@ -105,6 +111,9 @@ function renderList(view: View, selectMessage = vi.fn()) {
           setMarked: vi.fn(),
           setMarkedThreads: vi.fn(),
           clearMarks: vi.fn(),
+          labelFilter: null,
+          setLabelFilter: vi.fn(),
+          ...extra,
         }}
       />
     </QueryClientProvider>,
@@ -363,6 +372,8 @@ function Stateful({ view, open = null }: { view: View; open?: number | null }) {
     setMarked,
     setMarkedThreads,
     clearMarks,
+    labelFilter: null,
+    setLabelFilter: vi.fn(),
   };
   return (
     <>
@@ -498,6 +509,8 @@ describe("MessageList selección múltiple", () => {
             setMarked: vi.fn(),
             setMarkedThreads: vi.fn(),
             clearMarks,
+            labelFilter: null,
+            setLabelFilter: vi.fn(),
           }}
         />
       </QueryClientProvider>,
@@ -589,6 +602,8 @@ describe("MessageList selección múltiple", () => {
             setMarked: vi.fn(),
             setMarkedThreads: vi.fn(),
             clearMarks,
+            labelFilter: null,
+            setLabelFilter: vi.fn(),
           }}
         />
       </QueryClientProvider>,
@@ -693,6 +708,8 @@ describe("MessageList no leídos", () => {
                 setMarked,
                 setMarkedThreads: vi.fn(),
                 clearMarks: vi.fn(),
+                labelFilter: null,
+                setLabelFilter: vi.fn(),
               } as ShellState
             }
           />
@@ -732,5 +749,109 @@ describe("MessageList no leídos", () => {
       expect(setMarked).not.toHaveBeenCalled();
       expect(selectMessage).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("MessageList filtro por etiqueta", () => {
+  beforeEach(() => {
+    resetSyncStateForTests();
+    vi.mocked(svc.ListLabeled).mockClear();
+    vi.mocked(svc.RefreshLabel).mockClear();
+    vi.mocked(svc.ListMessages).mockClear();
+    vi.mocked(svc.ListFolders).mockImplementation(
+      (id: number) =>
+        Promise.resolve([
+          {
+            id: id * 10,
+            accountId: id,
+            name: "Facturas",
+            delimiter: "/",
+            role: "",
+            unread: 0,
+            total: 0,
+            selectable: true,
+            position: 0,
+          },
+        ]) as never,
+    );
+  });
+
+  it("en una carpeta lista por etiqueta con la cuenta de la carpeta, muestra la carpeta de cada fila y refresca una vez", async () => {
+    vi.mocked(svc.ListLabeled).mockResolvedValueOnce([summary(1, 7)]);
+    renderList({ kind: "folder", folderId: 70 }, vi.fn(), { labelFilter: 11 });
+    expect(await screen.findByRole("button", { name: /Asunto 1/ })).toBeTruthy();
+    expect(svc.ListLabeled).toHaveBeenCalledWith(11, 7, {
+      unreadOnly: false,
+      offset: 0,
+      limit: 100,
+    });
+    expect(svc.ListMessages).not.toHaveBeenCalled();
+    expect((await screen.findByTestId("folder-label")).textContent).toBe("Facturas");
+    await waitFor(() => expect(svc.RefreshLabel).toHaveBeenCalledTimes(1));
+    expect(svc.RefreshLabel).toHaveBeenCalledWith(11, 7);
+  });
+
+  it("en la unificada usa la cuenta 0", async () => {
+    renderList({ kind: "unified", role: "inbox" }, vi.fn(), { labelFilter: 11 });
+    await waitFor(() =>
+      expect(svc.ListLabeled).toHaveBeenCalledWith(11, 0, expect.anything()),
+    );
+    expect(svc.ListUnified).not.toHaveBeenCalled();
+    await waitFor(() => expect(svc.RefreshLabel).toHaveBeenCalledWith(11, 0));
+  });
+
+  it("No leídos manda unreadOnly a ListLabeled", async () => {
+    renderList({ kind: "unified", role: "inbox" }, vi.fn(), { labelFilter: 11 });
+    await waitFor(() => expect(svc.ListLabeled).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "No leídos" }));
+    await waitFor(() =>
+      expect(svc.ListLabeled).toHaveBeenCalledWith(11, 0, {
+        unreadOnly: true,
+        offset: 0,
+        limit: 100,
+      }),
+    );
+  });
+
+  it("vacía dice que no hay correos con la etiqueta", async () => {
+    renderList({ kind: "unified", role: "inbox" }, vi.fn(), { labelFilter: 11 });
+    expect(
+      await screen.findByText("No hay correos con esta etiqueta."),
+    ).toBeTruthy();
+  });
+
+  it("con conversaciones activas y el filtro, la lista es plana", async () => {
+    vi.mocked(svc.GetSettings).mockResolvedValue({
+      unifiedInbox: false,
+      background: "",
+      disableNotifications: false,
+      threadedList: true,
+      readingPane: "",
+    });
+    vi.mocked(svc.ListLabeled).mockResolvedValueOnce([summary(1, 7)]);
+    renderList({ kind: "folder", folderId: 70 }, vi.fn(), { labelFilter: 11 });
+    expect(await screen.findByRole("button", { name: /Asunto 1/ })).toBeTruthy();
+    expect(svc.ListThreads).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Conversaciones")).toBeNull();
+  });
+
+  it("si la etiqueta filtrada ya no existe, suelta el filtro", async () => {
+    const setLabelFilter = vi.fn();
+    renderList({ kind: "unified", role: "inbox" }, vi.fn(), {
+      labelFilter: 99,
+      setLabelFilter,
+    });
+    await waitFor(() => expect(setLabelFilter).toHaveBeenCalledWith(null));
+  });
+
+  it("el filtro del encabezado elige una etiqueta", async () => {
+    const setLabelFilter = vi.fn();
+    renderList({ kind: "unified", role: "inbox" }, vi.fn(), { setLabelFilter });
+    fireEvent.pointerDown(
+      await screen.findByRole("button", { name: "Filtrar por etiqueta" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Clientes/ }));
+    expect(setLabelFilter).toHaveBeenCalledWith(11);
   });
 });

@@ -130,6 +130,20 @@ export function useMessages(view: View | null, unreadOnly: boolean, enabled = tr
   });
 }
 
+// Correos con una etiqueta, de la caché local; accountId 0 = todas las cuentas.
+// La clave empieza con "messages" para que las teclas 1–9 vean esta lista.
+export function useLabeled(labelId: number | null, accountId: number, unreadOnly: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["messages", "label", labelId, accountId, unreadOnly],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) =>
+      (await svc.ListLabeled(labelId!, accountId, { unreadOnly, offset: pageParam, limit: PAGE_SIZE })) ?? [],
+    getNextPageParam: (last, all) =>
+      last.length < PAGE_SIZE ? undefined : all.length * PAGE_SIZE,
+    enabled: labelId != null,
+  });
+}
+
 // Hilos de una carpeta, del más reciente al más viejo.
 export function useThreads(folderId: number, unreadOnly: boolean) {
   return useInfiniteQuery({
@@ -178,12 +192,12 @@ export function usePendingDrafts() {
 // Búsqueda en el índice local; folderId 0 = todas las carpetas de todas las
 // cuentas. `pending` (mensajes sin el cuerpo indexado) se toma de la primera
 // página, que es la que corresponde a todo el alcance.
-export function useSearch(text: string, folderId: number) {
+export function useSearch(text: string, folderId: number, labelId: number | null = null) {
   return useInfiniteQuery({
-    queryKey: ["search", text, folderId],
+    queryKey: ["search", text, folderId, labelId],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
-      const r = await svc.Search({ text, folderId, labelId: 0, limit: PAGE_SIZE, offset: pageParam });
+      const r = await svc.Search({ text, folderId, labelId: labelId ?? 0, limit: PAGE_SIZE, offset: pageParam });
       return { messages: r.messages ?? [], pending: r.pending };
     },
     getNextPageParam: (last, all) =>

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
@@ -10,10 +10,18 @@ import { loadedTargets, threadTargets, type Target } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { useFolderSyncing, useSyncProgress } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
-import { useAllFolders, useMessages, useSettings } from "@/lib/queries";
+import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import {
+  useAllFolders,
+  useLabeled,
+  useLabels,
+  useMessages,
+  useSettings,
+} from "@/lib/queries";
 import { saveSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { UNIFIED_LABEL } from "@/lib/view";
+import { LabelFilter } from "../labels/LabelFilter";
 import type { ShellState } from "../layout/MailShell";
 import { SearchBox } from "../search/SearchBox";
 import { SearchResults } from "../search/SearchResults";
@@ -39,14 +47,50 @@ export function MessageList({
   const queryClient = useQueryClient();
   const settings = useSettings();
   const threadedOn = settings.data?.threadedList ?? false;
-  // Las conversaciones son por carpeta: ni en la unificada ni en la búsqueda.
-  const canThread = folderId != null && search == null;
+  const { labelFilter, setLabelFilter } = state;
+  // Con un filtro de etiqueta (y sin búsqueda) la lista es plana y de la caché
+  // local; con búsqueda, la etiqueta se suma a la búsqueda.
+  const labelList = labelFilter != null && search == null;
+  // Las conversaciones son por carpeta: ni en la unificada, ni en la búsqueda
+  // ni con un filtro de etiqueta.
+  const canThread = folderId != null && search == null && labelFilter == null;
   const threaded = canThread && threadedOn;
-  const messages = useMessages(view, unreadOnly, !threaded);
+  const messages = useMessages(view, unreadOnly, !threaded && !labelList);
   const progress = useSyncProgress();
   const folderSyncing = useFolderSyncing(folderId);
 
   const folder = folders.find((f) => f.id === folderId);
+  // Cuenta de la etiqueta: 0 = todas (vista unificada). En una carpeta hay que
+  // esperar a que se conozca la cuenta.
+  const labelAccount = folder ? folder.accountId : 0;
+  const labelReady = view?.kind === "unified" || folder != null;
+  const labeled = useLabeled(
+    labelList && labelReady ? labelFilter : null,
+    labelAccount,
+    unreadOnly,
+  );
+  const list = labelList ? labeled : messages;
+  const labels = useLabels();
+  // Si se borró la etiqueta filtrada, se suelta el filtro.
+  useEffect(() => {
+    if (
+      labelFilter != null &&
+      labels.data &&
+      !labels.data.some((l) => l.id === labelFilter)
+    ) {
+      setLabelFilter(null);
+    }
+  }, [labelFilter, labels.data, setLabelFilter]);
+  // Al elegir la etiqueta (o cambiar de cuenta) se pide traer del servidor lo
+  // que tiene, sin esperar. Sin conexión queda la caché y el error se ignora.
+  const refreshId = labelReady ? labelFilter : null;
+  useEffect(() => {
+    if (refreshId == null) return;
+    svc
+      .RefreshLabel(refreshId, labelAccount)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["messages", "label"] }))
+      .catch(() => {});
+  }, [refreshId, labelAccount, queryClient]);
   const title =
     view?.kind === "unified"
       ? UNIFIED_LABEL[view.role]
@@ -58,7 +102,7 @@ export function MessageList({
     view?.kind === "unified"
       ? view.role === "drafts"
       : folder?.role === "drafts";
-  const items = messages.data?.pages.flat() ?? [];
+  const items = list.data?.pages.flat() ?? [];
   const syncing =
     progress != null && folderId != null && progress.folderId === folderId;
   const colorOf = (accountId: number) =>
@@ -82,7 +126,7 @@ export function MessageList({
   const markedRoots = state.markedThreads.keys;
   const barTargets = useCallback(async (): Promise<Target[]> => {
     if (!threadedMarks || folderId == null) {
-      return loadedTargets(messages.data?.pages.flat() ?? [], markedKeys);
+      return loadedTargets(list.data?.pages.flat() ?? [], markedKeys);
     }
     // Solo las conversaciones que siguen cargadas en la lista.
     const pages = queryClient.getQueryData<{ pages: ThreadSummary[][] }>([
@@ -104,7 +148,7 @@ export function MessageList({
   }, [
     threadedMarks,
     folderId,
-    messages.data,
+    list.data,
     markedKeys,
     markedRoots,
     queryClient,
@@ -112,6 +156,10 @@ export function MessageList({
   ]);
 
   const rowMenu = useFlatRowMenu(state, barTargets);
+  const rowFolderLabel = (id: number) => {
+    const f = folders.find((x) => x.id === id);
+    return f ? folderLabel(f) : undefined;
+  };
 
   const barDone = (r: BulkResult) =>
     threadedMarks
@@ -160,6 +208,7 @@ export function MessageList({
             </Label>
           </div>
         )}
+        <LabelFilter value={labelFilter} onChange={setLabelFilter} />
         <div
           className="flex rounded-md bg-muted p-0.5 text-xs"
           role="group"
@@ -259,21 +308,23 @@ export function MessageList({
           tabIndex={-1}
           onKeyDown={marking.onKeyDown}
         >
-          {messages.isError && (
+          {list.isError && (
             <p className="p-4 text-sm text-destructive">
-              {errorMessage(messages.error)}
+              {errorMessage(list.error)}
             </p>
           )}
-          {!messages.isPending && !messages.isError && items.length === 0 && (
+          {!list.isPending && !list.isError && items.length === 0 && (
             <p
               className="p-6 text-center text-sm text-muted-foreground"
               aria-live="polite"
             >
-              {folderSyncing
-                ? "Sincronizando…"
-                : view.kind === "unified"
-                  ? "No hay correos en esta vista."
-                  : "No hay correos en esta carpeta."}
+              {labelList
+                ? "No hay correos con esta etiqueta."
+                : folderSyncing
+                  ? "Sincronizando…"
+                  : view.kind === "unified"
+                    ? "No hay correos en esta vista."
+                    : "No hay correos en esta carpeta."}
             </p>
           )}
           <ul>
@@ -287,18 +338,19 @@ export function MessageList({
                 marked={state.marked.keys.includes(m.id)}
                 anyMarked={marking.any}
                 onToggle={marking.toggle}
+                folderLabel={labelList ? rowFolderLabel(m.folderId) : undefined}
                 dragOf={(row) => flatDrag(items, state.marked.keys, row)}
                 {...rowMenu}
               />
             ))}
           </ul>
-          {messages.hasNextPage && (
+          {list.hasNextPage && (
             <div className="p-3 text-center">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void messages.fetchNextPage()}
-                disabled={messages.isFetchingNextPage}
+                onClick={() => void list.fetchNextPage()}
+                disabled={list.isFetchingNextPage}
               >
                 Cargar más
               </Button>

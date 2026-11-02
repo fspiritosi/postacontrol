@@ -33,7 +33,7 @@ export function SearchResults({ accounts, state, search }: Props) {
   const inFolder = view?.kind === "folder";
   const folderId = inFolder && search.scope === "folder" ? view.folderId : 0;
   const { folders } = useAllFolders(accounts);
-  const results = useSearch(search.text, folderId);
+  const results = useSearch(search.text, folderId, state.labelFilter);
   // Los resultados del servidor se descartan al cambiar el texto o el alcance.
   const [server, setServer] = useState<{
     key: string;
@@ -42,7 +42,7 @@ export function SearchResults({ accounts, state, search }: Props) {
   const [serverLoading, setServerLoading] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const key = `${search.text}\u0000${folderId}`;
+  const key = `${search.text}\u0000${folderId}\u0000${state.labelFilter}`;
   // Si entra un correo entre página y página los resultados se corren y uno
   // puede repetirse: cada mensaje aparece una sola vez.
   const seen = new Set<number>();

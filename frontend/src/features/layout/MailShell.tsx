@@ -88,6 +88,10 @@ export type ShellState = {
   setMarked: (m: Marks<number>) => void;
   setMarkedThreads: (m: Marks<string>) => void;
   clearMarks: () => void;
+  // Etiqueta por la que se filtra la lista (null = sin filtro). Cambiar de
+  // vista la limpia; cambiarla suelta lo marcado, que puede quedar oculto.
+  labelFilter: number | null;
+  setLabelFilter: (id: number | null) => void;
 };
 
 type Props = {
@@ -128,6 +132,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [contactId, setContactId] = useState<number | null>(null);
   const [marked, setMarked] = useState<Marks<number>>(NO_MARKS);
   const [markedThreads, setMarkedThreads] = useState<Marks<string>>(NO_MARKS);
+  const [labelFilter, setLabelFilterState] = useState<number | null>(null);
   const { folders, pending } = useAllFolders(accounts);
   const settings = useSettings();
   const pane = useReadingPane();
@@ -156,6 +161,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
       setContactId(null);
       setMarked(NO_MARKS);
       setMarkedThreads(NO_MARKS);
+      setLabelFilterState(null);
     }
   }
 
@@ -181,11 +187,18 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setSearchState(null);
     setThreadRoot(null);
     setContactId(null);
+    setLabelFilterState(null);
+  }, [clearMarks]);
+
+  const setLabelFilter = useCallback((id: number | null) => {
+    clearMarks();
+    setLabelFilterState(id);
   }, [clearMarks]);
 
   const openContact = useCallback((id: number) => {
     clearMarks();
     setChosen({ kind: "contacts" });
+    setLabelFilterState(null);
     setMessageId(null);
     setSearchState(null);
     setThreadRoot(null);
@@ -242,6 +255,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setMarked,
     setMarkedThreads,
     clearMarks,
+    labelFilter,
+    setLabelFilter,
   };
 
   useLabelKeys(state);
