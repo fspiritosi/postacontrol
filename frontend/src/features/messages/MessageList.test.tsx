@@ -297,6 +297,50 @@ describe("MessageList selección múltiple", () => {
     expect(openId()).toBe("1");
   });
 
+  it("la primera casilla, sin nada abierto, marca sin abrir ni leer en el servidor", async () => {
+    renderStateful(inbox);
+    await screen.findByRole("button", { name: /Asunto 3/ });
+    fireEvent.click(boxOf(3));
+    expect(openId()).toBe("");
+    expect(boxOf(3).checked).toBe(true);
+    expect(boxOf(2).className).not.toContain("opacity-0");
+    expect(screen.queryByRole("button", { name: "Quitar selección" })).toBeNull();
+    fireEvent.click(boxOf(4));
+    expect(screen.getByText("2 seleccionados")).toBeTruthy();
+    expect(openId()).toBe("");
+    fireEvent.click(boxOf(3));
+    expect(openId()).toBe("4");
+    expect(screen.queryByRole("button", { name: "Quitar selección" })).toBeNull();
+  });
+
+  it("la casilla del correo abierto lo marca y el lector lo sigue mostrando", async () => {
+    renderStateful(inbox, 2);
+    await screen.findByRole("button", { name: /Asunto 3/ });
+    fireEvent.click(boxOf(2));
+    expect(boxOf(2).checked).toBe(true);
+    expect(openId()).toBe("2");
+  });
+
+  it("cambiar el filtro Todos / No leídos suelta la selección", async () => {
+    const clearMarks = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageList
+          accounts={accounts}
+          state={{
+            view: inbox, messageId: null, selectView: vi.fn(), selectMessage: vi.fn(),
+            search: null, setSearch: vi.fn(), threadRoot: null, selectThread: vi.fn(),
+            contactId: null, selectContact: vi.fn(), openContact: vi.fn(),
+            marked: NO_MARKS, markedThreads: NO_MARKS, setMarked: vi.fn(),
+            setMarkedThreads: vi.fn(), clearMarks,
+          }}
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "No leídos" }));
+    expect(clearMarks).toHaveBeenCalled();
+  });
+
   it("la casilla está en el DOM, oculta hasta pasar el mouse, y a la vista si hay algo marcado", async () => {
     renderStateful(inbox, 1);
     await screen.findByRole("button", { name: /Asunto 3/ });

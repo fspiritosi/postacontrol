@@ -32,7 +32,14 @@ export function useMarking<K>({
     else onOpen(k);
   };
 
-  const toggle = (k: K) => apply(toggleMark(marks, k, open));
+  // La casilla nunca abre un correo (abrirlo lo marcaría leído en el servidor):
+  // el primero que se marca queda marcado. Solo al bajar de varios a uno se
+  // abre el que quedó.
+  const toggle = (k: K) => {
+    const next = toggleMark(marks, k, open);
+    if (next.keys.length === 1 && marks.keys.length > 1) onOpen(next.keys[0]);
+    else onMark(next);
+  };
 
   // Va en el contenedor de la lista, que recibe el foco al hacer clic.
   const onKeyDown = (e: KeyboardEvent) => {

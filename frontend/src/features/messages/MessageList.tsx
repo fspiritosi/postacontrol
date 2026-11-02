@@ -117,7 +117,11 @@ export function MessageList({
               key={o.label}
               type="button"
               aria-pressed={unreadOnly === o.value}
-              onClick={() => setUnreadOnly(o.value)}
+              onClick={() => {
+                // Lo marcado puede quedar oculto por el filtro: se suelta.
+                state.clearMarks();
+                setUnreadOnly(o.value);
+              }}
               className={cn(
                 "rounded px-2.5 py-1 text-muted-foreground transition-colors",
                 unreadOnly === o.value &&
