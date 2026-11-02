@@ -42,6 +42,20 @@ func (c *Core) ListMessages(ctx context.Context, folderID int64, q model.ListQue
 func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
+	inboxID, err := c.refreshFolders(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if inboxID == 0 {
+		return nil
+	}
+	return c.SyncFolder(ctx, inboxID)
+}
+
+// refreshFolders hace LIST + STATUS, reemplaza las carpetas de la caché, pone
+// los contadores y avisa con EventFoldersUpdated. Devuelve el ID de INBOX (0
+// si no hay). No sincroniza ningún mensaje.
+func (c *Core) refreshFolders(ctx context.Context, accountID int64) (int64, error) {
 	var remote []imapx.RemoteFolder
 	err := c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
 		var err error
@@ -49,10 +63,10 @@ func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 		return err
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err := c.ctxErr(ctx); err != nil {
-		return err
+		return 0, err
 	}
 	folders := make([]model.Folder, 0, len(remote))
 	counts := make(map[string]imapx.RemoteFolder, len(remote))
@@ -63,27 +77,24 @@ func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 		counts[r.Name] = r
 	}
 	if err := c.store.ReplaceFolders(ctx, accountID, folders); err != nil {
-		return c.ctxOrUserError(ctx, err)
+		return 0, c.ctxOrUserError(ctx, err)
 	}
 	cached, err := c.store.ListFolders(ctx, accountID)
 	if err != nil {
-		return c.ctxOrUserError(ctx, err)
+		return 0, c.ctxOrUserError(ctx, err)
 	}
 	var inboxID int64
 	for _, f := range cached {
 		r := counts[f.Name]
 		if err := c.store.SetFolderCounts(ctx, f.ID, r.Unread, r.Total); err != nil {
-			return c.ctxOrUserError(ctx, err)
+			return 0, c.ctxOrUserError(ctx, err)
 		}
 		if f.Role == "inbox" && f.Selectable {
 			inboxID = f.ID
 		}
 	}
 	c.emit(EventFoldersUpdated, map[string]any{"accountId": accountID})
-	if inboxID == 0 {
-		return nil
-	}
-	return c.SyncFolder(ctx, inboxID)
+	return inboxID, nil
 }
 
 // SyncFolder sincroniza las cabeceras y los flags de una carpeta. Nunca

@@ -37,6 +37,13 @@ export function ContactForEmail(email: string): $CancellablePromise<model$0.Cont
     return $Call.ByID(3391142844, email);
 }
 
+/**
+ * CreateFolder crea una carpeta; parentFolderID 0 la deja en el primer nivel.
+ */
+export function CreateFolder(accountID: number, parentFolderID: number, name: string): $CancellablePromise<model$0.Folder> {
+    return $Call.ByID(3961481947, accountID, parentFolderID, name);
+}
+
 export function DeleteContact(id: number): $CancellablePromise<void> {
     return $Call.ByID(3876242856, id);
 }
@@ -129,6 +136,13 @@ export function ListUnified(view: model$0.UnifiedView, q: model$0.ListQuery): $C
     return $Call.ByID(3067513259, view, q);
 }
 
+/**
+ * MoveFolder mueve la carpeta bajo otro padre; 0 es el primer nivel.
+ */
+export function MoveFolder(folderID: number, newParentFolderID: number): $CancellablePromise<model$0.Folder> {
+    return $Call.ByID(4146554542, folderID, newParentFolderID);
+}
+
 export function MoveMessages(ids: number[] | null, destFolderID: number): $CancellablePromise<void> {
     return $Call.ByID(2219385610, ids, destFolderID);
 }
@@ -180,6 +194,13 @@ export function RemoveAccount(id: number): $CancellablePromise<void> {
 }
 
 /**
+ * RenameFolder cambia el último segmento del nombre de la carpeta.
+ */
+export function RenameFolder(folderID: number, name: string): $CancellablePromise<model$0.Folder> {
+    return $Call.ByID(2263741205, folderID, name);
+}
+
+/**
  * SaveAttachment abre el diálogo nativo "Guardar como" con el nombre del
  * adjunto sugerido. Devuelve saved=false (sin error) si se cancela.
  */
@@ -220,6 +241,13 @@ export function SetAccountSignature(accountID: number, signatureID: number): $Ca
 
 export function SetFlagged(ids: number[] | null, flagged: boolean): $CancellablePromise<void> {
     return $Call.ByID(831695113, ids, flagged);
+}
+
+/**
+ * SetFolderOrder guarda el orden manual de las carpetas de la cuenta.
+ */
+export function SetFolderOrder(accountID: number, folderIDs: number[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2643839527, accountID, folderIDs);
 }
 
 /**

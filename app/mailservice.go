@@ -140,6 +140,26 @@ func (s *MailService) ListFolders(ctx context.Context, accountID int64) ([]model
 	return s.core.ListFolders(ctx, accountID)
 }
 
+// CreateFolder crea una carpeta; parentFolderID 0 la deja en el primer nivel.
+func (s *MailService) CreateFolder(ctx context.Context, accountID, parentFolderID int64, name string) (model.Folder, error) {
+	return s.core.CreateFolder(ctx, accountID, parentFolderID, name)
+}
+
+// RenameFolder cambia el último segmento del nombre de la carpeta.
+func (s *MailService) RenameFolder(ctx context.Context, folderID int64, name string) (model.Folder, error) {
+	return s.core.RenameFolder(ctx, folderID, name)
+}
+
+// MoveFolder mueve la carpeta bajo otro padre; 0 es el primer nivel.
+func (s *MailService) MoveFolder(ctx context.Context, folderID, newParentFolderID int64) (model.Folder, error) {
+	return s.core.MoveFolder(ctx, folderID, newParentFolderID)
+}
+
+// SetFolderOrder guarda el orden manual de las carpetas de la cuenta.
+func (s *MailService) SetFolderOrder(ctx context.Context, accountID int64, folderIDs []int64) error {
+	return s.core.SetFolderOrder(ctx, accountID, folderIDs)
+}
+
 func (s *MailService) SyncAccount(ctx context.Context, accountID int64) error {
 	return s.core.SyncAccount(ctx, accountID)
 }
