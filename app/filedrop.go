@@ -48,9 +48,11 @@ func handleDrop(
 }
 
 // SetupFileDrop registra la soltada de archivos del administrador de archivos
-// sobre el redactor. El núcleo del servicio se crea en el arranque, antes de
-// que pueda llegar una soltada; si aún no está, se ignora.
-func SetupFileDrop(app *application.App, win *application.WebviewWindow, svc *MailService) {
+// sobre el redactor de win. El aviso va solo a win: con dos redactores
+// abiertos, los adjuntos llegan a la ventana donde se soltaron. El núcleo del
+// servicio se crea en el arranque, antes de que pueda llegar una soltada; si
+// aún no está, se ignora.
+func SetupFileDrop(_ *application.App, win *application.WebviewWindow, svc *MailService) {
 	win.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
 		if svc.core == nil {
 			return
@@ -63,7 +65,7 @@ func SetupFileDrop(app *application.App, win *application.WebviewWindow, svc *Ma
 		// En una goroutine: copiar archivos grandes no debe frenar la UI.
 		go func() {
 			if p, ok := handleDrop(context.Background(), svc.core.StageFiles, target, paths); ok {
-				app.Event.Emit(EventFilesStaged, p)
+				emitToWindow(win, EventFilesStaged, p)
 			}
 		}()
 	})

@@ -52,6 +52,36 @@ export function ClearBackground(): $CancellablePromise<void> {
 }
 
 /**
+ * CloseComposeWindow cierra la ventana del redactor id sin volver a preguntar.
+ */
+export function CloseComposeWindow(id: number): $CancellablePromise<void> {
+    return $Call.ByID(181563379, id);
+}
+
+/**
+ * ComposeFlushed es la respuesta del redactor id a compose:flush: ok si
+ * guardó todo; si no, message dice por qué.
+ */
+export function ComposeFlushed(id: number, ok: boolean, message: string): $CancellablePromise<void> {
+    return $Call.ByID(110411832, id, ok, message);
+}
+
+/**
+ * ComposeInit devuelve los datos con que arranca el redactor de la ventana id.
+ */
+export function ComposeInit(id: number): $CancellablePromise<string> {
+    return $Call.ByID(765696295, id);
+}
+
+/**
+ * ComposeSendStarted avisa a todas las ventanas que se empezó a enviar el
+ * correo draftID de la Bandeja de salida.
+ */
+export function ComposeSendStarted(draftID: number): $CancellablePromise<void> {
+    return $Call.ByID(3343227664, draftID);
+}
+
+/**
  * ContactForEmail devuelve la ficha dueña del correo, o nil si nadie lo tiene.
  */
 export function ContactForEmail(email: string): $CancellablePromise<model$0.Contact | null> {
@@ -185,6 +215,15 @@ export function MoveMessages(ids: number[] | null, destFolderID: number): $Cance
 }
 
 /**
+ * OpenComposeWindow abre un redactor en su propia ventana con initJSON (lo
+ * lee con ComposeInit). Si key no está vacía y ya hay una ventana con esa
+ * clave (por ejemplo "draft:5"), la trae adelante en vez de abrir otra.
+ */
+export function OpenComposeWindow(initJSON: string, key: string): $CancellablePromise<void> {
+    return $Call.ByID(291130749, initJSON, key);
+}
+
+/**
  * OpenDraftMessage abre para seguir editando un mensaje de la carpeta Borradores.
  */
 export function OpenDraftMessage(messageID: number): $CancellablePromise<model$0.Draft> {
@@ -282,6 +321,14 @@ export function SearchServer(folderID: number, text: string): $CancellablePromis
  */
 export function SetAccountSignature(accountID: number, signatureID: number): $CancellablePromise<void> {
     return $Call.ByID(963973822, accountID, signatureID);
+}
+
+/**
+ * SetComposeKey registra la clave de la ventana id, para no abrir dos veces
+ * el mismo borrador.
+ */
+export function SetComposeKey(id: number, key: string): $CancellablePromise<void> {
+    return $Call.ByID(846470098, id, key);
 }
 
 export function SetFlagged(ids: number[] | null, flagged: boolean): $CancellablePromise<void> {

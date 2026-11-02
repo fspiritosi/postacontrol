@@ -62,8 +62,9 @@ func QuitKeyBindings(quit func()) map[string]func(application.Window) {
 }
 
 // SetupDesktop arma la bandeja (ícono, tooltip fijo, menú, clic) y hace que
-// cerrar la ventana la esconda en vez de salir. Devuelve el *Desktop.
-func SetupDesktop(app *application.App, win *application.WebviewWindow) *Desktop {
+// cerrar la ventana la esconda en vez de salir. "Salir" llama a quit, que
+// espera a que los redactores guarden. Devuelve el *Desktop.
+func SetupDesktop(app *application.App, win *application.WebviewWindow, quit func()) *Desktop {
 	d := &Desktop{app: app, win: win}
 
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
@@ -77,7 +78,7 @@ func SetupDesktop(app *application.App, win *application.WebviewWindow) *Desktop
 	menu := app.NewMenu()
 	menu.Add("Abrir PostaControl").OnClick(func(*application.Context) { d.ShowWindow() })
 	menu.AddSeparator()
-	menu.Add("Salir").OnClick(func(*application.Context) { app.Quit() })
+	menu.Add("Salir").OnClick(func(*application.Context) { quit() })
 	d.tray.SetMenu(menu)
 	d.tray.OnClick(d.ShowWindow)
 	return d

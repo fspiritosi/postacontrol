@@ -70,6 +70,11 @@ func main() {
 		},
 	})
 
+	// Salir (Ctrl+Q, "Salir" de la bandeja) pasa por el registro de
+	// redactores: espera a que cada uno guarde su borrador.
+	composeWins := app.SetupComposeWindows(wailsApp, mailService)
+	mailService.SetComposeWindows(composeWins)
+
 	// Create a new window with the necessary options.
 	// 'Title' is the title of the window.
 	// 'Mac' options tailor the window when running on macOS.
@@ -86,16 +91,16 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
-		KeyBindings:      app.QuitKeyBindings(wailsApp.Quit),
+		KeyBindings:      app.QuitKeyBindings(composeWins.Quit),
 		Hidden:           app.StartHidden(os.Args),
-		BackgroundColour: application.NewRGB(6, 7, 15),
+		BackgroundColour: app.WindowBackground,
 		URL:              "/",
-		EnableFileDrop:   true,
+		// Los archivos se sueltan sobre los redactores, que tienen su ventana.
+		EnableFileDrop: false,
 	})
 
-	desktop = app.SetupDesktop(wailsApp, win)
+	desktop = app.SetupDesktop(wailsApp, win, composeWins.Quit)
 	app.SetupNotifications(wailsApp, mailService, desktop, notifier)
-	app.SetupFileDrop(wailsApp, win, mailService)
 
 	// Run the application. This blocks until the application has been exited.
 	err := wailsApp.Run()

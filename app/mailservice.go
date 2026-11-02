@@ -24,9 +24,10 @@ const syncEvery = 5 * time.Minute
 // errores del núcleo (*mail.UserError) llegan a JS con su mensaje en español,
 // porque Wails usa err.Error().
 type MailService struct {
-	app  *application.App
-	core *mail.Core
-	hub  notifyHub
+	app      *application.App
+	core     *mail.Core
+	hub      notifyHub
+	composes *ComposeWindows
 }
 
 func NewMailService() *MailService { return &MailService{} }
@@ -377,6 +378,62 @@ func (s *MailService) OpenDraftMessage(ctx context.Context, messageID int64) (mo
 // ListPendingDrafts devuelve los borradores que todavía no se subieron al servidor.
 func (s *MailService) ListPendingDrafts(ctx context.Context) ([]model.Draft, error) {
 	return s.core.ListPendingDrafts(ctx)
+}
+
+// SetComposeWindows le da al servicio el registro de ventanas del redactor.
+// Se llama en main, antes de que arranque la app.
+//
+//wails:ignore
+func (s *MailService) SetComposeWindows(r *ComposeWindows) { s.composes = r }
+
+// OpenComposeWindow abre un redactor en su propia ventana con initJSON (lo
+// lee con ComposeInit). Si key no está vacía y ya hay una ventana con esa
+// clave (por ejemplo "draft:5"), la trae adelante en vez de abrir otra.
+func (s *MailService) OpenComposeWindow(initJSON string, key string) error {
+	if s.composes == nil {
+		return &mail.UserError{Code: "unavailable", Msg: "No pudimos abrir el redactor."}
+	}
+	_, err := s.composes.Open(initJSON, key)
+	return err
+}
+
+// ComposeInit devuelve los datos con que arranca el redactor de la ventana id.
+func (s *MailService) ComposeInit(id int) (string, error) {
+	if s.composes == nil {
+		return "", &mail.UserError{Code: "not_found", Msg: "Esta ventana del redactor ya no existe."}
+	}
+	return s.composes.Init(id)
+}
+
+// SetComposeKey registra la clave de la ventana id, para no abrir dos veces
+// el mismo borrador.
+func (s *MailService) SetComposeKey(id int, key string) {
+	if s.composes != nil {
+		s.composes.SetKey(id, key)
+	}
+}
+
+// CloseComposeWindow cierra la ventana del redactor id sin volver a preguntar.
+func (s *MailService) CloseComposeWindow(id int) {
+	if s.composes != nil {
+		s.composes.Close(id)
+	}
+}
+
+// ComposeFlushed es la respuesta del redactor id a compose:flush: ok si
+// guardó todo; si no, message dice por qué.
+func (s *MailService) ComposeFlushed(id int, ok bool, message string) {
+	if s.composes != nil {
+		s.composes.Flushed(id, ok, message)
+	}
+}
+
+// ComposeSendStarted avisa a todas las ventanas que se empezó a enviar el
+// correo draftID de la Bandeja de salida.
+func (s *MailService) ComposeSendStarted(draftID int64) {
+	if s.app != nil {
+		s.app.Event.Emit(EventComposeSendStarted, draftID)
+	}
 }
 
 func (s *MailService) GetSettings(ctx context.Context) (model.Settings, error) {

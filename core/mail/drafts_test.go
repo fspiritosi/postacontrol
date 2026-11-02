@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"encoding/base64"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,6 +121,42 @@ func TestDrafts_SaveIsLocalOnly(t *testing.T) {
 	// La cuenta tiene que existir.
 	_, err = c.SaveDraft(ctx, 0, model.SendRequest{AccountID: acc.ID + 100})
 	requireUserError(t, err, "not_found")
+}
+
+// Dos redactores en ventanas distintas pueden guardar su primer borrador a la
+// vez para la misma cuenta: cada uno tiene que quedar con su propio borrador.
+func TestSaveDraft_ConcurrentNewDraftsSameAccount(t *testing.T) {
+	c, srv, _, _, acc := newDraftsCore(t, nil, true)
+	srv.Close()
+	ctx := context.Background()
+
+	subjects := []string{"Uno", "Dos"}
+	got := make([]model.Draft, len(subjects))
+	errs := make([]error, len(subjects))
+	var wg sync.WaitGroup
+	for i, subj := range subjects {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got[i], errs[i] = c.SaveDraft(ctx, 0, draftReq(acc, subj))
+		}()
+	}
+	wg.Wait()
+	for i := range subjects {
+		require.NoError(t, errs[i])
+		assert.Equal(t, subjects[i], got[i].Request.Subject)
+	}
+	assert.NotEqual(t, got[0].ID, got[1].ID)
+	assert.NotEqual(t, got[0].MessageID, got[1].MessageID)
+
+	pending, err := c.ListPendingDrafts(ctx)
+	require.NoError(t, err)
+	require.Len(t, pending, 2)
+	saved := map[string]bool{}
+	for _, d := range pending {
+		saved[d.Request.Subject] = true
+	}
+	assert.Equal(t, map[string]bool{"Uno": true, "Dos": true}, saved)
 }
 
 func TestDrafts_UploadAppendsWithDraftFlagAndBcc(t *testing.T) {
