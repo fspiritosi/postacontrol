@@ -11,7 +11,7 @@ vi.mock("@wailsio/runtime", () => ({
     },
   },
 }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 vi.mock("../../bindings/postacontrol/app/mailservice", () => ({ SyncFolder: vi.fn() }));
 
 import { toast } from "sonner";
@@ -21,6 +21,8 @@ import {
   SEARCH_REFRESH_MS,
   onOpenMessage,
   onPasswordRequest,
+  onSettingsRequest,
+  requestSettings,
   resetSyncStateForTests,
   syncFolder,
   toastSyncError,
@@ -160,6 +162,49 @@ describe("useMailEvents", () => {
     for (const call of vi.mocked(toast.error).mock.calls) {
       expect(call).toEqual(["Sin red", { id: "sync-error-1" }]);
     }
+  });
+});
+
+describe("etiquetas", () => {
+  let qc: QueryClient;
+  let invalidate: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    qc = new QueryClient();
+    invalidate = vi.spyOn(qc, "invalidateQueries").mockResolvedValue();
+    renderHook(() => useMailEvents(qc));
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("mail:labels-changed recarga etiquetas y listas; el correo abierto solo se marca", () => {
+    emit("mail:labels-changed", undefined);
+    const calls = invalidate.mock.calls.map(([f]: [{ queryKey: string[]; refetchType?: string }]) => f);
+    for (const key of ["labels", "messages", "threads", "thread", "search"]) {
+      expect(calls).toContainEqual({ queryKey: [key] });
+    }
+    expect(calls).toContainEqual({ queryKey: ["message"], refetchType: "none" });
+  });
+
+  it("mail:folder-updated recarga también las listas por etiqueta", () => {
+    emit("mail:folder-updated", { folderId: 3 });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages", "label"] });
+  });
+
+  it("mail:labels-local-only avisa con el correo de la cuenta, 10 s y un id por cuenta", () => {
+    emit("mail:labels-local-only", { accountId: 2, email: "yo@ej.com" });
+    expect(toast.warning).toHaveBeenCalledWith(
+      "El servidor de yo@ej.com no guarda etiquetas. En esa cuenta quedan solo en esta PC y pueden perderse si movés el correo.",
+      { id: "labels-local-only-2", duration: 10000 },
+    );
+  });
+
+  it("requestSettings llega a onSettingsRequest", () => {
+    const cb = vi.fn();
+    const off = onSettingsRequest(cb);
+    requestSettings("labels");
+    expect(cb).toHaveBeenCalledWith("labels");
+    off();
+    requestSettings("labels");
+    expect(cb).toHaveBeenCalledTimes(1);
   });
 });
 

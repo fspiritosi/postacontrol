@@ -26,6 +26,13 @@ export function useSignatures() {
   });
 }
 
+export function useLabels() {
+  return useQuery({
+    queryKey: ["labels"],
+    queryFn: async () => (await svc.ListLabels()) ?? [],
+  });
+}
+
 export function useContacts(query: string) {
   return useQuery({
     queryKey: ["contacts", query],

@@ -66,6 +66,22 @@ export function requestPassword(accountId: number): void {
   passwordListeners.forEach((l) => l(accountId));
 }
 
+// Pedido de abrir Configuración, opcionalmente en una sección. Lo escucha la
+// barra lateral, que es quien tiene el diálogo.
+export type SettingsSection = "labels";
+const settingsListeners = new Set<(section?: SettingsSection) => void>();
+
+export function onSettingsRequest(cb: (section?: SettingsSection) => void): () => void {
+  settingsListeners.add(cb);
+  return () => {
+    settingsListeners.delete(cb);
+  };
+}
+
+export function requestSettings(section?: SettingsSection): void {
+  settingsListeners.forEach((l) => l(section));
+}
+
 // Pedido de abrir un correo (o solo su carpeta, con messageId 0) que llega al
 // tocar una notificación. Lo escucha MailShell, que es quien tiene la selección.
 export type OpenMessageRequest = { folderId: number; messageId: number };
@@ -233,11 +249,27 @@ export function useMailEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ["messages", folderId] });
         // La carpeta puede formar parte de una vista unificada.
         void queryClient.invalidateQueries({ queryKey: ["messages", "unified"] });
+        // Y de una lista filtrada por etiqueta.
+        void queryClient.invalidateQueries({ queryKey: ["messages", "label"] });
         // Los hilos de una carpeta suman los de Enviados: se recargan todos.
         void queryClient.invalidateQueries({ queryKey: ["threads"] });
         void queryClient.invalidateQueries({ queryKey: ["thread"] });
         void queryClient.invalidateQueries({ queryKey: ["folders"] });
         refreshSearchThrottled();
+      }),
+      Events.On("mail:labels-changed", () => {
+        for (const key of ["labels", "messages", "threads", "thread", "search"]) {
+          void queryClient.invalidateQueries({ queryKey: [key] });
+        }
+        // El correo abierto ya se muestra: se marca vieja y se recarga al volver a abrirlo.
+        void queryClient.invalidateQueries({ queryKey: ["message"], refetchType: "none" });
+      }),
+      Events.On("mail:labels-local-only", (ev) => {
+        const { accountId, email } = ev.data as { accountId: number; email: string };
+        toast.warning(
+          `El servidor de ${email} no guarda etiquetas. En esa cuenta quedan solo en esta PC y pueden perderse si movés el correo.`,
+          { id: `labels-local-only-${accountId}`, duration: 10000 },
+        );
       }),
       Events.On("mail:settings-changed", () => {
         // También cambia el fondo: useBackground va por el nombre guardado.

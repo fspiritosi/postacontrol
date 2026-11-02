@@ -22,11 +22,17 @@ import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
 import { useBackground, useSettings } from "@/lib/queries";
 import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
+import { LabelsSection } from "./LabelsSection";
 import { SignaturesSection } from "./SignaturesSection";
 
-type Props = { open: boolean; onOpenChange: (open: boolean) => void };
+type Props = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  // Sección a la que ir al abrir.
+  focusSection?: "labels";
+};
 
-export function SettingsDialog({ open, onOpenChange }: Props) {
+export function SettingsDialog({ open, onOpenChange, focusSection }: Props) {
   const queryClient = useQueryClient();
   const settings = useSettings();
   const background = useBackground();
@@ -178,6 +184,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
           </div>
         </div>
         <SignaturesSection />
+        <LabelsSection focus={focusSection === "labels"} />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cerrar
