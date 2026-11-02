@@ -97,7 +97,7 @@
 
 ## Pendiente
 
-- **Task 6, prueba manual de Fabricio con `task install:desktop`:**
+- **Task 6:** Fabricio la probó con `task install:desktop` y la aceptó el 2026-11-02 ("ya la pude probar, está ok"). La lista que siguió fue:
   - **Panel de lectura:** arranca abajo; se cambia a la derecha y arriba, y recuerda los tamaños en cada posición.
   - **Marcar:** con Ctrl, Shift, Ctrl + A y las casillas, en una carpeta, en la unificada, en la búsqueda y en conversaciones.
   - **Barra de acciones:** probar cada botón, borrar dentro de la Papelera, y una mezcla desde la búsqueda (pide confirmación).
