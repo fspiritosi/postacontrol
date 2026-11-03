@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
 import { useBackground, useSettings } from "@/lib/queries";
 import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
+import { AccountsSection } from "./AccountsSection";
 import { LabelsSection } from "./LabelsSection";
 import { SignaturesSection } from "./SignaturesSection";
 
@@ -212,6 +213,7 @@ export function SettingsDialog({ open, onOpenChange, focusSection }: Props) {
             ) : null}
           </div>
         </div>
+        <AccountsSection />
         <SignaturesSection />
         <LabelsSection focus={focusSection === "labels"} />
         <DialogFooter>
