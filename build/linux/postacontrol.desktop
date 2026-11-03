@@ -2,10 +2,10 @@
 Type=Application
 Name=postacontrol
 Exec=postacontrol %u
-MimeType=x-scheme-handler/mailto;
 Icon=postacontrol
 Categories=Network;Email;
 Terminal=false
-Keywords=wails
+Keywords=correo;mail;email;
 Version=1.0
 StartupNotify=false
+MimeType=x-scheme-handler/mailto;
