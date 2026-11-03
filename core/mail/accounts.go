@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/mail"
 	"regexp"
+	"slices"
 	"strings"
 
 	"postacontrol/core/imapx"
@@ -272,6 +273,32 @@ func (c *Core) RemoveAccount(ctx context.Context, id int64) error {
 		return asUserError(err)
 	}
 	c.dropConn(id)
+	c.emit(EventAccountsChanged, nil)
+	return nil
+}
+
+// ReorderAccounts fija el orden de las cuentas. ids tiene que ser exactamente
+// el conjunto de cuentas que existen, cada una una vez.
+func (c *Core) ReorderAccounts(ctx context.Context, ids []int64) error {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	all, err := c.store.ListAccounts(ctx)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	have := make([]int64, len(all))
+	for i, a := range all {
+		have[i] = a.ID
+	}
+	want := slices.Clone(ids)
+	slices.Sort(have)
+	slices.Sort(want)
+	if !slices.Equal(have, want) {
+		return &UserError{Code: "invalid", Msg: "La lista de cuentas cambió. Probá de nuevo."}
+	}
+	if err := c.store.SetAccountPositions(ctx, ids); err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
 	c.emit(EventAccountsChanged, nil)
 	return nil
 }

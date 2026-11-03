@@ -718,3 +718,29 @@ func TestMigrateV8_PositionDefaultsToZero(t *testing.T) {
 	require.Len(t, fs, 1)
 	assert.Equal(t, 0, fs[0].Position)
 }
+
+func TestMigrateV10_AccountPositionFromID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	require.NoError(t, migrateTo(db, 9))
+	for _, e := range []string{"a@x.com", "b@x.com"} {
+		_, err = db.Exec(`INSERT INTO accounts (email, display_name, username, color, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, save_sent_copy) VALUES (?,'A','a','#fff','h',993,'tls','h',465,'tls',1)`, e)
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.Close())
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	defer s.Close()
+	rows, err := s.db.Query(`SELECT id, position FROM accounts ORDER BY id`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var got [][2]int64
+	for rows.Next() {
+		var id, pos int64
+		require.NoError(t, rows.Scan(&id, &pos))
+		got = append(got, [2]int64{id, pos})
+	}
+	assert.Equal(t, [][2]int64{{1, 1}, {2, 2}}, got)
+}

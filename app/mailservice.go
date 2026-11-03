@@ -505,6 +505,10 @@ func (s *MailService) UpdateLabel(ctx context.Context, l model.Label) (model.Lab
 	return s.core.UpdateLabel(ctx, l)
 }
 
+func (s *MailService) ReorderAccounts(ctx context.Context, ids []int64) error {
+	return s.core.ReorderAccounts(ctx, ids)
+}
+
 func (s *MailService) ReorderLabels(ctx context.Context, ids []int64) error {
 	return s.core.ReorderLabels(ctx, ids)
 }

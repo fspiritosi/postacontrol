@@ -570,3 +570,48 @@ func inboxOf(t *testing.T, c *Core, accountID int64) int64 {
 	t.Fatal("no hay Entrada")
 	return 0
 }
+
+func accountOrder(t *testing.T, c *Core) []string {
+	t.Helper()
+	list, err := c.ListAccounts(context.Background())
+	require.NoError(t, err)
+	out := []string{}
+	for _, a := range list {
+		out = append(out, a.Email)
+	}
+	return out
+}
+
+func TestReorderAccounts(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	for _, e := range []string{"a@ej.com", "b@ej.com", "c@ej.com"} {
+		_, err := c.AddAccount(ctx, inputWithEmail(c, imap, smtp, e))
+		require.NoError(t, err)
+	}
+	before := len(n.matching(EventAccountsChanged))
+	require.NoError(t, c.ReorderAccounts(ctx, []int64{3, 1, 2}))
+	assert.Equal(t, []string{"c@ej.com", "a@ej.com", "b@ej.com"}, accountOrder(t, c))
+	assert.Len(t, n.matching(EventAccountsChanged), before+1)
+
+	_, err := c.AddAccount(ctx, inputWithEmail(c, imap, smtp, "d@ej.com"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c@ej.com", "a@ej.com", "b@ej.com", "d@ej.com"}, accountOrder(t, c))
+}
+
+func TestReorderAccounts_Stale(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	for _, e := range []string{"a@ej.com", "b@ej.com", "c@ej.com"} {
+		_, err := c.AddAccount(ctx, inputWithEmail(c, imap, smtp, e))
+		require.NoError(t, err)
+	}
+	before := len(n.matching(EventAccountsChanged))
+	for _, ids := range [][]int64{{1, 2}, {1, 1, 2}, {1, 2, 99}} {
+		err := c.ReorderAccounts(ctx, ids)
+		assert.Equal(t, "invalid", userErrCode(t, err))
+		assert.Equal(t, "La lista de cuentas cambió. Probá de nuevo.", err.Error())
+	}
+	assert.Equal(t, []string{"a@ej.com", "b@ej.com", "c@ej.com"}, accountOrder(t, c))
+	assert.Len(t, n.matching(EventAccountsChanged), before)
+}

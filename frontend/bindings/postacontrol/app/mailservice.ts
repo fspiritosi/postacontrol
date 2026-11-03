@@ -316,6 +316,10 @@ export function RenameFolder(folderID: number, name: string): $CancellablePromis
     return $Call.ByID(2263741205, folderID, name);
 }
 
+export function ReorderAccounts(ids: number[] | null): $CancellablePromise<void> {
+    return $Call.ByID(582143054, ids);
+}
+
 export function ReorderLabels(ids: number[] | null): $CancellablePromise<void> {
     return $Call.ByID(4154652925, ids);
 }

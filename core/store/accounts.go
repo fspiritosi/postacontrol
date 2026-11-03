@@ -26,8 +26,8 @@ func scanAccount(sc interface{ Scan(...any) error }) (model.Account, error) {
 func (s *Store) InsertAccount(ctx context.Context, a model.Account) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO accounts
  (email, display_name, username, color, imap_host, imap_port, imap_security,
-  smtp_host, smtp_port, smtp_security, save_sent_copy)
- VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  smtp_host, smtp_port, smtp_security, save_sent_copy, position)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(position), 0) + 1 FROM accounts))`,
 		a.Email, a.DisplayName, a.Username, a.Color, a.IMAP.Host, a.IMAP.Port, string(a.IMAP.Security),
 		a.SMTP.Host, a.SMTP.Port, string(a.SMTP.Security), b2i(a.SaveSentCopy))
 	if err != nil {
@@ -45,7 +45,7 @@ func (s *Store) GetAccount(ctx context.Context, id int64) (model.Account, error)
 }
 
 func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+accountCols+` FROM accounts ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+accountCols+` FROM accounts ORDER BY position, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +147,21 @@ func (s *Store) ResetAccountCache(ctx context.Context, accountID int64) error {
 		`DELETE FROM label_carry WHERE account_id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, accountID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SetAccountPositions ordena las cuentas según ids (posición 1, 2, …) en una transacción.
+func (s *Store) SetAccountPositions(ctx context.Context, ids []int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for i, id := range ids {
+		if _, err := tx.ExecContext(ctx, `UPDATE accounts SET position = ? WHERE id = ?`, i+1, id); err != nil {
 			return err
 		}
 	}
