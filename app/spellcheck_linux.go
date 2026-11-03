@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !gtk3
 
 package app
 
@@ -22,11 +22,7 @@ import "C"
 import (
 	"log/slog"
 	"unsafe"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
-
-var invokeAsync = application.InvokeAsync
 
 // applySpellcheck prende o apaga el corrector de WebKit con spellLanguages.
 // Devuelve los idiomas que WebKit cargó, o nil si quedó apagado. Tiene que

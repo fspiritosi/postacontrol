@@ -1,6 +1,13 @@
 package app
 
-import "postacontrol/core/model"
+import (
+	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"postacontrol/core/model"
+)
+
+// invokeAsync corre una función en el hilo de la UI sin esperarla.
+var invokeAsync = application.InvokeAsync
 
 // spellLanguages son los diccionarios que se piden a WebKit, en orden.
 var spellLanguages = []string{"es_AR", "en_US"}

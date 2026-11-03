@@ -52,7 +52,14 @@ export function SafeHtmlFrame({ html, text, allowRemote, accountId, bare = false
               key={i}
               href={p.href}
               className="text-primary underline underline-offset-2"
+              // Clic, Ctrl/Cmd+clic y clic del medio: nunca navega ni abre
+              // una ventana del webview; el enlace sale por openLink.
               onClick={(ev) => {
+                ev.preventDefault();
+                openLink(p.href, accountId);
+              }}
+              onAuxClick={(ev) => {
+                if (ev.button !== 1) return;
                 ev.preventDefault();
                 openLink(p.href, accountId);
               }}

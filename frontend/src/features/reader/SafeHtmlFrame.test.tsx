@@ -42,6 +42,32 @@ describe("SafeHtmlFrame", () => {
     fireEvent.click(screen.getByRole("link", { name: "ana@x.com" }));
     expect(svc.OpenMailto).toHaveBeenCalledWith("mailto:ana@x.com", 4);
   });
+
+  it("en texto plano, el clic del medio abre afuera y no navega", () => {
+    vi.mocked(svc.OpenExternal).mockClear();
+    render(<SafeHtmlFrame html="" text="ir a https://x.com" allowRemote={false} accountId={1} />);
+    const ev = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+    fireEvent(screen.getByRole("link", { name: "https://x.com" }), ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(svc.OpenExternal).toHaveBeenCalledWith("https://x.com");
+  });
+
+  it("en texto plano, el clic derecho no abre nada", () => {
+    vi.mocked(svc.OpenExternal).mockClear();
+    render(<SafeHtmlFrame html="" text="ir a https://x.com" allowRemote={false} accountId={1} />);
+    const ev = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 2 });
+    fireEvent(screen.getByRole("link", { name: "https://x.com" }), ev);
+    expect(svc.OpenExternal).not.toHaveBeenCalled();
+  });
+
+  it("en texto plano, Ctrl+clic abre afuera y no navega", () => {
+    vi.mocked(svc.OpenExternal).mockClear();
+    render(<SafeHtmlFrame html="" text="ir a https://x.com" allowRemote={false} accountId={1} />);
+    const link = screen.getByRole("link", { name: "https://x.com" });
+    expect(fireEvent.click(link, { ctrlKey: true })).toBe(false);
+    expect(fireEvent.click(link, { metaKey: true })).toBe(false);
+    expect(svc.OpenExternal).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("handleFrameClick", () => {
