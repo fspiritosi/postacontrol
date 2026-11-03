@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { errorMessage } from "@/lib/errors";
+import { linkify } from "@/lib/linkify";
 import { buildSrcDoc } from "@/lib/srcdoc";
 
 // Intercepta clics en enlaces HTML del documento del correo y los abre afuera.
@@ -13,7 +14,11 @@ export function handleFrameClick(ev: Event, accountId: number): void {
   const href = (a as unknown as { href?: unknown }).href;
   if (typeof href !== "string" || href === "") return;
   ev.preventDefault();
-  // Los mailto: abren el redactor de PostaControl con la cuenta del correo.
+  openLink(href, accountId);
+}
+
+// Los mailto: abren el redactor de PostaControl con la cuenta del correo.
+function openLink(href: string, accountId: number): void {
   const open = /^mailto:/i.test(href) ? svc.OpenMailto(href, accountId) : svc.OpenExternal(href);
   open.catch((e) => toast.error(errorMessage(e)));
 }
@@ -41,7 +46,23 @@ export function SafeHtmlFrame({ html, text, allowRemote, accountId, bare = false
   if (!html) {
     return (
       <div className={`${margin} whitespace-pre-wrap rounded-lg bg-white p-4 text-sm text-neutral-900 shadow-sm`}>
-        {text}
+        {linkify(text).map((p, i) =>
+          p.kind === "link" ? (
+            <a
+              key={i}
+              href={p.href}
+              className="text-primary underline underline-offset-2"
+              onClick={(ev) => {
+                ev.preventDefault();
+                openLink(p.href, accountId);
+              }}
+            >
+              {p.text}
+            </a>
+          ) : (
+            p.text
+          ),
+        )}
       </div>
     );
   }

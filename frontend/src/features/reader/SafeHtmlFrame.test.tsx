@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
@@ -28,6 +28,19 @@ describe("SafeHtmlFrame", () => {
   it("sin HTML muestra el texto plano", () => {
     render(<SafeHtmlFrame html="" text="solo texto" allowRemote={false} accountId={1} />);
     expect(screen.getByText("solo texto")).toBeTruthy();
+  });
+
+  it("en texto plano, el clic en un enlace lo abre afuera", () => {
+    vi.mocked(svc.OpenExternal).mockClear();
+    render(<SafeHtmlFrame html="" text="ir a https://x.com" allowRemote={false} accountId={1} />);
+    fireEvent.click(screen.getByRole("link", { name: "https://x.com" }));
+    expect(svc.OpenExternal).toHaveBeenCalledWith("https://x.com");
+  });
+
+  it("en texto plano, un mailto abre el redactor con la cuenta", () => {
+    render(<SafeHtmlFrame html="" text="a ana@x.com" allowRemote={false} accountId={4} />);
+    fireEvent.click(screen.getByRole("link", { name: "ana@x.com" }));
+    expect(svc.OpenMailto).toHaveBeenCalledWith("mailto:ana@x.com", 4);
   });
 });
 
