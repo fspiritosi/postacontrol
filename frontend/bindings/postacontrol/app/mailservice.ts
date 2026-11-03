@@ -259,10 +259,18 @@ export function OpenDraftMessage(messageID: number): $CancellablePromise<model$0
 }
 
 /**
- * OpenExternal abre una URL en el navegador del sistema. Solo http, https y mailto.
+ * OpenExternal abre una URL en el navegador del sistema. Solo http y https.
  */
 export function OpenExternal(link: string): $CancellablePromise<void> {
     return $Call.ByID(3633237272, link);
+}
+
+/**
+ * OpenMailto abre el redactor de PostaControl con los datos de un enlace
+ * mailto:. accountID es la cuenta remitente; 0 o inexistente, la primera.
+ */
+export function OpenMailto(link: string, accountID: number): $CancellablePromise<void> {
+    return $Call.ByID(3715077101, link, accountID);
 }
 
 /**

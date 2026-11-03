@@ -319,7 +319,33 @@ func suggestedFilename(name string) string {
 	return name
 }
 
-// OpenExternal abre una URL en el navegador del sistema. Solo http, https y mailto.
+// OpenMailto abre el redactor de PostaControl con los datos de un enlace
+// mailto:. accountID es la cuenta remitente; 0 o inexistente, la primera.
+func (s *MailService) OpenMailto(ctx context.Context, link string, accountID int64) error {
+	f, err := parseMailto(link)
+	if err != nil {
+		return &mail.UserError{Code: "invalid", Msg: "El enlace no es válido.", Err: err}
+	}
+	accs, err := s.core.ListAccounts(ctx)
+	if err != nil {
+		return err
+	}
+	acc, ok := pickMailtoAccount(accs, accountID)
+	if !ok {
+		return &mail.UserError{Code: "invalid", Msg: "Primero agregá una cuenta."}
+	}
+	initJSON, err := mailtoInitJSON(f, acc)
+	if err != nil {
+		return err
+	}
+	if s.composes == nil {
+		return &mail.UserError{Code: "unavailable", Msg: "No pudimos abrir el redactor."}
+	}
+	_, err = s.composes.Open(initJSON, "")
+	return err
+}
+
+// OpenExternal abre una URL en el navegador del sistema. Solo http y https.
 func (s *MailService) OpenExternal(link string) error {
 	if err := validateExternalURL(link); err != nil {
 		return err
@@ -330,7 +356,7 @@ func (s *MailService) OpenExternal(link string) error {
 	return nil
 }
 
-// validateExternalURL acepta solo http, https y mailto (con host o destinatario).
+// validateExternalURL acepta solo http y https con host (los mailto: van por OpenMailto).
 func validateExternalURL(link string) error {
 	u, err := url.Parse(link)
 	if err != nil {
@@ -341,12 +367,8 @@ func validateExternalURL(link string) error {
 		if u.Host == "" {
 			return errors.New("El enlace no es válido.")
 		}
-	case "mailto":
-		if u.Opaque == "" && u.Path == "" && u.RawQuery == "" {
-			return errors.New("El enlace no es válido.")
-		}
 	default:
-		return errors.New("Solo se pueden abrir enlaces http, https y mailto.")
+		return errors.New("Solo se pueden abrir enlaces http y https.")
 	}
 	return nil
 }

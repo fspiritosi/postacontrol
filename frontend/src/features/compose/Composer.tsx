@@ -497,14 +497,14 @@ export function Composer({ init, onClose, windowId }: Props) {
           {signature && (
             <section aria-label="Vista previa de la firma">
               <p className="text-xs font-medium text-muted-foreground">Firma</p>
-              <SafeHtmlFrame html={signature.html} text="" allowRemote={false} bare />
+              <SafeHtmlFrame html={signature.html} text="" allowRemote={false} accountId={init.accountId} bare />
             </section>
           )}
 
           {init.quotedHtml && (
             <section aria-label="Mensaje original">
               <p className="text-xs font-medium text-muted-foreground">Mensaje original</p>
-              <SafeHtmlFrame html={init.quotedHtml} text="" allowRemote={false} bare />
+              <SafeHtmlFrame html={init.quotedHtml} text="" allowRemote={false} accountId={init.accountId} bare />
             </section>
           )}
         </div>

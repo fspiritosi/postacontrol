@@ -7,20 +7,22 @@ import { buildSrcDoc } from "@/lib/srcdoc";
 // Intercepta clics en enlaces HTML del documento del correo y los abre afuera.
 // Solo <a> HTML con href string (los <a> de SVG tienen un SVGAnimatedString).
 // Sin instanceof: el nodo vive en otro realm (el del iframe).
-export function handleFrameClick(ev: Event): void {
+export function handleFrameClick(ev: Event, accountId: number): void {
   const a = (ev.target as Element | null)?.closest?.("a");
   if (!a || a.namespaceURI !== "http://www.w3.org/1999/xhtml" || a.localName !== "a") return;
   const href = (a as unknown as { href?: unknown }).href;
   if (typeof href !== "string" || href === "") return;
   ev.preventDefault();
-  svc.OpenExternal(href).catch((e) => toast.error(errorMessage(e)));
+  // Los mailto: abren el redactor de PostaControl con la cuenta del correo.
+  const open = /^mailto:/i.test(href) ? svc.OpenMailto(href, accountId) : svc.OpenExternal(href);
+  open.catch((e) => toast.error(errorMessage(e)));
 }
 
-type Props = { html: string; text: string; allowRemote: boolean; bare?: boolean };
+type Props = { html: string; text: string; allowRemote: boolean; accountId: number; bare?: boolean };
 
 // El cuerpo del correo vive en un iframe aislado: sandbox sin scripts ni
 // popups, CSP restrictiva en el documento y los enlaces salen al navegador.
-export function SafeHtmlFrame({ html, text, allowRemote, bare = false }: Props) {
+export function SafeHtmlFrame({ html, text, allowRemote, accountId, bare = false }: Props) {
   const margin = bare ? "mt-1" : "m-6";
   const ref = useRef<HTMLIFrameElement>(null);
   const srcDoc = useMemo(
@@ -58,7 +60,7 @@ export function SafeHtmlFrame({ html, text, allowRemote, bare = false }: Props) 
     observer.current = new ResizeObserver(fit);
     observer.current.observe(doc.documentElement);
     doc.addEventListener("load", fit, true); // imágenes que cargan después
-    doc.addEventListener("click", handleFrameClick);
+    doc.addEventListener("click", (ev) => handleFrameClick(ev, accountId));
   };
 
   return (

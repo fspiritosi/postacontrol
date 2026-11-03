@@ -26,10 +26,10 @@ func TestDataDir_FallbackHome(t *testing.T) {
 }
 
 func TestValidateExternalURL(t *testing.T) {
-	for _, ok := range []string{"http://a.com", "https://a.com/x?y=1", "mailto:a@b.com", "HTTPS://A.COM"} {
+	for _, ok := range []string{"http://a.com", "https://a.com/x?y=1", "HTTPS://A.COM"} {
 		assert.NoError(t, validateExternalURL(ok), ok)
 	}
-	for _, bad := range []string{"", "file:///etc/passwd", "javascript:alert(1)", "ftp://a.com", "data:text/html,x", "a.com", "http://", "https:///x", "mailto:"} {
+	for _, bad := range []string{"", "file:///etc/passwd", "javascript:alert(1)", "ftp://a.com", "data:text/html,x", "a.com", "http://", "https:///x", "mailto:", "mailto:a@b.com"} {
 		assert.Error(t, validateExternalURL(bad), bad)
 	}
 }

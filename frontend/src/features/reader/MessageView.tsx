@@ -202,7 +202,7 @@ function Body({
           </div>
         )}
 
-        <SafeHtmlFrame html={message.html} text={message.text} allowRemote={allowRemote} />
+        <SafeHtmlFrame html={message.html} text={message.text} allowRemote={allowRemote} accountId={message.accountId} />
       </div>
       <AttachmentList messageId={message.id} attachments={message.attachments ?? []} />
     </div>
