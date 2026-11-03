@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,7 @@ import (
 	"postacontrol/core/mail"
 	"postacontrol/core/model"
 	"postacontrol/core/secrets"
+	"postacontrol/core/testenv"
 )
 
 func TestParseMailto_Full(t *testing.T) {
@@ -119,4 +121,97 @@ func TestMailtoArgs(t *testing.T) {
 	if len(got) != 1 || got[0] != "MAILTO:a@x.com" {
 		t.Fatalf("MailtoArgs = %v", got)
 	}
+}
+
+func TestOpenMailto_SinNucleo(t *testing.T) {
+	svc := &MailService{}
+	var err error
+	require.NotPanics(t, func() { err = svc.OpenMailto(context.Background(), "mailto:a@x.com", 0) })
+	var ue *mail.UserError
+	require.True(t, errors.As(err, &ue), "se esperaba UserError, fue %v", err)
+	assert.Equal(t, "unavailable", ue.Code)
+}
+
+// newCoreConCuenta arma un núcleo con una cuenta contra servidores de prueba.
+func newCoreConCuenta(t *testing.T) *mail.Core {
+	t.Helper()
+	const user, pass = "f@ej.com", "secreta"
+	tlsEnv := testenv.NewTLS(t)
+	imap := testenv.StartIMAP(t, tlsEnv, user, pass)
+	smtp := testenv.StartSMTP(t, tlsEnv, user, pass)
+	core, err := mail.New(mail.Config{
+		DBPath:          filepath.Join(t.TempDir(), "p.db"),
+		Secrets:         secrets.NewMemory(),
+		TLS:             tlsEnv.Client,
+		SkipInitialSync: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = core.Close() })
+	_, err = core.AddAccount(context.Background(), model.AccountInput{
+		Account:  model.Account{Email: user, IMAP: imap.Settings, SMTP: smtp.Settings},
+		Password: pass,
+	})
+	require.NoError(t, err)
+	return core
+}
+
+func TestOpenMailtoArgs_EsperaAlArranque(t *testing.T) {
+	svc := NewMailService()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.OpenMailtoArgs([]string{"--hidden", "mailto:a@x.com?subject=Hola"})
+	}()
+	select {
+	case <-done:
+		t.Fatal("OpenMailtoArgs no esperó al arranque")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Arranque: como en main, primero el núcleo y los redactores, después la señal.
+	h := newComposeHarness(time.Second)
+	svc.core = newCoreConCuenta(t)
+	svc.SetComposeWindows(h.r)
+	svc.MarkStarted()
+	svc.MarkStarted() // otra vez no hace nada
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OpenMailtoArgs no siguió después del arranque")
+	}
+	require.Equal(t, 1, h.created())
+	init, err := h.r.Init(1)
+	require.NoError(t, err)
+	var got mailtoInit
+	require.NoError(t, json.Unmarshal([]byte(init), &got))
+	assert.Equal(t, []model.Address{{Email: "a@x.com"}}, got.To)
+	assert.Equal(t, "Hola", got.Subject)
+}
+
+func TestOpenMailtoArgs_SinNucleoNoEntraEnPanico(t *testing.T) {
+	svc := NewMailService()
+	svc.MarkStarted()
+	require.NotPanics(t, func() { svc.OpenMailtoArgs([]string{"mailto:a@x.com"}) })
+}
+
+func TestOpenMailtoArgs_SinMailtoNoEspera(t *testing.T) {
+	svc := NewMailService() // nunca arranca
+	svc.OpenMailtoArgs([]string{"--hidden"})
+}
+
+func TestParseMailto_PlusIsLiteral(t *testing.T) {
+	f, err := parseMailto("mailto:?cc=a+tag@x.com&subject=1+1")
+	require.NoError(t, err)
+	assert.Empty(t, f.To)
+	assert.Equal(t, []model.Address{{Email: "a+tag@x.com"}}, f.Cc)
+	assert.Equal(t, "1+1", f.Subject)
+}
+
+func TestParseMailto_KeysIgnoreCaseAndBadEscapes(t *testing.T) {
+	f, err := parseMailto("mailto:a@x.com?SUBJECT=Hola%20che&Body=x%ZZ&body=bien&CC=b@x.com&=nada&solo")
+	require.NoError(t, err)
+	assert.Equal(t, "Hola che", f.Subject)
+	assert.Equal(t, "bien", f.Body, "el valor mal escapado se saltea")
+	assert.Equal(t, []model.Address{{Email: "b@x.com"}}, f.Cc)
 }

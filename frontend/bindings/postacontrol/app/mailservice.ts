@@ -275,8 +275,9 @@ export function OpenMailto(link: string, accountID: number): $CancellablePromise
 
 /**
  * OpenMailtoArgs abre un redactor por cada mailto: de la línea de comandos
- * (arranque en frío o segunda instancia). Los errores se registran sin el
- * enlace, que puede traer direcciones y texto del correo.
+ * (arranque en frío o segunda instancia). Si la app todavía no arrancó,
+ * espera a MarkStarted. Los errores se registran sin el enlace, que puede
+ * traer direcciones y texto del correo.
  */
 export function OpenMailtoArgs(args: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(447149540, args);

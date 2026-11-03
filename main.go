@@ -65,6 +65,8 @@ func main() {
 			UniqueID: "ar.com.codecontrol.postacontrol",
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
 				// Un mailto: abre el redactor y no trae la ventana principal.
+				// Puede llegar antes de que arranque el servicio: OpenMailtoArgs
+				// espera a MarkStarted.
 				if links := app.MailtoArgs(data.Args); len(links) > 0 {
 					go mailService.OpenMailtoArgs(links)
 					return
@@ -107,6 +109,9 @@ func main() {
 
 	// El corrector se aplica una vez que GTK está en marcha.
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		// Los servicios ya arrancaron: los mailto: de una segunda instancia
+		// que llegaron antes pueden abrirse.
+		mailService.MarkStarted()
 		app.ApplySpellcheck(mailService.SpellcheckEnabled())
 		// Arranque en frío con un mailto: (PostaControl como cliente del
 		// sistema). Fuera del hilo de GTK: abrir el redactor crea una ventana.

@@ -44,7 +44,7 @@ func parseMailto(link string) (mailtoFields, error) {
 	if err != nil || !strings.EqualFold(u.Scheme, "mailto") {
 		return f, errors.New("El enlace no es un mailto válido.")
 	}
-	q := u.Query()
+	q := mailtoQuery(u.RawQuery)
 	path := u.Opaque
 	if path == "" {
 		path = u.Path
@@ -55,9 +55,39 @@ func parseMailto(link string) (mailtoFields, error) {
 	f.To = parseMailtoAddrs(append([]string{path}, q["to"]...))
 	f.Cc = parseMailtoAddrs(q["cc"])
 	f.Bcc = parseMailtoAddrs(q["bcc"])
-	f.Subject = q.Get("subject")
-	f.Body = q.Get("body")
+	f.Subject = firstValue(q["subject"])
+	f.Body = firstValue(q["body"])
 	return f, nil
+}
+
+// mailtoKeys son las únicas claves del query que se toman.
+var mailtoKeys = map[string]bool{"to": true, "cc": true, "bcc": true, "subject": true, "body": true}
+
+// mailtoQuery separa el query de un mailto: en valores por clave (en
+// minúsculas). A diferencia de url.ParseQuery, "+" es un "+" y no un espacio
+// (RFC 6068). Los pares que no se pueden decodificar se saltean.
+func mailtoQuery(raw string) map[string][]string {
+	out := map[string][]string{}
+	for _, pair := range strings.Split(raw, "&") {
+		key, value, _ := strings.Cut(pair, "=")
+		key = strings.ToLower(key)
+		if !mailtoKeys[key] {
+			continue
+		}
+		dec, err := url.PathUnescape(value)
+		if err != nil {
+			continue
+		}
+		out[key] = append(out[key], dec)
+	}
+	return out
+}
+
+func firstValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 // parseMailtoAddrs separa por coma cada valor y descarta las direcciones inválidas.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -31,9 +32,28 @@ type MailService struct {
 	composes *ComposeWindows
 	// spellcheck prende o apaga el corrector; en tests se reemplaza.
 	spellcheck func(enabled bool)
+	// started se cierra cuando la app terminó de arrancar (core y composes
+	// ya puestos). Una segunda instancia puede llegar antes: sus mailto:
+	// esperan acá. Leer core y composes después de esperar es seguro.
+	started   chan struct{}
+	startOnce sync.Once
 }
 
-func NewMailService() *MailService { return &MailService{spellcheck: ApplySpellcheck} }
+func NewMailService() *MailService {
+	return &MailService{spellcheck: ApplySpellcheck, started: make(chan struct{})}
+}
+
+// MarkStarted avisa que la app terminó de arrancar: libera los mailto: que
+// llegaron antes. Se llama desde ApplicationStarted; llamarlo de nuevo no hace nada.
+//
+//wails:ignore
+func (s *MailService) MarkStarted() {
+	s.startOnce.Do(func() {
+		if s.started != nil {
+			close(s.started)
+		}
+	})
+}
 
 func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	s.app = application.Get()
@@ -327,6 +347,9 @@ func (s *MailService) OpenMailto(ctx context.Context, link string, accountID int
 	if err != nil {
 		return &mail.UserError{Code: "invalid", Msg: "El enlace no es válido.", Err: err}
 	}
+	if s.core == nil {
+		return &mail.UserError{Code: "unavailable", Msg: "PostaControl todavía está arrancando. Probá de nuevo en un momento."}
+	}
 	accs, err := s.core.ListAccounts(ctx)
 	if err != nil {
 		return err
@@ -347,10 +370,18 @@ func (s *MailService) OpenMailto(ctx context.Context, link string, accountID int
 }
 
 // OpenMailtoArgs abre un redactor por cada mailto: de la línea de comandos
-// (arranque en frío o segunda instancia). Los errores se registran sin el
-// enlace, que puede traer direcciones y texto del correo.
+// (arranque en frío o segunda instancia). Si la app todavía no arrancó,
+// espera a MarkStarted. Los errores se registran sin el enlace, que puede
+// traer direcciones y texto del correo.
 func (s *MailService) OpenMailtoArgs(args []string) {
-	for _, a := range MailtoArgs(args) {
+	links := MailtoArgs(args)
+	if len(links) == 0 {
+		return
+	}
+	if s.started != nil {
+		<-s.started
+	}
+	for _, a := range links {
 		if err := s.OpenMailto(context.Background(), a, 0); err != nil {
 			slog.Warn("mailto: no se pudo abrir", "err", err)
 		}
