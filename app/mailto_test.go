@@ -1,14 +1,19 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"postacontrol/core/mail"
 	"postacontrol/core/model"
+	"postacontrol/core/secrets"
 )
 
 func TestParseMailto_Full(t *testing.T) {
@@ -77,4 +82,33 @@ func TestPickMailtoAccount(t *testing.T) {
 	}
 	_, ok = pickMailtoAccount(nil, 1)
 	assert.False(t, ok)
+}
+
+func TestMailto_ParseThenInitJSON(t *testing.T) {
+	f, err := parseMailto("mailto:a@x.com,b@y.com?cc=c@z.com&subject=Hola%20qu%C3%A9%20tal&body=l1%0D%0Al2%3Cb%3E")
+	require.NoError(t, err)
+	js, err := mailtoInitJSON(f, model.Account{ID: 1})
+	require.NoError(t, err)
+	var got struct {
+		To, Cc, Bcc []model.Address
+		Subject     string
+		BodyHTML    string `json:"bodyHtml"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(js), &got))
+	assert.Equal(t, []model.Address{{Email: "a@x.com"}, {Email: "b@y.com"}}, got.To)
+	assert.Equal(t, []model.Address{{Email: "c@z.com"}}, got.Cc)
+	assert.Equal(t, []model.Address{}, got.Bcc)
+	assert.Equal(t, "Hola qué tal", got.Subject)
+	assert.Equal(t, "l1<br>l2&lt;b&gt;", got.BodyHTML)
+}
+
+func TestOpenMailto_SinCuentas(t *testing.T) {
+	core, err := mail.New(mail.Config{DBPath: filepath.Join(t.TempDir(), "p.db"), Secrets: secrets.NewMemory()})
+	require.NoError(t, err)
+	defer core.Close()
+	svc := &MailService{core: core}
+	err = svc.OpenMailto(context.Background(), "mailto:a@x.com", 0)
+	var ue *mail.UserError
+	require.True(t, errors.As(err, &ue))
+	assert.Equal(t, "Primero agregá una cuenta.", ue.Msg)
 }
