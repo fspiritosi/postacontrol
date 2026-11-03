@@ -50,7 +50,7 @@ const FOLDERS: Record<number, Folder[]> = {
 function setup(saved: View | null, unifiedInbox: boolean, readingPane = "") {
   if (saved) localStorage.setItem("pc:view", JSON.stringify(saved));
   vi.mocked(svc.ListFolders).mockImplementation((id: number) => Promise.resolve(FOLDERS[id]) as never);
-  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, threadedList: false, readingPane, background: "" });
+  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane, background: "" });
   let current: ShellState | null = null;
   render(
     <QueryClientProvider client={new QueryClient()}>

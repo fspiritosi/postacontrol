@@ -6,7 +6,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   GetSettings: vi.fn(() =>
     Promise.resolve({
       unifiedInbox: false,
-      disableNotifications: false,
+      disableNotifications: false, disableSpellcheck: false,
       threadedList: false,
       readingPane: "",
       background: "background-1.png",

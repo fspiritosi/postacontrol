@@ -85,6 +85,14 @@ export function SettingsDialog({ open, onOpenChange, focusSection }: Props) {
     }
   };
 
+  const setSpellcheck = async (enabled: boolean) => {
+    try {
+      await saveSettings(queryClient, settings.data, { disableSpellcheck: !enabled });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   // Si falla, el estado queda el de la consulta: el interruptor vuelve atrás.
   const setStartAtLogin = async (v: boolean) => {
     try {
@@ -135,6 +143,20 @@ export function SettingsDialog({ open, onOpenChange, focusSection }: Props) {
             checked={!(settings.data?.disableNotifications ?? false)}
             disabled={settings.isPending}
             onCheckedChange={(v) => void setNotifications(v)}
+          />
+        </div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="spellcheck">Corregir ortografía al escribir</Label>
+            <p className="text-sm text-muted-foreground">
+              Marca las palabras mal escritas en español y en inglés.
+            </p>
+          </div>
+          <Switch
+            id="spellcheck"
+            checked={!(settings.data?.disableSpellcheck ?? false)}
+            disabled={settings.isPending}
+            onCheckedChange={(v) => void setSpellcheck(v)}
           />
         </div>
         <div className="flex items-start justify-between gap-4">

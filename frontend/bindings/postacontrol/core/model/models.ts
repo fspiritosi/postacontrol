@@ -363,6 +363,11 @@ export interface Settings {
     "disableNotifications": boolean;
 
     /**
+     * DisableSpellcheck apaga el corrector ortográfico del redactor (cero = prendido).
+     */
+    "disableSpellcheck": boolean;
+
+    /**
      * ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
      */
     "threadedList": boolean;

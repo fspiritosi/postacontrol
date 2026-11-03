@@ -14,7 +14,7 @@ import { ReaderBackdrop } from "./ReaderBackdrop";
 function stored(background: string) {
   vi.mocked(svc.GetSettings).mockResolvedValue({
     unifiedInbox: false,
-    disableNotifications: false,
+    disableNotifications: false, disableSpellcheck: false,
     threadedList: false,
     readingPane: "",
     background,

@@ -406,6 +406,14 @@ export function SetStartAtLogin(enabled: boolean): $CancellablePromise<void> {
 }
 
 /**
+ * SpellcheckEnabled dice si el corrector va prendido; si no se puede leer la
+ * configuración, prendido (es el valor de fábrica).
+ */
+export function SpellcheckEnabled(): $CancellablePromise<boolean> {
+    return $Call.ByID(1251031470);
+}
+
+/**
  * StagedInfo devuelve los datos de los adjuntos preparados ids.
  */
 export function StagedInfo(ids: number[] | null): $CancellablePromise<model$0.StagedAttachment[] | null> {

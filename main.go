@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"postacontrol/app"
@@ -97,6 +98,11 @@ func main() {
 		URL:              "/",
 		// Los archivos se sueltan sobre los redactores, que tienen su ventana.
 		EnableFileDrop: false,
+	})
+
+	// El corrector se aplica una vez que GTK está en marcha.
+	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		app.ApplySpellcheck(mailService.SpellcheckEnabled())
 	})
 
 	desktop = app.SetupDesktop(wailsApp, win, composeWins.Quit)

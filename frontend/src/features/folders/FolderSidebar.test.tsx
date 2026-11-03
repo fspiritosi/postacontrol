@@ -73,7 +73,7 @@ function renderSidebar(accounts: Account[], state: ShellState = baseState, clien
 describe("FolderSidebar", () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: false, disableNotifications: false, threadedList: false, readingPane: "", background: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" });
     vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0)]);
   });
 
@@ -87,7 +87,7 @@ describe("FolderSidebar", () => {
   });
 
   it("con la bandeja unificada muestra Todas las cuentas y suma los no leídos de las Entradas", async () => {
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, threadedList: false, readingPane: "", background: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" });
     vi.mocked(svc.ListFolders).mockImplementation(((id: number) =>
       Promise.resolve(id === 7 ? [inbox(3, 7, 2)] : [inbox(4, 8, 5)])) as never);
     const selectView = vi.fn();
@@ -134,7 +134,7 @@ describe("FolderSidebar", () => {
   });
 
   it("con la unificada y sin estado guardado, las secciones arrancan plegadas", async () => {
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, threadedList: false, readingPane: "", background: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" });
     vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
     renderSidebar([account]);
     expect(await screen.findByText("Todas las cuentas")).toBeTruthy();
@@ -144,7 +144,7 @@ describe("FolderSidebar", () => {
   });
 
   it("con la unificada, una sección expandida a mano (pc:expanded) arranca abierta", async () => {
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, threadedList: false, readingPane: "", background: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" });
     localStorage.setItem("pc:expanded", JSON.stringify([7]));
     vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
     renderSidebar([account]);

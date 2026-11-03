@@ -14,7 +14,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   RefreshLabel: vi.fn(() => Promise.resolve()),
   SetFlagged: vi.fn(() => Promise.resolve()),
   GetSettings: vi.fn(() =>
-    Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false }),
+    Promise.resolve({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false }),
   ),
 }));
 

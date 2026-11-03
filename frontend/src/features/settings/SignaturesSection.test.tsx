@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
-  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false })),
+  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false })),
   SetSettings: vi.fn(() => Promise.resolve()),
   GetStartAtLogin: vi.fn(() => Promise.resolve(false)),
   SetStartAtLogin: vi.fn(() => Promise.resolve()),

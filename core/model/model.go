@@ -317,6 +317,8 @@ type Settings struct {
 	UnifiedInbox bool `json:"unifiedInbox"`
 	// DisableNotifications apaga los avisos de escritorio de correo nuevo (cero = activados).
 	DisableNotifications bool `json:"disableNotifications"`
+	// DisableSpellcheck apaga el corrector ortográfico del redactor (cero = prendido).
+	DisableSpellcheck bool `json:"disableSpellcheck"`
 	// ThreadedList agrupa la lista de mensajes por conversación (cero = lista plana).
 	ThreadedList bool `json:"threadedList"`
 	// ReadingPane es dónde se muestra el correo abierto: "right", "bottom" o "top".

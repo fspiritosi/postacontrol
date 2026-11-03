@@ -68,6 +68,11 @@ describe("RecipientInput", () => {
     vi.mocked(svc.SuggestRecipients).mockResolvedValue([]);
   });
 
+  it("el campo no se corrige: son direcciones", () => {
+    const { input } = setup();
+    expect(input.getAttribute("spellcheck")).toBe("false");
+  });
+
   it("un valor inicial se muestra entero como chips", () => {
     const { input } = setup("Ana <a@x.com>, b@y.com");
     expect(chipButtons()).toHaveLength(2);

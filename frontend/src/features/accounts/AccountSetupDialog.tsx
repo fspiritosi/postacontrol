@@ -67,6 +67,7 @@ function ServerFields({
         <Label htmlFor={`${prefix}-host`}>Servidor {label}</Label>
         <Input
           id={`${prefix}-host`}
+          spellCheck={false}
           value={value.host}
           onChange={(e) => onChange({ ...value, host: e.target.value })}
         />
@@ -207,6 +208,7 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
               <Label htmlFor="acc-email">Correo electrónico</Label>
               <Input
                 id="acc-email"
+                spellCheck={false}
                 type="email"
                 autoComplete="off"
                 value={email}
@@ -219,6 +221,7 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
               <Label htmlFor="acc-pass">Contraseña</Label>
               <Input
                 id="acc-pass"
+                spellCheck={false}
                 type="password"
                 autoComplete="off"
                 value={password}
@@ -253,7 +256,7 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
                 <Label htmlFor="acc-user">Usuario</Label>
-                <Input id="acc-user" value={username} onChange={(e) => setUsername(e.target.value)} />
+                <Input id="acc-user" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="acc-name">Nombre visible</Label>

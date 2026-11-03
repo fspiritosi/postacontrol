@@ -25,6 +25,7 @@ export async function saveSettings(
   await svc.SetSettings({
     unifiedInbox: false,
     disableNotifications: false,
+    disableSpellcheck: false,
     threadedList: false,
     readingPane: "",
     background: "",

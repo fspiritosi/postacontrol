@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
-  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, threadedList: false })),
+  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false })),
   SetSettings: vi.fn(() => Promise.resolve()),
   GetStartAtLogin: vi.fn(() => Promise.resolve(false)),
   SetStartAtLogin: vi.fn(() => Promise.resolve()),
@@ -69,7 +69,7 @@ describe("SettingsDialog", () => {
     const sw = await screen.findByRole("switch", { name: "Bandeja unificada" });
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     await user.click(sw);
-    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, threadedList: false, readingPane: "", background: "" }));
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" }));
   });
 
   it("el interruptor de notificaciones guarda disableNotifications", async () => {
@@ -80,7 +80,19 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, threadedList: false, readingPane: "", background: "" }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" }),
+    );
+  });
+
+  it("el interruptor del corrector guarda disableSpellcheck", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const sw = await screen.findByRole("switch", { name: "Corregir ortografía al escribir" });
+    await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    await user.click(sw);
+    await waitFor(() =>
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: true, threadedList: false, readingPane: "", background: "" }),
     );
   });
 
@@ -109,7 +121,7 @@ describe("SettingsDialog", () => {
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: true,
       background: "",
-      disableNotifications: true,
+      disableNotifications: true, disableSpellcheck: false,
       threadedList: true,
       readingPane: "",
     });
@@ -122,7 +134,7 @@ describe("SettingsDialog", () => {
       expect(svc.SetSettings).toHaveBeenCalledWith({
         unifiedInbox: true,
         background: "",
-        disableNotifications: true,
+        disableNotifications: true, disableSpellcheck: false,
         threadedList: true,
         readingPane: "right",
       }),
@@ -147,7 +159,7 @@ describe("SettingsDialog", () => {
   it("con fondo muestra la miniatura y Quitar", async () => {
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: false,
-      disableNotifications: false,
+      disableNotifications: false, disableSpellcheck: false,
       threadedList: false,
       readingPane: "",
       background: "background-1.png",

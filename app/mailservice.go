@@ -28,9 +28,11 @@ type MailService struct {
 	core     *mail.Core
 	hub      notifyHub
 	composes *ComposeWindows
+	// spellcheck prende o apaga el corrector; en tests se reemplaza.
+	spellcheck func(enabled bool)
 }
 
-func NewMailService() *MailService { return &MailService{} }
+func NewMailService() *MailService { return &MailService{spellcheck: ApplySpellcheck} }
 
 func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	s.app = application.Get()
@@ -459,7 +461,21 @@ func (s *MailService) GetSettings(ctx context.Context) (model.Settings, error) {
 }
 
 func (s *MailService) SetSettings(ctx context.Context, st model.Settings) error {
-	return s.core.SetSettings(ctx, st)
+	if err := s.core.SetSettings(ctx, st); err != nil {
+		return err
+	}
+	afterSettingsSaved(st, s.spellcheck)
+	return nil
+}
+
+// SpellcheckEnabled dice si el corrector va prendido; si no se puede leer la
+// configuración, prendido (es el valor de fábrica).
+func (s *MailService) SpellcheckEnabled() bool {
+	if s.core == nil {
+		return true
+	}
+	st, err := s.core.GetSettings(context.Background())
+	return err != nil || !st.DisableSpellcheck
 }
 
 func (s *MailService) SetSeen(ctx context.Context, ids []int64, seen bool) error {
