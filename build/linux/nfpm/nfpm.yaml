@@ -1,80 +1,97 @@
-# Feel free to remove those if you don't want/need to use them.
-# Make sure to check the documentation at https://nfpm.goreleaser.com
+# Paquetes .deb (Ubuntu 24.04+ / Debian 13+) y .rpm (Fedora 42+).
+# Se arman con `task package`; documentación: https://nfpm.goreleaser.com
 #
-# The lines below are called `modelines`. See `:help modeline`
+# VERSION la pone build/linux/Taskfile.yml a partir del último tag de git.
 
 name: "postacontrol"
 arch: ${GOARCH}
 platform: "linux"
-version: "0.1.0"
-section: "default"
-priority: "extra"
-maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "A postacontrol application"
-vendor: "My Company"
-homepage: "https://wails.io"
-license: "MIT"
+version: "${VERSION}"
 release: "1"
+section: "mail"
+priority: "optional"
+maintainer: "Fabricio Spiritosi <fspiritosi@gmail.com>"
+description: |
+  Cliente de correo de escritorio.
+  Varias cuentas IMAP/SMTP, etiquetas, conversaciones y redactor de texto
+  enriquecido. Atiende los enlaces mailto: del sistema.
+vendor: "CodeControl"
+homepage: "https://github.com/fspiritosi/postacontrol"
+license: "Proprietary"
 
 contents:
   - src: "./bin/postacontrol"
-    dst: "/usr/local/bin/postacontrol"
-  - src: "./build/appicon.png"
+    dst: "/usr/bin/postacontrol"
+    file_info:
+      mode: 0755
+  - src: "./build/linux/ar.com.codecontrol.postacontrol.desktop"
+    dst: "/usr/share/applications/ar.com.codecontrol.postacontrol.desktop"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/16x16/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/16x16/apps/postacontrol.png"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/24x24/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/24x24/apps/postacontrol.png"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/32x32/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/32x32/apps/postacontrol.png"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/48x48/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/48x48/apps/postacontrol.png"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/64x64/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/64x64/apps/postacontrol.png"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/128x128/apps/codecontrol-mail.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/postacontrol.png"
-  - src: "./build/linux/postacontrol.desktop"
-    dst: "/usr/share/applications/postacontrol.desktop"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/256x256/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/256x256/apps/postacontrol.png"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/512x512/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/512x512/apps/postacontrol.png"
+    file_info:
+      mode: 0644
+  - src: "./build/brand/native/linux/hicolor/1024x1024/apps/codecontrol-mail.png"
+    dst: "/usr/share/icons/hicolor/1024x1024/apps/postacontrol.png"
+    file_info:
+      mode: 0644
 
-# Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
+# Ubuntu / Debian. WebKitGTK trae libsoup, enchant y libsecret.
 depends:
   - libgtk-4-1
   - libwebkitgtk-6.0-4
+recommends:
+  # Diccionarios del corrector (es_AR y en_US).
+  - hunspell-es
+  - hunspell-en-us
+  # xdg-open / xdg-mime para enlaces y el cliente de correo predeterminado.
+  - xdg-utils
 
-# Distribution-specific overrides for different package formats
 overrides:
-  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
+  # Fedora
   rpm:
     depends:
       - gtk4
       - webkitgtk6.0
-
-  # Arch Linux packages
+    recommends:
+      - hunspell-es-AR
+      - hunspell-en-US
+      - xdg-utils
+  # Arch (task linux:create:aur)
   archlinux:
     depends:
       - gtk4
       - webkitgtk-6.0
 
-# scripts section to ensure desktop database is updated after install
 scripts:
   postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
-  # You can also add preremove, postremove if needed
-  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
-  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
-
-# If you build your app with -tags gtk3 (legacy WebKit2GTK 4.1 stack — supported through v3.0.x, removed in v3.1),
-# replace the depends/overrides above with these:
-#
-# depends:
-#   - libgtk-3-0
-#   - libwebkit2gtk-4.1-0
-# overrides:
-#   rpm:
-#     depends:
-#       - gtk3
-#       - webkit2gtk4.1
-#   archlinux:
-#     depends:
-#       - gtk3
-#       - webkit2gtk-4.1
-#
-# replaces:
-#   - foobar
-# provides:
-#   - bar
-# recommends:
-#   - whatever
-# suggests:
-#   - something-else
-# conflicts:
-#   - not-foo
-#   - not-bar
-# changelog: "changelog.yaml"
+  postremove: "./build/linux/nfpm/scripts/postremove.sh"

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=PostaControl
+GenericName=Cliente de correo
+Comment=Leé y enviá correo de todas tus cuentas
+Exec=postacontrol %u
+MimeType=x-scheme-handler/mailto;
+Icon=postacontrol
+Categories=Network;Email;
+Keywords=correo;mail;email;
+StartupWMClass=ar.com.codecontrol.postacontrol
+Terminal=false
