@@ -18,6 +18,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SetSaveSentCopy: vi.fn(() => Promise.resolve()),
   SyncAccount: vi.fn(() => Promise.resolve()),
   SyncFolder: vi.fn(() => Promise.resolve()),
+  ListSignatures: vi.fn(() => Promise.resolve([])),
+  UpdateAccount: vi.fn(() => Promise.resolve({})),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -212,6 +214,18 @@ describe("FolderSidebar", () => {
     );
     await waitFor(() => expect(svc.ListLocalDrafts).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: /Bandeja de salida/ })).toBeNull();
+  });
+
+  it("el menú de la cuenta tiene Editar cuenta y abre el diálogo", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <FolderSidebar accounts={[account]} state={baseState} />
+      </QueryClientProvider>,
+    );
+    await user.click(screen.getByLabelText("Opciones de A"));
+    await user.click(await screen.findByText("Editar cuenta…"));
+    expect(await screen.findByRole("dialog", { name: "Editar cuenta" })).toBeInTheDocument();
   });
 
   it("al quitar la cuenta limpia el mensaje seleccionado", async () => {

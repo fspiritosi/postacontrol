@@ -28,7 +28,7 @@ import {
 
 type Props = { open: boolean; onOpenChange: (open: boolean) => void };
 
-type Server = { host: string; port: string; security: string };
+export type Server = { host: string; port: string; security: string };
 type Step = "credentials" | "detecting" | "servers";
 
 const emptyServer = (security: string): Server => ({ host: "", port: "", security });
@@ -43,13 +43,13 @@ const validPort = (p: string) => {
   const n = Number(p);
   return p.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= 65535;
 };
-const validServer = (s: Server) => s.host.trim() !== "" && validPort(s.port);
+export const validServer = (s: Server) => s.host.trim() !== "" && validPort(s.port);
 
 // Los puertos estándar fijan la seguridad: 993/465 son TLS directo y
 // 143/587 usan STARTTLS. Con otro puerto se deja lo elegido.
 const PORT_SECURITY: Record<string, string> = { "993": "tls", "465": "tls", "143": "starttls", "587": "starttls" };
 
-function ServerFields({
+export function ServerFields({
   label,
   prefix,
   value,

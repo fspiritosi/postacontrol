@@ -443,6 +443,13 @@ export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void
     return $Call.ByID(1412243062, $in);
 }
 
+/**
+ * UpdateAccount edita una cuenta existente. Contraseña vacía = conservar la guardada.
+ */
+export function UpdateAccount(id: number, $in: model$0.AccountInput): $CancellablePromise<model$0.Account> {
+    return $Call.ByID(4205893065, id, $in);
+}
+
 export function UpdateLabel(l: model$0.Label): $CancellablePromise<model$0.Label> {
     return $Call.ByID(2968828892, l);
 }

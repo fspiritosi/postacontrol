@@ -77,6 +77,11 @@ func (s *MailService) AddAccount(ctx context.Context, in model.AccountInput) (mo
 	return s.core.AddAccount(ctx, in)
 }
 
+// UpdateAccount edita una cuenta existente. Contraseña vacía = conservar la guardada.
+func (s *MailService) UpdateAccount(ctx context.Context, id int64, in model.AccountInput) (model.Account, error) {
+	return s.core.UpdateAccount(ctx, id, in)
+}
+
 func (s *MailService) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	return s.core.ListAccounts(ctx)
 }

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
+import { AccountEditDialog } from "../accounts/AccountEditDialog";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
@@ -395,6 +396,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
   const queryClient = useQueryClient();
   const folders = useFolders(account.id);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [nameMode, setNameMode] = useState<NameMode | null>(null);
   const [moving, setMoving] = useState<FolderNode | null>(null);
@@ -546,6 +548,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
             >
               Guardar copia en Enviados
             </DropdownMenuCheckboxItem>
+            <DropdownMenuItem onSelect={() => setEditing(true)}>Editar cuenta…</DropdownMenuItem>
             {onChangePassword && (
               <DropdownMenuItem onSelect={() => onChangePassword(account)}>
                 Cambiar contraseña
@@ -600,6 +603,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AccountEditDialog account={editing ? account : null} open={editing} onOpenChange={setEditing} />
     </Collapsible>
   );
 }
