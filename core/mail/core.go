@@ -85,6 +85,12 @@ type Core struct {
 	folderLocksMu sync.Mutex
 	folderLocks   map[int64]*sync.Mutex
 
+	// epochs es la época de cada cuenta: sube cuando UpdateAccount la pasa a
+	// otro buzón y borra su caché. Una sincronización la lee al empezar y no
+	// escribe carpetas ni mensajes si cambió (ver atEpoch). epochMu la protege.
+	epochMu sync.RWMutex
+	epochs  map[int64]uint64
+
 	// draftLocks serializa lo que toca en el servidor un mismo borrador
 	// (subir, descartar, limpiar después de enviar). beforeDraftAppend y
 	// afterDraftAppend son ganchos solo para tests: corren justo antes y justo
@@ -142,7 +148,7 @@ func New(cfg Config) (*Core, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{cfg: cfg, store: st, dataDir: filepath.Dir(cfg.DBPath), ctx: ctx, cancel: cancel,
 		pool: map[int64]*pooledConn{}, syncLocks: map[int64]*sync.Mutex{}, draftLocks: map[int64]*sync.Mutex{},
-		folderLocks: map[int64]*sync.Mutex{}, now: time.Now, authFailedAt: map[int64]time.Time{},
+		folderLocks: map[int64]*sync.Mutex{}, epochs: map[int64]uint64{}, now: time.Now, authFailedAt: map[int64]time.Time{},
 		dialWatch: imapx.DialWatch, watchDebounce: watchDebounce,
 		watchBackoff: slices.Clone(watchBackoff), watchers: map[int64]*watcher{},
 		indexPause: indexPause, indexIdle: indexIdle, indexBackoff: slices.Clone(indexBackoff)}, nil
@@ -233,6 +239,47 @@ func (c *Core) folderListLock(accountID int64) *sync.Mutex {
 		c.folderLocks[accountID] = mu
 	}
 	return mu
+}
+
+// errAccountReset corta una sincronización que empezó antes de que la cuenta
+// pasara a otro buzón: lo que trajo es del buzón viejo. No es un error para el
+// usuario (UpdateAccount ya lanzó una sincronización nueva).
+var errAccountReset = errors.New("mail: la cuenta cambió de buzón durante la sincronización")
+
+// accountEpoch devuelve la época actual de la cuenta.
+func (c *Core) accountEpoch(accountID int64) uint64 {
+	c.epochMu.RLock()
+	defer c.epochMu.RUnlock()
+	return c.epochs[accountID]
+}
+
+// bumpAccountEpoch sube la época de la cuenta. Espera a que terminen las
+// escrituras que corren con atEpoch: desde que vuelve, ninguna con la época
+// vieja escribe.
+func (c *Core) bumpAccountEpoch(accountID int64) {
+	c.epochMu.Lock()
+	defer c.epochMu.Unlock()
+	c.epochs[accountID]++
+}
+
+// atEpoch corre write solo si la época de la cuenta sigue siendo epoch; si
+// no, devuelve errAccountReset. Mientras write corre la época no puede subir,
+// así que write no tiene que leerla (se trabaría).
+func (c *Core) atEpoch(accountID int64, epoch uint64, write func() error) error {
+	c.epochMu.RLock()
+	defer c.epochMu.RUnlock()
+	if c.epochs[accountID] != epoch {
+		return errAccountReset
+	}
+	return write()
+}
+
+// ignoreReset convierte errAccountReset en nil.
+func ignoreReset(err error) error {
+	if errors.Is(err, errAccountReset) {
+		return nil
+	}
+	return err
 }
 
 // lifeCtx deriva de ctx un contexto que además se cancela con Close.

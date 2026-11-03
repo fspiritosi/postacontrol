@@ -33,12 +33,21 @@ type SMTP struct {
 	Settings model.ServerSettings
 	Received func() []Envelope
 	Close    func()
+
+	b *smtpBackend
+}
+
+// AddUser hace que el servidor acepte también estas credenciales.
+func (s *SMTP) AddUser(username, password string) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	s.b.users[username] = password
 }
 
 type smtpBackend struct {
-	username, password string
-	mu                 sync.Mutex
-	received           []Envelope
+	mu       sync.Mutex
+	users    map[string]string // usuario → contraseña
+	received []Envelope
 }
 
 func (b *smtpBackend) NewSession(*smtp.Conn) (smtp.Session, error) {
@@ -56,7 +65,10 @@ func (s *smtpSession) AuthMechanisms() []string { return []string{sasl.Plain} }
 
 func (s *smtpSession) Auth(string) (sasl.Server, error) {
 	return sasl.NewPlainServer(func(identity, username, password string) error {
-		if username != s.b.username || password != s.b.password {
+		s.b.mu.Lock()
+		want, ok := s.b.users[username]
+		s.b.mu.Unlock()
+		if !ok || password != want {
 			return smtp.ErrAuthFailed
 		}
 		s.auth = true
@@ -98,7 +110,7 @@ func (s *smtpSession) Logout() error { return nil }
 // StartSMTP levanta el servidor. Se cierra solo al terminar el test.
 func StartSMTP(t testing.TB, tlsc TLS, username, password string) *SMTP {
 	t.Helper()
-	b := &smtpBackend{username: username, password: password}
+	b := &smtpBackend{users: map[string]string{username: password}}
 	srv := smtp.NewServer(b)
 	srv.Domain = "localhost"
 	srv.AllowInsecureAuth = true // el listener ya es TLS; el servidor no lo sabe
@@ -125,6 +137,7 @@ func StartSMTP(t testing.TB, tlsc TLS, username, password string) *SMTP {
 			return append([]Envelope{}, b.received...)
 		},
 		Close: func() { _ = srv.Close(); _ = ln.Close() },
+		b:     b,
 	}
 	t.Cleanup(s.Close)
 	return s

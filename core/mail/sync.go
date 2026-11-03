@@ -38,34 +38,45 @@ func (c *Core) ListMessages(ctx context.Context, folderID int64, q model.ListQue
 }
 
 // SyncAccount trae la lista de carpetas con sus contadores (LIST + STATUS),
-// la guarda en la caché y sincroniza INBOX.
+// la guarda en la caché y sincroniza INBOX. Si en el medio la cuenta pasa a
+// otro buzón (UpdateAccount), corta sin escribir nada más y sin error.
 func (c *Core) SyncAccount(ctx context.Context, accountID int64) error {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
-	inboxID, err := c.refreshFolders(ctx, accountID)
-	if err != nil {
-		return err
+	epoch := c.accountEpoch(accountID)
+	inboxID, err := c.refreshFolders(ctx, accountID, epoch)
+	if err == nil && inboxID != 0 {
+		err = c.syncFolder(ctx, inboxID, &epoch)
 	}
-	if inboxID == 0 {
+	// Si la cuenta pasó a otro buzón en el medio, lo que falló (errAccountReset
+	// o, por ejemplo, la Entrada que ya no está en la caché) era del viejo.
+	if err != nil && c.accountEpoch(accountID) != epoch {
 		return nil
 	}
-	return c.SyncFolder(ctx, inboxID)
+	return err
 }
 
 // refreshFolders hace LIST + STATUS, reemplaza las carpetas de la caché, pone
 // los contadores y avisa con EventFoldersUpdated. Devuelve el ID de INBOX (0
 // si no hay). No sincroniza ningún mensaje. Toma el lock de la lista de
-// carpetas de la cuenta.
-func (c *Core) refreshFolders(ctx context.Context, accountID int64) (int64, error) {
+// carpetas de la cuenta. epoch es la época de la cuenta que leyó quien llama:
+// si cambió antes de guardar la lista, devuelve errAccountReset.
+func (c *Core) refreshFolders(ctx context.Context, accountID int64, epoch uint64) (int64, error) {
 	mu := c.folderListLock(accountID)
 	mu.Lock()
 	defer mu.Unlock()
-	return c.refreshFoldersLocked(ctx, accountID)
+	return c.refreshFoldersEpoch(ctx, accountID, epoch)
 }
 
-// refreshFoldersLocked es refreshFolders para quien ya tiene el lock de la
-// lista de carpetas de la cuenta.
+// refreshFoldersLocked es refreshFolders, con la época de ahora, para quien
+// ya tiene el lock de la lista de carpetas de la cuenta.
 func (c *Core) refreshFoldersLocked(ctx context.Context, accountID int64) (int64, error) {
+	return c.refreshFoldersEpoch(ctx, accountID, c.accountEpoch(accountID))
+}
+
+// refreshFoldersEpoch es refreshFolders para quien ya tiene el lock de la
+// lista de carpetas de la cuenta.
+func (c *Core) refreshFoldersEpoch(ctx context.Context, accountID int64, epoch uint64) (int64, error) {
 	var remote []imapx.RemoteFolder
 	err := c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
 		var err error
@@ -89,8 +100,8 @@ func (c *Core) refreshFoldersLocked(ctx context.Context, accountID int64) (int64
 		})
 		counts[r.Name] = r
 	}
-	if err := c.store.ReplaceFolders(ctx, accountID, folders); err != nil {
-		return 0, c.ctxOrUserError(ctx, err)
+	if err := c.atEpoch(accountID, epoch, func() error { return c.store.ReplaceFolders(ctx, accountID, folders) }); err != nil {
+		return 0, c.ctxOrUserError(ctx, err) // errAccountReset sale tal cual
 	}
 	cached, err := c.store.ListFolders(ctx, accountID)
 	if err != nil {
@@ -116,8 +127,17 @@ func (c *Core) refreshFoldersLocked(ctx context.Context, accountID int64) (int64
 // La conexión se toma por tramos (preparar, cada lote de cabeceras, flags) y
 // no durante toda la carpeta: entre dos lotes, leer o enviar no espera a que
 // termine la primera sincronización de una carpeta grande. Dos pasadas sobre
-// la misma carpeta no se intercalan: la segunda espera a la primera.
+// la misma carpeta no se intercalan: la segunda espera a la primera. Si en el
+// medio la cuenta pasa a otro buzón (UpdateAccount), corta sin escribir más
+// lotes y sin error.
 func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
+	return ignoreReset(c.syncFolder(ctx, folderID, nil))
+}
+
+// syncFolder es SyncFolder con la época de la cuenta: la de *epoch (la que
+// leyó SyncAccount) o, con nil, la de ahora. Antes de cada lote de cabeceras y
+// del refresco de flags, si la época cambió, devuelve errAccountReset.
+func (c *Core) syncFolder(ctx context.Context, folderID int64, epoch *uint64) error {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
 	mu := c.folderSyncLock(folderID)
@@ -129,6 +149,10 @@ func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
 	f, _, err := c.store.GetFolder(ctx, folderID)
 	if err != nil {
 		return c.ctxOrUserError(ctx, err)
+	}
+	at := c.accountEpoch(f.AccountID)
+	if epoch != nil && *epoch != at {
+		return errAccountReset
 	}
 	var p syncPlan
 	err = c.withConn(ctx, f.AccountID, func(ctx context.Context, conn *imapx.Conn) error {
@@ -156,7 +180,7 @@ func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
 			if err != nil {
 				return err
 			}
-			return c.store.UpsertHeaders(ctx, folderID, headerRows(hs))
+			return c.atEpoch(f.AccountID, at, func() error { return c.store.UpsertHeaders(ctx, folderID, headerRows(hs)) })
 		})
 		if err != nil {
 			return err
@@ -166,6 +190,9 @@ func (c *Core) SyncFolder(ctx context.Context, folderID int64) error {
 	}
 	if err := c.ctxErr(ctx); err != nil {
 		return err
+	}
+	if c.accountEpoch(f.AccountID) != at {
+		return errAccountReset
 	}
 	err = c.withConn(ctx, f.AccountID, func(ctx context.Context, conn *imapx.Conn) error {
 		if err := selectChecked(conn, p.folder, checked, false); err != nil {

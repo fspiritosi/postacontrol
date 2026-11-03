@@ -77,13 +77,7 @@ func StartIMAPWithCaps(t testing.TB, tlsc TLS, username, password string, caps i
 func startIMAP(t testing.TB, tlsc TLS, username, password string, caps imap.CapSet) *IMAP {
 	t.Helper()
 	mem := imapmemserver.New()
-	user := imapmemserver.NewUser(username, password)
-	for _, name := range []string{"INBOX", "Sent"} {
-		if err := user.Create(name, nil); err != nil {
-			t.Fatalf("testenv: crear %s: %v", name, err)
-		}
-	}
-	mem.AddUser(user)
+	user := newUser(t, mem, username, password)
 
 	s := &IMAP{User: user, mem: mem, tlsServer: tlsc.Server, caps: caps}
 	s.Close = s.stop
@@ -99,6 +93,26 @@ func startIMAP(t testing.TB, tlsc TLS, username, password string, caps imap.CapS
 	s.Settings = model.ServerSettings{Host: host, Port: port, Security: model.SecurityTLS}
 	t.Cleanup(s.Close)
 	return s
+}
+
+// newUser agrega al servidor un usuario con INBOX y "Sent" vacíos.
+func newUser(t testing.TB, mem *imapmemserver.Server, username, password string) *imapmemserver.User {
+	t.Helper()
+	user := imapmemserver.NewUser(username, password)
+	for _, name := range []string{"INBOX", "Sent"} {
+		if err := user.Create(name, nil); err != nil {
+			t.Fatalf("testenv: crear %s: %v", name, err)
+		}
+	}
+	mem.AddUser(user)
+	return user
+}
+
+// AddUser agrega otro usuario (otro buzón, con INBOX y "Sent" vacíos) al mismo
+// servidor. User y los ayudantes como Deliver siguen siendo del primero.
+func (s *IMAP) AddUser(t testing.TB, username, password string) *imapmemserver.User {
+	t.Helper()
+	return newUser(t, s.mem, username, password)
 }
 
 func (s *IMAP) serve(ln net.Listener) {

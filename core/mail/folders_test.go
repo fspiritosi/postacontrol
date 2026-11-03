@@ -374,7 +374,7 @@ func TestRefreshFolders_DoesNotOverwriteRename(t *testing.T) {
 		case <-time.After(time.Second):
 		}
 	}
-	_, err := e.c.refreshFolders(ctx, e.acc.ID)
+	_, err := e.c.refreshFolders(ctx, e.acc.ID, e.c.accountEpoch(e.acc.ID))
 	require.NoError(t, err)
 	require.NoError(t, <-renamed)
 

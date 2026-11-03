@@ -100,3 +100,55 @@ func (s *Store) SetAccountSignature(ctx context.Context, accountID, signatureID 
 	}
 	return nil
 }
+
+// UpdateAccount guarda todos los datos de la cuenta salvo el id.
+// DefaultSignatureID 0 la deja sin firma.
+func (s *Store) UpdateAccount(ctx context.Context, a model.Account) error {
+	var sig any // NULL cuando no hay firma
+	if a.DefaultSignatureID != 0 {
+		sig = a.DefaultSignatureID
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET
+ email = ?, display_name = ?, username = ?, color = ?, imap_host = ?, imap_port = ?, imap_security = ?,
+ smtp_host = ?, smtp_port = ?, smtp_security = ?, save_sent_copy = ?, default_signature_id = ?
+ WHERE id = ?`,
+		a.Email, a.DisplayName, a.Username, a.Color, a.IMAP.Host, a.IMAP.Port, string(a.IMAP.Security),
+		a.SMTP.Host, a.SMTP.Port, string(a.SMTP.Security), b2i(a.SaveSentCopy), sig, a.ID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ResetAccountCache borra en una transacción la caché de la cuenta: sus
+// carpetas (los mensajes, el índice y las etiquetas de los mensajes caen por
+// cascada y triggers) y sus limpiezas y traslados de etiquetas pendientes. La
+// cuenta vuelve a admitir etiquetas en el servidor. Las definiciones de
+// etiquetas y los borradores locales no se tocan.
+func (s *Store) ResetAccountCache(ctx context.Context, accountID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `UPDATE accounts SET labels_local = 0 WHERE id = ?`, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	for _, q := range []string{
+		`DELETE FROM folders WHERE account_id = ?`,
+		`DELETE FROM label_cleanup WHERE account_id = ?`,
+		`DELETE FROM label_carry WHERE account_id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, accountID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

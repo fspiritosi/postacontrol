@@ -2,8 +2,11 @@ package mail
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	goimap "github.com/emersion/go-imap/v2"
 	"github.com/stretchr/testify/assert"
@@ -198,4 +201,372 @@ func TestSetSaveSentCopy_DisablesSentCopy(t *testing.T) {
 	assert.Equal(t, uint32(0), *st.NumMessages)
 
 	assert.Equal(t, "not_found", userErrCode(t, c.SetSaveSentCopy(ctx, acc.ID+99, true)))
+}
+
+// editInput arma el pedido de edición con los datos guardados de la cuenta.
+func editInput(acc model.Account) model.AccountInput {
+	return model.AccountInput{Account: acc}
+}
+
+func TestUpdateAccount_NameAndColor(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	before := len(n.matching(EventAccountsChanged))
+	foldersBefore := len(n.matching(EventFoldersUpdated))
+
+	in := editInput(acc)
+	in.DisplayName, in.Color = "Fabri", "#dc2626"
+	got, err := c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	assert.Equal(t, "Fabri", got.DisplayName)
+	assert.Equal(t, "#dc2626", got.Color)
+
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "Fabri", list[0].DisplayName)
+	assert.Equal(t, "#dc2626", list[0].Color)
+	assert.Equal(t, acc.Email, list[0].Email)
+	fs, err := c.ListFolders(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, fs, "la caché sigue")
+	assert.Len(t, n.matching(EventAccountsChanged), before+1)
+	assert.Len(t, n.matching(EventFoldersUpdated), foldersBefore)
+
+	// Un nombre vacío se completa con la parte antes de @.
+	in.DisplayName = ""
+	got, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	assert.Equal(t, "f", got.DisplayName)
+
+	_, err = c.UpdateAccount(ctx, acc.ID+99, in)
+	assert.Equal(t, "not_found", userErrCode(t, err))
+}
+
+func TestUpdateAccount_BadColor(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	before := n.count()
+
+	for _, col := range []string{"rojo", "#dc262", "#dc2626ff", "dc2626", ""} {
+		in := editInput(acc)
+		in.DisplayName, in.Color = "Otro", col
+		_, err = c.UpdateAccount(ctx, acc.ID, in)
+		assert.Equal(t, "invalid", userErrCode(t, err), "color %q", col)
+		assert.Equal(t, "El color no es válido.", err.Error())
+	}
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, acc, list[0])
+	assert.Equal(t, before, n.count())
+}
+
+func TestUpdateAccount_DuplicateEmail(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	a, err := c.AddAccount(ctx, inputWithEmail(c, imap, smtp, "a@ej.com"))
+	require.NoError(t, err)
+	b, err := c.AddAccount(ctx, inputWithEmail(c, imap, smtp, "b@ej.com"))
+	require.NoError(t, err)
+
+	in := editInput(b)
+	in.Email = "A@Ej.com"
+	_, err = c.UpdateAccount(ctx, b.ID, in)
+	assert.Equal(t, "duplicate", userErrCode(t, err))
+	assert.Equal(t, "Esa cuenta ya está configurada.", err.Error())
+
+	// Su propia dirección no cuenta como repetida.
+	in = editInput(a)
+	in.Email = "A@ej.com"
+	got, err := c.UpdateAccount(ctx, a.ID, in)
+	require.NoError(t, err)
+	assert.Equal(t, "a@ej.com", got.Email)
+
+	in.Email = "no-es-un-correo"
+	_, err = c.UpdateAccount(ctx, a.ID, in)
+	assert.Equal(t, "La dirección de correo no es válida.", err.Error())
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []model.Account{a, b}, list)
+}
+
+func TestUpdateAccount_WrongPasswordChangesNothing(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	before := len(n.matching(EventAccountsChanged))
+
+	in := editInput(acc)
+	in.DisplayName, in.Password = "Fabri", "mala"
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	assert.Equal(t, "auth", userErrCode(t, err))
+
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, acc, list[0])
+	pw, err := c.cfg.Secrets.Get(testUser)
+	require.NoError(t, err)
+	assert.Equal(t, testPass, pw)
+	assert.Len(t, n.matching(EventAccountsChanged), before)
+}
+
+func TestUpdateAccount_ConnectionChangeNeedsStoredPassword(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.NoError(t, c.cfg.Secrets.Delete(testUser))
+
+	in := editInput(acc)
+	in.IMAP.Security = model.SecuritySTARTTLS
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	assert.Equal(t, "invalid", userErrCode(t, err))
+	assert.Equal(t, "Ingresá la contraseña.", err.Error())
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, acc, list[0])
+}
+
+func TestUpdateAccount_NewPasswordIsStored(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.NoError(t, c.cfg.Secrets.Set(testUser, "vieja"))
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return now }
+	c.noteAuthFailure(acc.ID)
+
+	in := editInput(acc)
+	in.Password = testPass
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	pw, err := c.cfg.Secrets.Get(testUser)
+	require.NoError(t, err)
+	assert.Equal(t, testPass, pw)
+	assert.False(t, c.authPaused(acc.ID), "se levanta la pausa por contraseña rechazada")
+}
+
+func TestUpdateAccount_EmailMovesSecret(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	foldersBefore := len(n.matching(EventFoldersUpdated))
+
+	in := editInput(acc)
+	in.Email = "nuevo@ej.com"
+	in.Username = testUser
+	got, err := c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	assert.Equal(t, "nuevo@ej.com", got.Email)
+	assert.Equal(t, testUser, got.Username)
+
+	pw, err := c.cfg.Secrets.Get("nuevo@ej.com")
+	require.NoError(t, err)
+	assert.Equal(t, testPass, pw)
+	_, err = c.cfg.Secrets.Get(testUser)
+	assert.ErrorIs(t, err, secrets.ErrNotFound)
+	fs, err := c.ListFolders(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, fs, "cambiar solo la dirección no borra la caché")
+	assert.Len(t, n.matching(EventFoldersUpdated), foldersBefore)
+	require.NoError(t, c.SyncAccount(ctx, acc.ID), "conecta con la contraseña movida")
+}
+
+// failAccountUpdates hace fallar todo UPDATE de accounts con un trigger
+// creado a mano en la base, como si el guardado fallara después de validar.
+func failAccountUpdates(t *testing.T, c *Core) {
+	t.Helper()
+	db, err := sql.Open("sqlite", c.cfg.DBPath)
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.Exec(`CREATE TRIGGER fail_account_update BEFORE UPDATE ON accounts
+ BEGIN SELECT RAISE(ABORT, 'guardado roto'); END`)
+	require.NoError(t, err)
+}
+
+func TestUpdateAccount_StoreFailureRestoresSecret(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	failAccountUpdates(t, c)
+	before := len(n.matching(EventAccountsChanged))
+
+	// Dirección nueva: el secreto copiado se borra.
+	in := editInput(acc)
+	in.Email = "nuevo@ej.com"
+	in.Username = testUser
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.Error(t, err)
+	_, err = c.cfg.Secrets.Get("nuevo@ej.com")
+	assert.ErrorIs(t, err, secrets.ErrNotFound)
+	pw, err := c.cfg.Secrets.Get(testUser)
+	require.NoError(t, err)
+	assert.Equal(t, testPass, pw)
+
+	// Misma dirección con contraseña nueva: vuelve la vieja.
+	require.NoError(t, c.cfg.Secrets.Set(testUser, "vieja"))
+	in = editInput(acc)
+	in.Password = testPass
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.Error(t, err)
+	pw, err = c.cfg.Secrets.Get(testUser)
+	require.NoError(t, err)
+	assert.Equal(t, "vieja", pw)
+
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, acc, list[0])
+	assert.Len(t, n.matching(EventAccountsChanged), before)
+}
+
+func TestUpdateAccount_MailboxChangeResetsCache(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	imap.Deliver(t, "INBOX", []byte("From: a@b.com\r\nSubject: viejo\r\n\r\ncuerpo\r\n"))
+	require.NoError(t, imap.User.Create("Viejo", nil))
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	_, err = c.store.SetAccountLabelsLocal(ctx, acc.ID)
+	require.NoError(t, err)
+
+	const otro = "otro@ej.com"
+	other := imap.AddUser(t, otro, testPass)
+	smtp.AddUser(otro, testPass)
+	require.NoError(t, other.Create("Nuevo", nil))
+	before := len(n.matching(EventFoldersUpdated))
+
+	in := editInput(acc)
+	in.Username = otro
+	got, err := c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	assert.Equal(t, otro, got.Username)
+
+	evs := n.matching(EventFoldersUpdated)
+	require.Len(t, evs, before+1)
+	assert.Equal(t, acc.ID, evs[before]["accountId"])
+	fs, err := c.ListFolders(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.Empty(t, fs, "se borró la caché del buzón viejo")
+	local, err := c.store.AccountLabelsLocal(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.False(t, local)
+	pw, err := c.cfg.Secrets.Get(testUser)
+	require.NoError(t, err)
+	assert.Equal(t, testPass, pw)
+
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	fs, err = c.ListFolders(ctx, acc.ID)
+	require.NoError(t, err)
+	names := []string{}
+	var inbox model.Folder
+	for _, f := range fs {
+		names = append(names, f.Name)
+		if f.Role == "inbox" {
+			inbox = f
+		}
+	}
+	assert.ElementsMatch(t, []string{"INBOX", "Sent", "Nuevo"}, names)
+	ms, err := c.ListMessages(ctx, inbox.ID, model.ListQuery{})
+	require.NoError(t, err)
+	assert.Empty(t, ms, "la Entrada del buzón nuevo está vacía")
+}
+
+func TestUpdateAccount_SignatureAndSaveSent(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	sig, err := c.SaveSignature(ctx, model.Signature{Name: "Trabajo", HTML: "<p>Fabri</p>"})
+	require.NoError(t, err)
+
+	in := editInput(acc)
+	in.DefaultSignatureID, in.SaveSentCopy = sig.ID, false
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, sig.ID, list[0].DefaultSignatureID)
+	assert.False(t, list[0].SaveSentCopy)
+
+	in.DefaultSignatureID, in.SaveSentCopy = 0, true
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	list, err = c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), list[0].DefaultSignatureID)
+	assert.True(t, list[0].SaveSentCopy)
+}
+
+func TestSyncAccount_StaleEpochWritesNothing(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	// La cuenta cambia de buzón entre el LIST y el guardado de las carpetas.
+	c.afterFolderList = func(id int64) { c.bumpAccountEpoch(id) }
+
+	require.NoError(t, c.SyncAccount(ctx, acc.ID), "el corte no se informa")
+	fs, err := c.ListFolders(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.Empty(t, fs)
+	assert.Empty(t, n.matching(EventSyncError))
+	assert.Empty(t, n.matching(EventFoldersUpdated))
+
+	// Con la época al día, sincroniza normalmente.
+	c.afterFolderList = nil
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	fs, err = c.ListFolders(ctx, acc.ID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, fs)
+}
+
+func TestSyncFolder_StaleEpochStopsBetweenBatches(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	require.NoError(t, c.SyncAccount(ctx, acc.ID))
+	for i := range headerBatch + 1 {
+		imap.Deliver(t, "INBOX", []byte(fmt.Sprintf("From: a@b.com\r\nSubject: %d\r\n\r\ncuerpo\r\n", i)))
+	}
+	inbox := inboxOf(t, c, acc.ID)
+	// La cuenta cambia de buzón después del primer lote.
+	n.setHook(func(event string, _ any) {
+		if event == EventSyncProgress {
+			c.bumpAccountEpoch(acc.ID)
+		}
+	})
+	updatedBefore := len(n.matching(EventFolderUpdated))
+
+	require.NoError(t, c.SyncFolder(ctx, inbox), "el corte no se informa")
+	ms, err := c.ListMessages(ctx, inbox, model.ListQuery{Limit: 1000})
+	require.NoError(t, err)
+	assert.Len(t, ms, headerBatch, "el segundo lote no se escribió")
+	assert.Len(t, n.matching(EventSyncProgress), 1)
+	assert.Len(t, n.matching(EventFolderUpdated), updatedBefore)
+	assert.Empty(t, n.matching(EventSyncError))
+}
+
+func inboxOf(t *testing.T, c *Core, accountID int64) int64 {
+	t.Helper()
+	fs, err := c.ListFolders(context.Background(), accountID)
+	require.NoError(t, err)
+	for _, f := range fs {
+		if f.Role == "inbox" {
+			return f.ID
+		}
+	}
+	t.Fatal("no hay Entrada")
+	return 0
 }

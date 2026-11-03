@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/mail"
+	"regexp"
 	"strings"
 
 	"postacontrol/core/imapx"
@@ -13,6 +14,9 @@ import (
 )
 
 var palette = []string{"#2563eb", "#16a34a", "#ea580c", "#9333ea"}
+
+// colorRe es el formato de color que acepta UpdateAccount (#rrggbb).
+var colorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 // parseEmail valida y devuelve la dirección pelada.
 func parseEmail(s string) (string, error) {
@@ -106,6 +110,148 @@ func (c *Core) SetSaveSentCopy(ctx context.Context, accountID int64, save bool) 
 	}
 	c.emit(EventAccountsChanged, nil)
 	return nil
+}
+
+// UpdateAccount cambia los datos de la cuenta (todos los de model.Account
+// salvo el id). Si cambia la conexión (usuario, IMAP, SMTP o viene una
+// contraseña nueva) la prueba antes de guardar, con la contraseña nueva o la
+// del llavero; si la prueba falla no cambia nada. La contraseña queda en el
+// llavero bajo la dirección de la cuenta: si la dirección cambia se mueve,
+// pero la vieja se borra recién cuando el guardado en la base salió bien (si
+// falla, el llavero vuelve a como estaba).
+//
+// Si cambia el buzón (el host IMAP o el usuario) borra la caché local de la
+// cuenta y la vuelve a sincronizar de cero; las definiciones de etiquetas y
+// los borradores locales quedan. Con cualquier cambio de conexión descarta la
+// conexión del pool, levanta la pausa por contraseña rechazada, reinicia el
+// vigía y sincroniza en segundo plano.
+func (c *Core) UpdateAccount(ctx context.Context, id int64, in model.AccountInput) (model.Account, error) {
+	// 1. Validar.
+	old, err := c.store.GetAccount(ctx, id)
+	if err != nil {
+		return model.Account{}, c.ctxOrUserError(ctx, err)
+	}
+	addr, err := parseEmail(in.Email)
+	if err != nil {
+		return model.Account{}, err
+	}
+	if !colorRe.MatchString(in.Color) {
+		return model.Account{}, &UserError{Code: "invalid", Msg: "El color no es válido."}
+	}
+	existing, err := c.store.ListAccounts(ctx)
+	if err != nil {
+		return model.Account{}, c.ctxOrUserError(ctx, err)
+	}
+	for _, a := range existing {
+		if a.ID != id && strings.EqualFold(a.Email, addr) {
+			return model.Account{}, &UserError{Code: "duplicate", Msg: "Esa cuenta ya está configurada."}
+		}
+	}
+	acc := in.Account
+	acc.ID, acc.Email = id, addr
+	if acc.Username == "" {
+		acc.Username = addr
+	}
+	if acc.DisplayName == "" {
+		acc.DisplayName = addr[:strings.LastIndex(addr, "@")]
+	}
+	oldUser := old.Username
+	if oldUser == "" {
+		oldUser = old.Email
+	}
+	mailboxChanged := acc.Username != oldUser || !strings.EqualFold(acc.IMAP.Host, old.IMAP.Host)
+	connChanged := mailboxChanged || in.Password != "" ||
+		!sameServer(acc.IMAP, old.IMAP) || !sameServer(acc.SMTP, old.SMTP)
+	emailChanged := addr != old.Email
+
+	// 2. Probar. La contraseña es la nueva o la del llavero.
+	pw := in.Password
+	if pw == "" && (connChanged || emailChanged) {
+		if pw, err = c.cfg.Secrets.Get(old.Email); err != nil {
+			return model.Account{}, &UserError{Code: "invalid", Msg: "Ingresá la contraseña.", Err: err}
+		}
+	}
+	if connChanged {
+		if err := c.TestAccount(ctx, model.AccountInput{Account: acc, Password: pw}); err != nil {
+			return model.Account{}, err
+		}
+	}
+
+	// 3. Llavero. Con la misma dirección, se guarda la contraseña de antes
+	// para poder volver atrás.
+	secretChanged := emailChanged || in.Password != ""
+	var restore func()
+	if secretChanged {
+		if emailChanged {
+			restore = func() { _ = c.cfg.Secrets.Delete(addr) }
+		} else if prev, err := c.cfg.Secrets.Get(old.Email); err == nil {
+			restore = func() { _ = c.cfg.Secrets.Set(old.Email, prev) }
+		} else if errors.Is(err, secrets.ErrNotFound) {
+			restore = func() { _ = c.cfg.Secrets.Delete(old.Email) }
+		}
+		if err := c.cfg.Secrets.Set(addr, pw); err != nil {
+			return model.Account{}, err
+		}
+	}
+
+	// 4. Base.
+	if err := c.store.UpdateAccount(ctx, acc); err != nil {
+		if restore != nil {
+			restore()
+		}
+		return model.Account{}, c.ctxOrUserError(ctx, err)
+	}
+
+	// 5. La contraseña ya está bajo la dirección nueva: la vieja sobra. Si no
+	// se puede borrar queda una entrada huérfana en el llavero, sin efecto
+	// sobre la cuenta, así que no se informa.
+	if emailChanged {
+		_ = c.cfg.Secrets.Delete(old.Email)
+	}
+
+	// 6. Otro buzón: lo que hay en la caché es del viejo. Subir la época
+	// antes de borrar hace que una sincronización en curso no escriba nada
+	// del buzón viejo después del borrado.
+	watcherStopped := false
+	if mailboxChanged {
+		c.stopWatcher(id)
+		watcherStopped = true
+		c.bumpAccountEpoch(id)
+		c.dropConn(id)
+		// La cuenta ya se guardó: el borrado no se corta aunque se cancele ctx.
+		if err := c.store.ResetAccountCache(context.WithoutCancel(ctx), id); err != nil {
+			c.emit(EventAccountsChanged, nil)
+			return model.Account{}, c.ctxOrUserError(ctx, err)
+		}
+		c.emit(EventFoldersUpdated, map[string]any{"accountId": id})
+	}
+
+	// 7. Conexión nueva: como UpdatePassword, más el vigía.
+	if connChanged {
+		c.dropConn(id)
+		c.clearAuthFailure(id)
+		if !watcherStopped {
+			c.stopWatcher(id)
+		}
+		c.startWatcher(id)
+		if !c.cfg.SkipInitialSync {
+			c.spawn(func(ctx context.Context) { _ = c.SyncAccount(ctx, id) })
+		}
+	}
+
+	// 8. Avisar.
+	c.emit(EventAccountsChanged, nil)
+	saved, err := c.store.GetAccount(ctx, id)
+	if err != nil {
+		return acc, nil
+	}
+	return saved, nil
+}
+
+// sameServer dice si dos configuraciones de servidor apuntan a lo mismo (el
+// host sin distinguir mayúsculas).
+func sameServer(a, b model.ServerSettings) bool {
+	return strings.EqualFold(a.Host, b.Host) && a.Port == b.Port && a.Security == b.Security
 }
 
 // RemoveAccount frena el vigía de la cuenta y borra el secreto y la caché
