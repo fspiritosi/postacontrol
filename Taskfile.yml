@@ -60,7 +60,8 @@ tasks:
         Type=Application
         Name=PostaControl
         Comment=Cliente de correo
-        Exec="$HOME/.local/bin/{{.APP_NAME}}"
+        Exec="$HOME/.local/bin/{{.APP_NAME}}" %u
+        MimeType=x-scheme-handler/mailto;
         Icon=postacontrol
         Categories=Network;Email;
         Keywords=correo;mail;email;
@@ -69,6 +70,7 @@ tasks:
         EOF
       - gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" || true
       - update-desktop-database "$HOME/.local/share/applications" || true
+      - xdg-mime default ar.com.codecontrol.postacontrol.desktop x-scheme-handler/mailto || true
 
   package:
     summary: Packages a production build of the application

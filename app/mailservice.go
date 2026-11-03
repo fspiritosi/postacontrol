@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -343,6 +344,17 @@ func (s *MailService) OpenMailto(ctx context.Context, link string, accountID int
 	}
 	_, err = s.composes.Open(initJSON, "")
 	return err
+}
+
+// OpenMailtoArgs abre un redactor por cada mailto: de la línea de comandos
+// (arranque en frío o segunda instancia). Los errores se registran sin el
+// enlace, que puede traer direcciones y texto del correo.
+func (s *MailService) OpenMailtoArgs(args []string) {
+	for _, a := range MailtoArgs(args) {
+		if err := s.OpenMailto(context.Background(), a, 0); err != nil {
+			slog.Warn("mailto: no se pudo abrir", "err", err)
+		}
+	}
 }
 
 // OpenExternal abre una URL en el navegador del sistema. Solo http y https.

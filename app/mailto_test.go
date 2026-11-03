@@ -112,3 +112,11 @@ func TestOpenMailto_SinCuentas(t *testing.T) {
 	require.True(t, errors.As(err, &ue))
 	assert.Equal(t, "Primero agregá una cuenta.", ue.Msg)
 }
+
+func TestMailtoArgs(t *testing.T) {
+	long := "mailto:" + strings.Repeat("a", 9000)
+	got := MailtoArgs([]string{"--hidden", "MAILTO:a@x.com", "x", long})
+	if len(got) != 1 || got[0] != "MAILTO:a@x.com" {
+		t.Fatalf("MailtoArgs = %v", got)
+	}
+}

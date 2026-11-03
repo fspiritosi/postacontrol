@@ -274,6 +274,15 @@ export function OpenMailto(link: string, accountID: number): $CancellablePromise
 }
 
 /**
+ * OpenMailtoArgs abre un redactor por cada mailto: de la línea de comandos
+ * (arranque en frío o segunda instancia). Los errores se registran sin el
+ * enlace, que puede traer direcciones y texto del correo.
+ */
+export function OpenMailtoArgs(args: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(447149540, args);
+}
+
+/**
  * PickAttachments abre el diálogo nativo para elegir archivos a adjuntar y los
  * deja preparados. Devuelve una lista vacía (sin error) si se cancela.
  */

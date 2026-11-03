@@ -15,9 +15,10 @@ var trayIcon []byte
 const autostartID = "postacontrol"
 
 // StartHidden dice si la app arrancó con --hidden (inicio al abrir sesión):
-// en ese caso la ventana nace escondida y queda solo la bandeja.
+// en ese caso la ventana nace escondida y queda solo la bandeja. Si además
+// viene un mailto:, el usuario quiere el redactor: la ventana no se esconde.
 func StartHidden(args []string) bool {
-	return slices.Contains(args, "--hidden")
+	return slices.Contains(args, "--hidden") && len(MailtoArgs(args)) == 0
 }
 
 // trayTooltip es el texto fijo del ícono de la bandeja. En Linux, Wails 3.0.0

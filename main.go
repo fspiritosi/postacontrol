@@ -63,7 +63,12 @@ func main() {
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "ar.com.codecontrol.postacontrol",
-			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				// Un mailto: abre el redactor y no trae la ventana principal.
+				if links := app.MailtoArgs(data.Args); len(links) > 0 {
+					go mailService.OpenMailtoArgs(links)
+					return
+				}
 				if desktop != nil {
 					desktop.ShowWindow()
 				}
@@ -103,6 +108,9 @@ func main() {
 	// El corrector se aplica una vez que GTK está en marcha.
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		app.ApplySpellcheck(mailService.SpellcheckEnabled())
+		// Arranque en frío con un mailto: (PostaControl como cliente del
+		// sistema). Fuera del hilo de GTK: abrir el redactor crea una ventana.
+		go mailService.OpenMailtoArgs(os.Args[1:])
 	})
 
 	desktop = app.SetupDesktop(wailsApp, win, composeWins.Quit)

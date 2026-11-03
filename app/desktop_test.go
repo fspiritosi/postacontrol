@@ -10,6 +10,9 @@ func TestStartHidden(t *testing.T) {
 		{[]string{"postacontrol", "--hidden"}, true},
 		{[]string{"postacontrol"}, false},
 		{[]string{"postacontrol", "--hiddenx"}, false},
+		{[]string{"--hidden"}, true},
+		{[]string{"--hidden", "mailto:a@x.com"}, false},
+		{[]string{}, false},
 	}
 	for _, c := range cases {
 		if got := StartHidden(c.args); got != c.want {

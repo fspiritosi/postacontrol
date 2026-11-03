@@ -1,7 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=postacontrol
-Exec=postacontrol
+Exec=postacontrol %u
+MimeType=x-scheme-handler/mailto;
 Icon=postacontrol
 Categories=Network;Email;
 Terminal=false

@@ -14,6 +14,18 @@ import (
 // maxMailtoLen es el largo máximo que aceptamos para un enlace mailto:.
 const maxMailtoLen = 8192
 
+// MailtoArgs devuelve, en orden, los argumentos de la línea de comandos que son
+// enlaces mailto: (sin distinguir mayúsculas) y no pasan del largo máximo.
+func MailtoArgs(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if len(a) <= maxMailtoLen && len(a) >= len("mailto:") && strings.EqualFold(a[:len("mailto:")], "mailto:") {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // mailtoFields es lo que se toma de un enlace mailto: (RFC 6068). Todo lo demás
 // (attach, in-reply-to, otras cabeceras) se ignora a propósito.
 type mailtoFields struct {
