@@ -1,10 +1,12 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -614,4 +616,99 @@ func TestReorderAccounts_Stale(t *testing.T) {
 	}
 	assert.Equal(t, []string{"a@ej.com", "b@ej.com", "c@ej.com"}, accountOrder(t, c))
 	assert.Len(t, n.matching(EventAccountsChanged), before)
+}
+
+// failingSecrets es un llavero en memoria cuyo Get o Delete pueden fallar con
+// un error que no es ErrNotFound (llavero bloqueado, D-Bus caído).
+type failingSecrets struct {
+	secrets.Store
+	getErr, deleteErr error
+}
+
+func (f *failingSecrets) Get(email string) (string, error) {
+	if f.getErr != nil {
+		return "", f.getErr
+	}
+	return f.Store.Get(email)
+}
+
+func (f *failingSecrets) Delete(email string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	return f.Store.Delete(email)
+}
+
+func TestUpdateAccount_UnreadableKeyringKeepsOldPassword(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	mem := c.cfg.Secrets
+	require.NoError(t, mem.Set(testUser, "vieja"))
+	c.cfg.Secrets = &failingSecrets{Store: mem, getErr: errors.New("llavero bloqueado")}
+	before := len(n.matching(EventAccountsChanged))
+
+	// Misma dirección con contraseña nueva: sin poder leer la vieja no hay
+	// cómo volver atrás, así que no se toca el llavero.
+	in := editInput(acc)
+	in.Password = testPass
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.Error(t, err)
+	var ue *UserError
+	require.True(t, errors.As(err, &ue), "se esperaba UserError, fue %v", err)
+	assert.NotContains(t, err.Error(), testPass)
+
+	pw, err := mem.Get(testUser)
+	require.NoError(t, err)
+	assert.Equal(t, "vieja", pw)
+	list, err := c.ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, acc, list[0])
+	assert.Len(t, n.matching(EventAccountsChanged), before)
+}
+
+func TestUpdateAccount_OldSecretDeleteFailureIsLogged(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	mem := c.cfg.Secrets
+	c.cfg.Secrets = &failingSecrets{Store: mem, deleteErr: errors.New("llavero bloqueado")}
+
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	in := editInput(acc)
+	in.Email = "nuevo@ej.com"
+	in.Username = testUser
+	got, err := c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err, "no poder borrar el secreto viejo no corta la edición")
+	assert.Equal(t, "nuevo@ej.com", got.Email)
+	assert.Contains(t, logs.String(), "cuentas: no se pudo borrar el secreto viejo")
+	assert.Contains(t, logs.String(), "llavero bloqueado")
+	assert.NotContains(t, logs.String(), testPass)
+}
+
+func TestUpdateAccount_OldSecretAlreadyGoneIsNotLogged(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	ctx := context.Background()
+	acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+	require.NoError(t, err)
+	mem := c.cfg.Secrets
+	c.cfg.Secrets = &failingSecrets{Store: mem, deleteErr: secrets.ErrNotFound}
+
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	in := editInput(acc)
+	in.Email = "nuevo@ej.com"
+	in.Username = testUser
+	_, err = c.UpdateAccount(ctx, acc.ID, in)
+	require.NoError(t, err)
+	assert.NotContains(t, logs.String(), "secreto viejo")
 }

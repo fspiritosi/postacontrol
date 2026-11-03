@@ -83,8 +83,9 @@ function EditForm({
       : LABEL_COLORS;
 
   // Misma regla que el núcleo: cambia el buzón si cambia el host IMAP
-  // (sin distinguir mayúsculas) o el usuario efectivo (vacío = el correo).
-  const effectiveUser = (user: string, mail: string) => (user.trim() || mail.trim()).toLowerCase();
+  // (sin distinguir mayúsculas) o el usuario efectivo (vacío = el correo, que
+  // el núcleo guarda en minúsculas). El usuario sí distingue mayúsculas.
+  const effectiveUser = (user: string, mail: string) => user.trim() || mail.trim().toLowerCase();
   const mailboxChanged =
     imap.host.trim().toLowerCase() !== account.imap.host.trim().toLowerCase() ||
     effectiveUser(username, email) !== effectiveUser(account.username, account.email);

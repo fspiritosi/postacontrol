@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/mail"
 	"regexp"
 	"slices"
@@ -189,6 +190,10 @@ func (c *Core) UpdateAccount(ctx context.Context, id int64, in model.AccountInpu
 			restore = func() { _ = c.cfg.Secrets.Set(old.Email, prev) }
 		} else if errors.Is(err, secrets.ErrNotFound) {
 			restore = func() { _ = c.cfg.Secrets.Delete(old.Email) }
+		} else {
+			// Sin la contraseña de antes no hay cómo volver atrás: no se
+			// toca el llavero.
+			return model.Account{}, &UserError{Code: "keyring", Msg: "No pudimos leer el llavero del sistema.", Err: err}
 		}
 		if err := c.cfg.Secrets.Set(addr, pw); err != nil {
 			return model.Account{}, err
@@ -205,9 +210,11 @@ func (c *Core) UpdateAccount(ctx context.Context, id int64, in model.AccountInpu
 
 	// 5. La contraseña ya está bajo la dirección nueva: la vieja sobra. Si no
 	// se puede borrar queda una entrada huérfana en el llavero, sin efecto
-	// sobre la cuenta, así que no se informa.
+	// sobre la cuenta: no corta la edición, solo se registra.
 	if emailChanged {
-		_ = c.cfg.Secrets.Delete(old.Email)
+		if err := c.cfg.Secrets.Delete(old.Email); err != nil && !errors.Is(err, secrets.ErrNotFound) {
+			slog.Warn("cuentas: no se pudo borrar el secreto viejo", "err", err)
+		}
 	}
 
 	// 6. Otro buzón: lo que hay en la caché es del viejo. Subir la época

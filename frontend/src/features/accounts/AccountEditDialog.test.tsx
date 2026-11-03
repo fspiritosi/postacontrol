@@ -97,6 +97,22 @@ describe("AccountEditDialog", () => {
     expect(screen.queryByText(/se van a volver a bajar/)).toBeNull();
   });
 
+  it("cambiar solo mayúsculas del usuario avisa (el servidor las distingue)", async () => {
+    const { user } = setup({ ...account, username: "fabri" });
+    const username = screen.getByLabelText("Usuario");
+    await user.clear(username);
+    await user.type(username, "Fabri");
+    expect(screen.getByText(/se van a volver a bajar/)).toBeInTheDocument();
+  });
+
+  it("cambiar solo mayúsculas de la dirección sin usuario no avisa", async () => {
+    const { user } = setup();
+    const email = screen.getByLabelText("Dirección");
+    await user.clear(email);
+    await user.type(email, "Yo@Ejemplo.com");
+    expect(screen.queryByText(/se van a volver a bajar/)).toBeNull();
+  });
+
   it("un rechazo muestra el mensaje y no cierra", async () => {
     vi.mocked(svc.UpdateAccount).mockRejectedValue(new Error("El servidor rechazó la contraseña."));
     const { user, onOpenChange } = setup();
