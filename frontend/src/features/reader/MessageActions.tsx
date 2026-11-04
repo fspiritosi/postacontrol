@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
+import { FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -21,8 +21,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { invalidateMailQueries } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
+import { requestNewRule } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
+import { ruleDraftFromSender } from "@/lib/rules";
 import { LabelMenuItems } from "../labels/LabelMenu";
 import { useComposer } from "../compose/ComposerContext";
 
@@ -148,6 +150,17 @@ export function MessageActions({ message, selectMessage }: Props) {
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+      {message.from?.email && !inDrafts ? (
+        <Button
+          variant="outline"
+          size="sm"
+          title="Crear una regla para lo que llega de este remitente"
+          onClick={() => requestNewRule(ruleDraftFromSender(message.accountId, message.from))}
+        >
+          <FilterIcon />
+          Crear regla…
+        </Button>
+      ) : null}
       {inTrash ? (
         <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)}>
           <Trash2Icon />

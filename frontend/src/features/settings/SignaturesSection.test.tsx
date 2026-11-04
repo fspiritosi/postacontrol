@@ -41,7 +41,7 @@ beforeAll(() => {
 function setup() {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <SettingsDialog open onOpenChange={() => {}} />
+      <SettingsDialog open onOpenChange={() => {}} focusSection="compose" />
     </QueryClientProvider>,
   );
   return userEvent.setup();

@@ -72,6 +72,7 @@ function ThreadRow({
       targets={() => menuTargets(t.threadRoot)}
       labelTargets={() => labelMenuTargets(t.threadRoot)}
       onUnread={onUnread && (() => onUnread(t.threadRoot))}
+      sender={{ accountId: m.accountId, from: m.from }}
     >
     <li
       className={cn("group relative", marked && "bg-primary/10")}

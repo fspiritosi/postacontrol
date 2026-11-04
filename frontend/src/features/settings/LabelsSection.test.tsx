@@ -26,10 +26,10 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-function setup(props: { focus?: boolean } = {}) {
+function setup() {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <LabelsSection {...props} />
+      <LabelsSection />
     </QueryClientProvider>,
   );
   return userEvent.setup();
@@ -162,11 +162,5 @@ describe("Etiquetas en Configuración", () => {
     const dlg = screen.getByText("¿Borrar la etiqueta «Trabajo»?").closest("[role=dialog]") as HTMLElement;
     await user.click(within(dlg).getByRole("button", { name: "Borrar" }));
     await waitFor(() => expect(svc.DeleteLabel).toHaveBeenCalledWith(1));
-  });
-
-  it("con focus se desplaza hasta la sección", async () => {
-    setup({ focus: true });
-    await screen.findByDisplayValue("Trabajo");
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 });
