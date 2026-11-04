@@ -327,3 +327,45 @@ type Settings struct {
 	// Background es el nombre del archivo de fondo dentro de la carpeta de datos; vacío = sin fondo.
 	Background string `json:"background"`
 }
+
+// Rule es una regla de una cuenta, como los filtros de Thunderbird: si un
+// correo cumple las condiciones (todas o alguna, según MatchAll), se le aplican
+// las acciones. Las reglas de una cuenta se evalúan en orden de Position.
+type Rule struct {
+	ID        int64  `json:"id"`
+	AccountID int64  `json:"accountId"`
+	Name      string `json:"name"`
+	Enabled   bool   `json:"enabled"`
+	// MatchAll: true = todas las condiciones; false = alcanza con una.
+	MatchAll   bool            `json:"matchAll"`
+	Conditions []RuleCondition `json:"conditions"` // nunca nil
+	Actions    []RuleAction    `json:"actions"`    // nunca nil
+	Position   int             `json:"position"`
+}
+
+// RuleCondition compara un campo del correo con un texto, sin distinguir
+// mayúsculas.
+//
+// Field: "from", "to", "cc", "toOrCc" o "subject".
+// Op: "contains", "notContains", "is", "isNot", "beginsWith" o "endsWith".
+type RuleCondition struct {
+	Field string `json:"field"`
+	Op    string `json:"op"`
+	Value string `json:"value"`
+}
+
+// RuleAction es lo que se hace con un correo que cumple la regla.
+//
+// Type: "move" (a FolderID), "markRead", "flag", "label" (LabelID), "delete"
+// (a la Papelera) o "stop" (no evaluar las reglas que siguen).
+type RuleAction struct {
+	Type     string `json:"type"`
+	FolderID int64  `json:"folderId"`
+	LabelID  int64  `json:"labelId"`
+}
+
+// RuleRun es el resultado de aplicar las reglas a mano sobre una carpeta.
+type RuleRun struct {
+	// Matched es cuántos correos cumplieron al menos una regla.
+	Matched int `json:"matched"`
+}

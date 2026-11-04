@@ -598,6 +598,29 @@ func (s *MailService) RefreshLabel(ctx context.Context, labelID, accountID int64
 	return s.core.RefreshLabel(ctx, labelID, accountID)
 }
 
+// ListRules devuelve las reglas de la cuenta, en el orden en que se aplican.
+func (s *MailService) ListRules(ctx context.Context, accountID int64) ([]model.Rule, error) {
+	return s.core.ListRules(ctx, accountID)
+}
+
+// SaveRule crea (ID 0) o actualiza una regla.
+func (s *MailService) SaveRule(ctx context.Context, r model.Rule) (model.Rule, error) {
+	return s.core.SaveRule(ctx, r)
+}
+
+func (s *MailService) DeleteRule(ctx context.Context, id int64) error {
+	return s.core.DeleteRule(ctx, id)
+}
+
+func (s *MailService) ReorderRules(ctx context.Context, accountID int64, ids []int64) error {
+	return s.core.ReorderRules(ctx, accountID, ids)
+}
+
+// RunRules aplica ya las reglas de la cuenta a todos los correos de la carpeta.
+func (s *MailService) RunRules(ctx context.Context, folderID int64) (model.RuleRun, error) {
+	return s.core.RunRules(ctx, folderID)
+}
+
 func (s *MailService) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) error {
 	return s.core.MoveMessages(ctx, ids, destFolderID)
 }

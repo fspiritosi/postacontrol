@@ -33,6 +33,14 @@ export function useLabels() {
   });
 }
 
+export function useRules(accountId: number | null) {
+  return useQuery({
+    queryKey: ["rules", accountId],
+    queryFn: async () => (await svc.ListRules(accountId!)) ?? [],
+    enabled: accountId != null,
+  });
+}
+
 export function useContacts(query: string) {
   return useQuery({
     queryKey: ["contacts", query],

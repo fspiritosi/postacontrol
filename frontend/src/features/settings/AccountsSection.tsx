@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 import { useAccounts } from "@/lib/queries";
 import { AccountEditDialog } from "../accounts/AccountEditDialog";
+import { PageHeader } from "./SettingsPages";
 
 export function AccountsSection() {
   const queryClient = useQueryClient();
@@ -28,14 +29,11 @@ export function AccountsSection() {
 
   return (
     <section aria-labelledby="accounts-title" className="space-y-3">
-      <div className="space-y-1">
-        <h3 id="accounts-title" className="text-sm font-medium">
-          Cuentas
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          El orden se usa en la barra lateral y al elegir el remitente.
-        </p>
-      </div>
+      <PageHeader
+        id="accounts-title"
+        title="Cuentas"
+        description="El orden se usa en la barra lateral y al elegir el remitente."
+      />
       <ul className="space-y-1">
         {accounts.map((a, i) => {
           const name = a.displayName || a.email;

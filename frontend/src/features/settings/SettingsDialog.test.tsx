@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,12 +20,13 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import type { SettingsSection } from "@/lib/events";
 import { SettingsDialog } from "./SettingsDialog";
 
-function renderDialog() {
+function renderDialog(focusSection?: SettingsSection) {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <SettingsDialog open onOpenChange={() => {}} />
+      <SettingsDialog open onOpenChange={() => {}} focusSection={focusSection} />
     </QueryClientProvider>,
   );
 }
@@ -46,7 +47,7 @@ describe("SettingsDialog", () => {
     const onOpenChange = vi.fn();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <SettingsDialog open onOpenChange={onOpenChange} />
+        <SettingsDialog open onOpenChange={onOpenChange} focusSection="labels" />
       </QueryClientProvider>,
     );
     await user.click(await screen.findByRole("button", { name: "Nueva etiqueta" }));
@@ -86,7 +87,7 @@ describe("SettingsDialog", () => {
 
   it("el interruptor del corrector guarda disableSpellcheck", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderDialog("compose");
     const sw = await screen.findByRole("switch", { name: "Corregir ortografía al escribir" });
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     expect(sw.getAttribute("aria-checked")).toBe("true");
@@ -125,7 +126,7 @@ describe("SettingsDialog", () => {
       threadedList: true,
       readingPane: "",
     });
-    renderDialog();
+    renderDialog("reading");
     const trigger = await screen.findByRole("combobox", { name: "Panel de lectura" });
     await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
     await user.click(trigger);
@@ -143,7 +144,7 @@ describe("SettingsDialog", () => {
 
   it("Elegir imagen… llama a PickBackground", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderDialog("reading");
     await user.click(await screen.findByRole("button", { name: "Elegir imagen…" }));
     await waitFor(() => expect(svc.PickBackground).toHaveBeenCalled());
     // Recarga la configuración, que trae el nombre del fondo nuevo.
@@ -151,7 +152,7 @@ describe("SettingsDialog", () => {
   });
 
   it("Quitar llama a ClearBackground y solo aparece con fondo puesto", async () => {
-    renderDialog();
+    renderDialog("reading");
     await screen.findByRole("button", { name: "Elegir imagen…" });
     expect(screen.queryByRole("button", { name: "Quitar" })).toBeNull();
   });
@@ -166,9 +167,32 @@ describe("SettingsDialog", () => {
     });
     vi.mocked(svc.BackgroundImage).mockResolvedValue("data:image/png;base64,AAAA");
     const user = userEvent.setup();
-    renderDialog();
+    renderDialog("reading");
     expect(await screen.findByAltText("Fondo actual")).toBeTruthy();
     await user.click(await screen.findByRole("button", { name: "Quitar" }));
     await waitFor(() => expect(svc.ClearBackground).toHaveBeenCalled());
+  });
+
+  it("arranca en General y la barra lateral cambia de sección", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const nav = screen.getByRole("navigation", { name: "Secciones de Configuración" });
+    expect(within(nav).getByRole("button", { name: "General" }).getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByRole("switch", { name: "Bandeja unificada" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Panel de lectura" })).toBeNull();
+
+    await user.click(within(nav).getByRole("button", { name: "Lectura" }));
+    expect(await screen.findByRole("combobox", { name: "Panel de lectura" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Bandeja unificada" })).toBeNull();
+    expect(within(nav).getByRole("button", { name: "Lectura" }).getAttribute("aria-current")).toBe("page");
+
+    await user.click(within(nav).getByRole("button", { name: "Reglas" }));
+    expect(await screen.findByRole("heading", { name: "Reglas" })).toBeTruthy();
+  });
+
+  it("focusSection abre directo en esa sección", async () => {
+    renderDialog("labels");
+    expect(await screen.findByRole("heading", { name: "Etiquetas" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Bandeja unificada" })).toBeNull();
   });
 });

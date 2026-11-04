@@ -2,7 +2,13 @@ import { ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon, UsersIco
 import { useEffect, useState, type ReactNode } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
-import { onPasswordRequest, onSettingsRequest } from "@/lib/events";
+import {
+  onNewRuleRequest,
+  onPasswordRequest,
+  onSettingsRequest,
+  type RuleDraft,
+  type SettingsSection,
+} from "@/lib/events";
 import { useAllFolders, useDrafts, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { UNIFIED_LABEL, type UnifiedRole } from "@/lib/view";
@@ -107,15 +113,24 @@ export function FolderSidebar({
   const [expandedIds, setExpandedIds] = useState(() => loadIds(EXPANDED_KEY));
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<"labels" | undefined>(undefined);
-  useEffect(
-    () =>
-      onSettingsRequest((section) => {
-        setSettingsSection(section);
-        setSettingsOpen(true);
-      }),
-    [],
-  );
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
+  const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
+  useEffect(() => {
+    const offSettings = onSettingsRequest((section) => {
+      setSettingsSection(section);
+      setRuleDraft(null);
+      setSettingsOpen(true);
+    });
+    const offRule = onNewRuleRequest((draft) => {
+      setSettingsSection("rules");
+      setRuleDraft(draft);
+      setSettingsOpen(true);
+    });
+    return () => {
+      offSettings();
+      offRule();
+    };
+  }, []);
   // Dueño único del diálogo de contraseña: lo abren el menú y el toast de error.
   const [passwordAccountId, setPasswordAccountId] = useState<number | null>(null);
   useEffect(() => onPasswordRequest(setPasswordAccountId), []);
@@ -196,6 +211,7 @@ export function FolderSidebar({
           className="w-full justify-start"
           onClick={() => {
             setSettingsSection(undefined);
+            setRuleDraft(null);
             setSettingsOpen(true);
           }}
         >
@@ -209,7 +225,12 @@ export function FolderSidebar({
         open={passwordAccount !== null}
         onOpenChange={(o) => !o && setPasswordAccountId(null)}
       />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} focusSection={settingsSection} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        focusSection={settingsSection}
+        ruleDraft={ruleDraft}
+      />
     </div>
   );
 }

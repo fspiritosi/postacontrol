@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, ChevronUpIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Label } from "../../../bindings/postacontrol/core/model/models";
@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { errorMessage } from "@/lib/errors";
 import { LABEL_COLORS, nextColor } from "@/lib/labels";
 import { useLabels } from "@/lib/queries";
+import { PageHeader } from "./SettingsPages";
 
 function usageText(n: number): string {
   if (n === 0) return "Ningún correo la tiene todavía. Los correos no se borran.";
@@ -132,17 +133,12 @@ function LabelRow({ label, index, count, onUpdate, onMove, onDelete }: RowProps)
   );
 }
 
-export function LabelsSection({ focus }: { focus?: boolean }) {
+export function LabelsSection() {
   const queryClient = useQueryClient();
   const labels = useLabels().data ?? [];
-  const sectionRef = useRef<HTMLElement>(null);
   // null = sin fila de alta; string = nombre que se está tipeando.
   const [draft, setDraft] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<{ label: Label; usage: number } | null>(null);
-
-  useEffect(() => {
-    if (focus) sectionRef.current?.scrollIntoView({ block: "start" });
-  }, [focus]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["labels"] });
 
@@ -209,15 +205,16 @@ export function LabelsSection({ focus }: { focus?: boolean }) {
   };
 
   return (
-    <section id="settings-labels" ref={sectionRef} aria-labelledby="labels-title" className="space-y-3">
-      <div className="flex items-center justify-between gap-4">
-        <h3 id="labels-title" className="text-sm font-medium">
-          Etiquetas
-        </h3>
+    <section aria-labelledby="labels-title" className="space-y-3">
+      <PageHeader
+        id="labels-title"
+        title="Etiquetas"
+        description="Marcan correos de cualquier cuenta. El orden es el de las teclas 1 a 9."
+      >
         <Button size="sm" variant="outline" onClick={() => setDraft("")}>
           Nueva etiqueta
         </Button>
-      </div>
+      </PageHeader>
       {labels.length === 0 && draft === null ? (
         <p className="text-sm text-muted-foreground">Todavía no tenés etiquetas.</p>
       ) : (

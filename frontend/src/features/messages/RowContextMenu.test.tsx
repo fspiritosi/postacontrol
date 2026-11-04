@@ -13,6 +13,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { Target } from "@/lib/bulk";
+import { onNewRuleRequest } from "@/lib/events";
 import { RowContextMenu } from "./RowContextMenu";
 
 const LABELS = [
@@ -98,5 +99,28 @@ describe("RowContextMenu", () => {
     await waitFor(() => expect(item.getAttribute("data-disabled")).toBeNull());
     await userEvent.click(item);
     await waitFor(() => expect(svc.SetFlagged).toHaveBeenCalledWith([5], false));
+  });
+
+  it("Crear regla para este remitente pide una regla con su correo", async () => {
+    const cb = vi.fn();
+    const off = onNewRuleRequest(cb);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RowContextMenu
+          targets={() => Promise.resolve([t(5)])}
+          sender={{ accountId: 7, from: { name: "Bea", email: "bea@ej.com" } }}
+        >
+          <div data-testid="fila">fila</div>
+        </RowContextMenu>
+      </QueryClientProvider>,
+    );
+    fireEvent.contextMenu(screen.getByTestId("fila"));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Crear regla para este remitente…" }));
+    expect(cb).toHaveBeenCalledWith({
+      accountId: 7,
+      name: "Bea",
+      conditions: [{ field: "from", op: "is", value: "bea@ej.com" }],
+    });
+    off();
   });
 });

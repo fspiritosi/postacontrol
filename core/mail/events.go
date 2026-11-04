@@ -18,6 +18,8 @@ const (
 	EventLabelsChanged = "mail:labels-changed" // data: nil
 	// EventLabelsLocalOnly: el servidor de la cuenta no guarda keywords; sus etiquetas quedan solo en esta PC.
 	EventLabelsLocalOnly = "mail:labels-local-only" // data: {"accountId": int64, "email": string}
+	// EventRulesChanged: hubo un alta, un cambio, un reordenamiento o una baja de reglas de la cuenta.
+	EventRulesChanged = "mail:rules-changed" // data: {"accountId": int64}
 	// EventDraftsChanged: se guardó, subió o borró un borrador del redactor.
 	EventDraftsChanged = "mail:drafts-changed" // data: nil
 	// EventSendFinished: terminó un envío. message es el motivo si falló y

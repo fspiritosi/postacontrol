@@ -70,6 +70,7 @@ export function MessageRow({
           : Promise.resolve(loadedTargets([m], [m.id]))
       }
       onUnread={onUnread && (() => onUnread(m))}
+      sender={{ accountId: m.accountId, from: m.from }}
     >
     <li
       className={cn("group relative", marked && "bg-primary/10")}

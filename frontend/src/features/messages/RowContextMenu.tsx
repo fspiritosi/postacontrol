@@ -6,6 +6,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -13,6 +14,9 @@ import {
 } from "@/components/ui/context-menu";
 import { invalidateMailQueries, runPerAccount, type Target } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
+import { requestNewRule } from "@/lib/events";
+import { ruleDraftFromSender } from "@/lib/rules";
+import type { Address } from "../../../bindings/postacontrol/core/model/models";
 import { LabelMenuItems } from "../labels/LabelMenu";
 
 type Props = {
@@ -24,6 +28,8 @@ type Props = {
   labelTargets?: () => Promise<Target[]>;
   // Se marcaron como no leídos: quien lo usa cierra el lector si hace falta.
   onUnread?: () => void;
+  // Remitente de la fila: ofrece crear una regla para lo que llega de él.
+  sender?: { accountId: number; from: Address };
   children: ReactNode;
 };
 
@@ -34,6 +40,7 @@ export function RowContextMenu({
   targets,
   labelTargets,
   onUnread,
+  sender,
   children,
 }: Props) {
   const queryClient = useQueryClient();
@@ -93,6 +100,14 @@ export function RowContextMenu({
         >
           {allFlagged ? "Quitar destacado" : "Destacar"}
         </ContextMenuItem>
+        {sender?.from.email ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => requestNewRule(ruleDraftFromSender(sender.accountId, sender.from))}>
+              Crear regla para este remitente…
+            </ContextMenuItem>
+          </>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );

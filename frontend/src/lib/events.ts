@@ -68,7 +68,7 @@ export function requestPassword(accountId: number): void {
 
 // Pedido de abrir Configuración, opcionalmente en una sección. Lo escucha la
 // barra lateral, que es quien tiene el diálogo.
-export type SettingsSection = "labels";
+export type SettingsSection = "general" | "reading" | "compose" | "accounts" | "labels" | "rules";
 const settingsListeners = new Set<(section?: SettingsSection) => void>();
 
 export function onSettingsRequest(cb: (section?: SettingsSection) => void): () => void {
@@ -80,6 +80,26 @@ export function onSettingsRequest(cb: (section?: SettingsSection) => void): () =
 
 export function requestSettings(section?: SettingsSection): void {
   settingsListeners.forEach((l) => l(section));
+}
+
+// Pedido de crear una regla ya completada (desde un correo). Abre
+// Configuración en Reglas con el editor de la regla nueva.
+export type RuleDraft = {
+  accountId: number;
+  name: string;
+  conditions: { field: string; op: string; value: string }[];
+};
+const newRuleListeners = new Set<(d: RuleDraft) => void>();
+
+export function onNewRuleRequest(cb: (d: RuleDraft) => void): () => void {
+  newRuleListeners.add(cb);
+  return () => {
+    newRuleListeners.delete(cb);
+  };
+}
+
+export function requestNewRule(d: RuleDraft): void {
+  newRuleListeners.forEach((l) => l(d));
 }
 
 // Pedido de abrir un correo (o solo su carpeta, con messageId 0) que llega al
@@ -256,6 +276,9 @@ export function useMailEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ["thread"] });
         void queryClient.invalidateQueries({ queryKey: ["folders"] });
         refreshSearchThrottled();
+      }),
+      Events.On("mail:rules-changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["rules"] });
       }),
       Events.On("mail:labels-changed", () => {
         for (const key of ["labels", "messages", "threads", "thread", "search"]) {
