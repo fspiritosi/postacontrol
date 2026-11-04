@@ -3,7 +3,7 @@
 - **Pedido:** ordenar Configuración con tabs o barra lateral (estaba todo mezclado) y agregar Reglas, por ejemplo para mover sola a una carpeta todo lo que llega de un remitente. Referencia: Thunderbird.
 - **Sin diseño ni plan escritos:** Fabricio pidió arrancar directo. Las decisiones de abajo son mías; revisarlas.
 - **Rama:** `main`.
-- **Estado:** tests del núcleo (`go test ./core/...`) y del frontend (tsc, vitest, eslint) en verde. `task check` completo **no se corrió**: la PC nueva no tiene Go, gcc ni los encabezados de GTK/WebKit, así que `app/` y `main` no se compilaron (ver Pendientes).
+- **Estado:** `task check` en verde en 929fe4c, con GTK4 y WebKitGTK 6 (641 tests del frontend, todos los paquetes Go).
 
 ## Commits
 
@@ -32,6 +32,6 @@
 
 ## Pendientes
 
-- **Correr `task check` completo** cuando la PC tenga las herramientas, por ejemplo con `sudo dnf install golang gcc gtk3-devel webkit2gtk4.1-devel` y `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0`.
+- **`task` y `wails3`** no están instalados en el sistema de la PC nueva: en esta sesión se usaron copias temporales. Con otra versión de npm, `task check` reescribe `frontend/package-lock.json` (solo los campos `libc`): no hay que commitear ese cambio.
 - **Probar en la app real:** crear una regla desde un correo, mandarse un correo que la cumpla y ver que llegue a la carpeta. La UI solo se miró en una página de prueba con datos falsos.
 - No implementado (Thunderbird sí lo tiene): copiar a carpeta, reenviar, responder, condiciones por fecha, tamaño o cuerpo, y reglas al enviar.
