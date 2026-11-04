@@ -262,6 +262,69 @@ export interface ReplyContext {
 }
 
 /**
+ * Rule es una regla de una cuenta, como los filtros de Thunderbird: si un
+ * correo cumple las condiciones (todas o alguna, según MatchAll), se le aplican
+ * las acciones. Las reglas de una cuenta se evalúan en orden de Position.
+ */
+export interface Rule {
+    "id": number;
+    "accountId": number;
+    "name": string;
+    "enabled": boolean;
+
+    /**
+     * MatchAll: true = todas las condiciones; false = alcanza con una.
+     */
+    "matchAll": boolean;
+
+    /**
+     * nunca nil
+     */
+    "conditions": RuleCondition[] | null;
+
+    /**
+     * nunca nil
+     */
+    "actions": RuleAction[] | null;
+    "position": number;
+}
+
+/**
+ * RuleAction es lo que se hace con un correo que cumple la regla.
+ * 
+ * Type: "move" (a FolderID), "markRead", "flag", "label" (LabelID), "delete"
+ * (a la Papelera) o "stop" (no evaluar las reglas que siguen).
+ */
+export interface RuleAction {
+    "type": string;
+    "folderId": number;
+    "labelId": number;
+}
+
+/**
+ * RuleCondition compara un campo del correo con un texto, sin distinguir
+ * mayúsculas.
+ * 
+ * Field: "from", "to", "cc", "toOrCc" o "subject".
+ * Op: "contains", "notContains", "is", "isNot", "beginsWith" o "endsWith".
+ */
+export interface RuleCondition {
+    "field": string;
+    "op": string;
+    "value": string;
+}
+
+/**
+ * RuleRun es el resultado de aplicar las reglas a mano sobre una carpeta.
+ */
+export interface RuleRun {
+    /**
+     * Matched es cuántos correos cumplieron al menos una regla.
+     */
+    "matched": number;
+}
+
+/**
  * SearchQuery es una búsqueda en el índice local. FolderID 0 = todas las
  * carpetas de todas las cuentas.
  */

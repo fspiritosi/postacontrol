@@ -211,6 +211,8 @@ func (c *Core) syncFolder(ctx context.Context, folderID int64, epoch *uint64) er
 		return err
 	}
 	c.emit(EventFolderUpdated, map[string]any{"folderId": folderID})
+	// Primero las reglas: el aviso cuenta solo lo que sigue sin leer en la Entrada.
+	c.applyNewMailRules(ctx, f.AccountID, p)
 	c.announceNewMail(ctx, f.AccountID, p)
 	return nil
 }

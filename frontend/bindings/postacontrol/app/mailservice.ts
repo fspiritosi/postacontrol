@@ -146,6 +146,10 @@ export function DeleteMessages(ids: number[] | null): $CancellablePromise<void> 
     return $Call.ByID(2312673024, ids);
 }
 
+export function DeleteRule(id: number): $CancellablePromise<void> {
+    return $Call.ByID(67470410, id);
+}
+
 export function DeleteSignature(id: number): $CancellablePromise<void> {
     return $Call.ByID(2139536110, id);
 }
@@ -217,6 +221,13 @@ export function ListMessages(folderID: number, q: model$0.ListQuery): $Cancellab
  */
 export function ListPendingDrafts(): $CancellablePromise<model$0.Draft[] | null> {
     return $Call.ByID(1690963978);
+}
+
+/**
+ * ListRules devuelve las reglas de la cuenta, en el orden en que se aplican.
+ */
+export function ListRules(accountID: number): $CancellablePromise<model$0.Rule[] | null> {
+    return $Call.ByID(2009052710, accountID);
 }
 
 export function ListSignatures(): $CancellablePromise<model$0.Signature[] | null> {
@@ -342,6 +353,17 @@ export function ReorderLabels(ids: number[] | null): $CancellablePromise<void> {
     return $Call.ByID(4154652925, ids);
 }
 
+export function ReorderRules(accountID: number, ids: number[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2477328953, accountID, ids);
+}
+
+/**
+ * RunRules aplica ya las reglas de la cuenta a todos los correos de la carpeta.
+ */
+export function RunRules(folderID: number): $CancellablePromise<model$0.RuleRun> {
+    return $Call.ByID(1307370551, folderID);
+}
+
 /**
  * SaveAttachment abre el diálogo nativo "Guardar como" con el nombre del
  * adjunto sugerido. Devuelve saved=false (sin error) si se cancela.
@@ -360,6 +382,13 @@ export function SaveContact(c: model$0.Contact): $CancellablePromise<model$0.Con
  */
 export function SaveDraft(id: number, req: model$0.SendRequest): $CancellablePromise<model$0.Draft> {
     return $Call.ByID(1483319153, id, req);
+}
+
+/**
+ * SaveRule crea (ID 0) o actualiza una regla.
+ */
+export function SaveRule(r: model$0.Rule): $CancellablePromise<model$0.Rule> {
+    return $Call.ByID(2179334772, r);
 }
 
 export function SaveSignature(sig: model$0.Signature): $CancellablePromise<model$0.Signature> {
