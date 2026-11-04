@@ -7,7 +7,7 @@ import {
   TagIcon,
   UsersIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -57,10 +57,20 @@ export function SettingsDialog({ open, onOpenChange, focusSection, ruleDraft }: 
     if (ruleDraft) setSection("rules");
   }
 
+  const navRef = useRef<HTMLElement>(null);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="flex h-[min(44rem,85vh)] gap-0 overflow-hidden p-0 sm:max-w-4xl"
+        // Al abrir, el foco va a la sección activa y no a la primera de la lista.
+        onOpenAutoFocus={(e) => {
+          const current = navRef.current?.querySelector<HTMLElement>("[aria-current=page]");
+          if (current) {
+            e.preventDefault();
+            current.focus();
+          }
+        }}
         // En un campo que usa Escape para cancelar (las etiquetas), Escape no cierra.
         onEscapeKeyDown={(e) => {
           if ((e.target as Element | null)?.closest?.("[data-escape-local]"))
@@ -68,6 +78,7 @@ export function SettingsDialog({ open, onOpenChange, focusSection, ruleDraft }: 
         }}
       >
         <nav
+          ref={navRef}
           aria-label="Secciones de Configuración"
           className="flex w-48 shrink-0 flex-col gap-0.5 border-r bg-muted/40 p-3"
         >
