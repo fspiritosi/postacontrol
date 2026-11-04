@@ -44,6 +44,16 @@ tasks:
 
   install:desktop:
     desc: Instala la app en ~/.local (binario, íconos y lanzador) para usarla a diario
+    # Con el .deb/.rpm instalado, la copia de ~/.local/bin le gana en el PATH:
+    # el menú abre esa y no la del paquete, y si es más vieja que la base de
+    # datos no arranca. `task --force install:desktop` la instala igual.
+    preconditions:
+      - sh: '! test -e /usr/bin/postacontrol'
+        msg: |-
+          PostaControl ya está instalado como paquete (/usr/bin/postacontrol).
+          Una copia en ~/.local/bin taparía la del paquete y el menú abriría esa.
+          Para actualizar, instalá el .deb o el .rpm nuevo (task package).
+          Si igual la querés, corré: task --force install:desktop
     cmds:
       - task: build
       - mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
