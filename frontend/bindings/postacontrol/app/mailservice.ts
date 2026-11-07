@@ -158,6 +158,14 @@ export function DetectSettings(email: string): $CancellablePromise<autoconfig$0.
     return $Call.ByID(1057426541, email);
 }
 
+/**
+ * EmptyTrash borra definitivamente todos los correos de la Papelera y
+ * devuelve cuántos borró.
+ */
+export function EmptyTrash(folderID: number): $CancellablePromise<number> {
+    return $Call.ByID(628908462, folderID);
+}
+
 export function GetContact(id: number): $CancellablePromise<model$0.Contact> {
     return $Call.ByID(333453687, id);
 }

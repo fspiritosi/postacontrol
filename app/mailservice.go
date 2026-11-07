@@ -629,6 +629,12 @@ func (s *MailService) DeleteMessages(ctx context.Context, ids []int64) error {
 	return s.core.DeleteMessages(ctx, ids)
 }
 
+// EmptyTrash borra definitivamente todos los correos de la Papelera y
+// devuelve cuántos borró.
+func (s *MailService) EmptyTrash(ctx context.Context, folderID int64) (int, error) {
+	return s.core.EmptyTrash(ctx, folderID)
+}
+
 func (s *MailService) ListUnified(ctx context.Context, view model.UnifiedView, q model.ListQuery) ([]model.MessageSummary, error) {
 	return s.core.ListUnified(ctx, view, q)
 }

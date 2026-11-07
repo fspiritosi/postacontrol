@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
@@ -26,6 +27,7 @@ import {
 import { saveSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { UNIFIED_LABEL } from "@/lib/view";
+import { EmptyTrashDialog } from "../folders/FolderDialogs";
 import { LabelFilter } from "../labels/LabelFilter";
 import type { ShellState } from "../layout/MailShell";
 import { SearchBox } from "../search/SearchBox";
@@ -46,6 +48,7 @@ export function MessageList({
   state: ShellState;
 }) {
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
   const { view, search } = state;
   const folderId = view?.kind === "folder" ? view.folderId : null;
   const { folders } = useAllFolders(accounts);
@@ -213,6 +216,17 @@ export function MessageList({
             </Label>
           </div>
         )}
+        {folder?.role === "trash" && folder.selectable && search == null && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            disabled={folder.total === 0}
+            onClick={() => setEmptyingTrash(true)}
+          >
+            <Trash2Icon /> Vaciar Papelera
+          </Button>
+        )}
         <LabelFilter value={labelFilter} onChange={setLabelFilter} />
         <div
           className="flex rounded-md bg-muted p-0.5 text-xs"
@@ -243,6 +257,14 @@ export function MessageList({
           ))}
         </div>
       </header>
+      {emptyingTrash && folder && (
+        <EmptyTrashDialog
+          folder={folder}
+          onClose={() => setEmptyingTrash(false)}
+          // Lo abierto o marcado en la Papelera ya no existe.
+          onEmptied={() => view && state.selectView(view)}
+        />
+      )}
       <div className="border-b px-3 py-2">
         <SearchBox
           active={search?.text ?? null}

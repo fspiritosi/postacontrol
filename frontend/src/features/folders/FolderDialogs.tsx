@@ -278,3 +278,67 @@ export function DeleteDialog({ node, onClose }: { node: FolderNode; onClose: () 
     </Dialog>
   );
 }
+
+// Confirma y vacía la Papelera: los correos se borran del servidor para siempre.
+export function EmptyTrashDialog({
+  folder,
+  onClose,
+  onEmptied,
+}: {
+  folder: { id: number; total: number };
+  onClose: () => void;
+  onEmptied?: () => void;
+}) {
+  const refresh = useRefreshMail();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const deleted = await svc.EmptyTrash(folder.id);
+      toast.success(
+        deleted > 0
+          ? `Papelera vaciada; ${plural(deleted, "correo borrado", "correos borrados")}`
+          : "La Papelera ya estaba vacía",
+      );
+      onEmptied?.();
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      refresh();
+      setBusy(false);
+    }
+  };
+
+  // El total es el de la caché: el servidor puede tener alguno más.
+  const what =
+    folder.total > 0
+      ? `${folder.total === 1 ? "El correo" : `Los ${folder.total} correos`} de la Papelera se borran`
+      : "Los correos de la Papelera se borran";
+  return (
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Vaciar la Papelera?</DialogTitle>
+          <DialogDescription>{`${what} del servidor para siempre. No se puede deshacer.`}</DialogDescription>
+        </DialogHeader>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={run} disabled={busy}>
+            {busy ? "Vaciando…" : "Vaciar Papelera"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
