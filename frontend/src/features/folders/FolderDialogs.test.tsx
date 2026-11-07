@@ -9,6 +9,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   MoveFolder: vi.fn(() => Promise.resolve({})),
   DeleteFolderPreview: vi.fn(() => Promise.resolve({ total: 0, subfolders: [] })),
   DeleteFolder: vi.fn(() => Promise.resolve(0)),
+  EmptyTrash: vi.fn(() => Promise.resolve(0)),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -17,7 +18,7 @@ import type { Folder } from "../../../bindings/postacontrol/core/model/models";
 import { buildFolderTree, type FolderNode } from "@/lib/folders";
 import { viewIsValid } from "@/lib/view";
 import { toast } from "sonner";
-import { DeleteDialog, MoveDialog, NameDialog, deleteDescription } from "./FolderDialogs";
+import { DeleteDialog, EmptyTrashDialog, MoveDialog, NameDialog, deleteDescription } from "./FolderDialogs";
 
 const folder = (id: number, name: string, role = ""): Folder => ({
   id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0,
@@ -245,5 +246,45 @@ describe("DeleteDialog", () => {
     const view = { kind: "folder", folderId: 10 } as const;
     expect(viewIsValid(view, [folder(10, "Clientes")], false)).toBe(true);
     expect(viewIsValid(view, [], false)).toBe(false);
+  });
+});
+
+describe("EmptyTrashDialog", () => {
+  it("avisa cuántos correos se borran para siempre y, al confirmar, vacía e invalida el correo", async () => {
+    vi.mocked(svc.EmptyTrash).mockResolvedValueOnce(3);
+    const onClose = vi.fn();
+    const onEmptied = vi.fn();
+    const { client, invalidated } = spiedClient();
+    wrap(<EmptyTrashDialog folder={{ id: 90, total: 3 }} onClose={onClose} onEmptied={onEmptied} />, client);
+    expect(
+      screen.getByText("Los 3 correos de la Papelera se borran del servidor para siempre. No se puede deshacer."),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Vaciar Papelera" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(svc.EmptyTrash).toHaveBeenCalledWith(90);
+    expect(onEmptied).toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith("Papelera vaciada; 3 correos borrados");
+    expect(invalidated()).toContain(JSON.stringify(["messages"]));
+  });
+
+  it("si falla muestra el error y no se cierra", async () => {
+    vi.mocked(svc.EmptyTrash).mockRejectedValueOnce(new Error("El servidor no permite mover ni borrar correos de forma segura."));
+    const onClose = vi.fn();
+    const onEmptied = vi.fn();
+    wrap(<EmptyTrashDialog folder={{ id: 90, total: 1 }} onClose={onClose} onEmptied={onEmptied} />);
+    await userEvent.click(screen.getByRole("button", { name: "Vaciar Papelera" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "El servidor no permite mover ni borrar correos de forma segura.",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onEmptied).not.toHaveBeenCalled();
+  });
+
+  it("cancelar no borra nada", async () => {
+    const onClose = vi.fn();
+    wrap(<EmptyTrashDialog folder={{ id: 90, total: 1 }} onClose={onClose} />);
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(svc.EmptyTrash).not.toHaveBeenCalled();
   });
 });

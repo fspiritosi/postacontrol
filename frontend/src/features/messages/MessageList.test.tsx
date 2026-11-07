@@ -5,7 +5,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,6 +35,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListLabeled: vi.fn(() => Promise.resolve([])),
   RefreshLabel: vi.fn(() => Promise.resolve()),
   ListPendingDrafts: vi.fn(() => Promise.resolve([])),
+  EmptyTrash: vi.fn(() => Promise.resolve(2)),
 }));
 vi.mock("../compose/ComposerContext", () => ({
   useComposer: () => ({ openComposeDraft: vi.fn() }),
@@ -853,5 +856,48 @@ describe("MessageList filtro por etiqueta", () => {
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: /Clientes/ }));
     expect(setLabelFilter).toHaveBeenCalledWith(11);
+  });
+});
+
+describe("MessageList en la Papelera", () => {
+  const trashFolder = (total: number) => ({
+    id: 90, accountId: 7, name: "Trash", delimiter: "/", role: "trash", unread: 0, total, selectable: true,
+  });
+
+  beforeEach(() => {
+    resetSyncStateForTests();
+    vi.clearAllMocks();
+  });
+
+  it("con dos clics (botón y confirmar) vacía la Papelera y refresca la vista", async () => {
+    vi.mocked(svc.ListFolders).mockImplementation(
+      (accountId: number) => Promise.resolve(accountId === 7 ? [trashFolder(2)] : []) as never,
+    );
+    const selectView = vi.fn();
+    renderList({ kind: "folder", folderId: 90 }, vi.fn(), { selectView });
+    await userEvent.click(await screen.findByRole("button", { name: "Vaciar Papelera" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Vaciar Papelera" }));
+    await waitFor(() => expect(svc.EmptyTrash).toHaveBeenCalledWith(90));
+    await waitFor(() => expect(selectView).toHaveBeenCalledWith({ kind: "folder", folderId: 90 }));
+  });
+
+  it("vacía, el botón queda deshabilitado", async () => {
+    vi.mocked(svc.ListFolders).mockImplementation(
+      (accountId: number) => Promise.resolve(accountId === 7 ? [trashFolder(0)] : []) as never,
+    );
+    renderList({ kind: "folder", folderId: 90 });
+    const btn = await screen.findByRole("button", { name: "Vaciar Papelera" });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("en otra carpeta no aparece", async () => {
+    vi.mocked(svc.ListFolders).mockImplementation(
+      (accountId: number) =>
+        Promise.resolve(accountId === 7 ? [{ ...trashFolder(2), id: 3, name: "INBOX", role: "inbox" }] : []) as never,
+    );
+    renderList({ kind: "folder", folderId: 3 });
+    expect(await screen.findByRole("heading", { name: "Entrada" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Vaciar Papelera" })).toBeNull();
   });
 });

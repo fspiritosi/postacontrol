@@ -175,6 +175,65 @@ func (c *Core) DeleteMessages(ctx context.Context, ids []int64) error {
 	return c.runMoves(ctx, accountID, batches)
 }
 
+const msgNotTrash = "Solo se puede vaciar la Papelera."
+
+// EmptyTrash borra definitivamente todos los correos de la Papelera según el
+// servidor (UID SEARCH ALL, también los que la caché todavía no tiene) y deja
+// la caché de la carpeta vacía. Devuelve cuántos borró.
+func (c *Core) EmptyTrash(ctx context.Context, folderID int64) (int, error) {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	if err := c.ctxErr(ctx); err != nil {
+		return 0, err
+	}
+	f, last, err := c.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return 0, c.ctxOrUserError(ctx, err)
+	}
+	if f.Role != "trash" || !f.Selectable {
+		return 0, &UserError{Code: "invalid", Msg: msgNotTrash}
+	}
+	// Sin sincronizar la carpeta mientras tanto: si no, podría volver a
+	// meter en la caché lo que se está borrando.
+	mu := c.folderSyncLock(folderID)
+	mu.Lock()
+	defer mu.Unlock()
+	// EXPUNGE no es idempotente: NOOP con reintento y después la escritura
+	// sin reintento, como en applyMove.
+	if err := c.probe(ctx, f.AccountID); err != nil {
+		return 0, err
+	}
+	var deleted int
+	err = c.withConnNoRetry(ctx, f.AccountID, func(_ context.Context, conn *imapx.Conn) error {
+		if err := selectChecked(conn, f, last, true); err != nil {
+			return err
+		}
+		uids, err := conn.AllUIDs()
+		if err != nil {
+			return err
+		}
+		if err := conn.ExpungeUIDs(uids); err != nil {
+			return err
+		}
+		deleted = len(uids)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	// Lo que llegó después del SEARCH no está en la caché (la sincronización
+	// estaba frenada): la de abajo lo trae.
+	if err := c.store.DeleteUIDsNotIn(ctx, folderID, nil); err != nil {
+		return deleted, c.ctxOrUserError(ctx, err)
+	}
+	if err := c.store.RecountFolder(ctx, folderID); err != nil {
+		return deleted, c.ctxOrUserError(ctx, err)
+	}
+	c.emit(EventFolderUpdated, map[string]any{"folderId": folderID})
+	c.spawn(func(ctx context.Context) { _ = c.SyncFolder(ctx, folderID) })
+	return deleted, nil
+}
+
 // refsByFolder busca los mensajes en la caché y los agrupa por carpeta.
 func (c *Core) refsByFolder(ctx context.Context, ids []int64) (int64, map[int64][]store.MessageRef, error) {
 	if err := c.ctxErr(ctx); err != nil {

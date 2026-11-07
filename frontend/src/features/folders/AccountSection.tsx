@@ -69,7 +69,7 @@ import { useFolders } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
 import { dropMessages } from "../messages/dropMessages";
-import { DeleteDialog, MoveDialog, NameDialog, type NameMode } from "./FolderDialogs";
+import { DeleteDialog, EmptyTrashDialog, MoveDialog, NameDialog, type NameMode } from "./FolderDialogs";
 import { useCollapsedFolders } from "./useCollapsedFolders";
 
 export const ROLE_ICON: Record<string, ReactNode> = {
@@ -90,6 +90,7 @@ type FolderActions = {
   onRename: (node: FolderNode) => void;
   onMove: (node: FolderNode) => void;
   onDelete: (node: FolderNode) => void;
+  onEmptyTrash: (node: FolderNode) => void;
   onShift: (node: FolderNode, dir: -1 | 1) => void;
   // Carpeta que se está arrastrando: en `dragover` el navegador no deja leer
   // los datos, así que se guarda acá desde `dragstart`.
@@ -357,6 +358,11 @@ function FolderRow({
                 Bajar
               </ContextMenuItem>
               <ContextMenuSeparator />
+              {node.role === "trash" && node.selectable && (
+                <ContextMenuItem variant="destructive" onSelect={() => actions.onEmptyTrash(node)}>
+                  Vaciar Papelera…
+                </ContextMenuItem>
+              )}
               <ContextMenuItem
                 variant="destructive"
                 disabled={!modifiable}
@@ -401,6 +407,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
   const [nameMode, setNameMode] = useState<NameMode | null>(null);
   const [moving, setMoving] = useState<FolderNode | null>(null);
   const [deleting, setDeleting] = useState<FolderNode | null>(null);
+  const [emptying, setEmptying] = useState<FolderNode | null>(null);
   const { collapsed, setCollapsed } = useCollapsedFolders(account.id);
 
   const list = folders.data ?? [];
@@ -488,6 +495,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     onRename: (node) => setNameMode({ kind: "rename", node }),
     onMove: setMoving,
     onDelete: setDeleting,
+    onEmptyTrash: setEmptying,
     onShift: (node, dir) => void shift(node, dir),
     isCollapsed: (node) => collapsed.has(node.name),
     setCollapsed: (node, value) => setCollapsed(node.name, value),
@@ -583,6 +591,17 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
       {nameMode && <NameDialog mode={nameMode} onClose={() => setNameMode(null)} />}
       {moving && <MoveDialog node={moving} tree={tree} onClose={() => setMoving(null)} />}
       {deleting && <DeleteDialog node={deleting} onClose={() => setDeleting(null)} />}
+      {emptying && (
+        <EmptyTrashDialog
+          folder={emptying}
+          onClose={() => setEmptying(null)}
+          onEmptied={() => {
+            // Lo abierto o marcado en la Papelera ya no existe.
+            const v = state.view;
+            if (v?.kind === "folder" && v.folderId === emptying.id) state.selectView(v);
+          }}
+        />
+      )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

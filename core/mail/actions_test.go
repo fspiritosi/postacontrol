@@ -296,6 +296,70 @@ func TestDeleteMessages_InTrashIsPermanent(t *testing.T) {
 	assert.Contains(t, n.matching(EventFolderUpdated), map[string]any{"folderId": trashID})
 }
 
+func TestEmptyTrash_DeletesEverythingOnServer(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	deliverN(t, imap, 1, "m")
+	require.NoError(t, imap.User.Create("Trash", nil))
+	imap.Deliver(t, "Trash", rawMail("Bea <bea@ej.com>", "t-1"))
+	imap.Deliver(t, "Trash", rawMail("Bea <bea@ej.com>", "t-2"))
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	trashID := folderID(t, c, acc.ID, "Trash")
+	require.NoError(t, c.SyncFolder(context.Background(), trashID))
+	require.Len(t, listAll(t, c, trashID), 2)
+	// Uno que la caché todavía no tiene: también se borra.
+	imap.Deliver(t, "Trash", rawMail("Bea <bea@ej.com>", "t-3"))
+
+	got, err := c.EmptyTrash(context.Background(), trashID)
+	require.NoError(t, err)
+	assert.Equal(t, 3, got)
+	assert.Empty(t, serverSubjects(t, c, imap, testUser, "Trash"))
+	assert.Empty(t, listAll(t, c, trashID))
+	assert.Equal(t, 0, folderByID(t, c, acc.ID, trashID).Total)
+	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "INBOX"))
+	assert.Equal(t, []string{"m-1"}, subjects(listAll(t, c, inboxID)))
+	assert.Contains(t, n.matching(EventFolderUpdated), map[string]any{"folderId": trashID})
+}
+
+func TestEmptyTrash_EmptyIsNoop(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	require.NoError(t, imap.User.Create("Trash", nil))
+	acc, _ := setupSynced(t, imap, smtp, c)
+	got, err := c.EmptyTrash(context.Background(), folderID(t, c, acc.ID, "Trash"))
+	require.NoError(t, err)
+	assert.Equal(t, 0, got)
+}
+
+func TestEmptyTrash_UnsupportedServer(t *testing.T) {
+	tlsEnv := testenv.NewTLS(t)
+	imap := testenv.StartIMAPRev1(t, tlsEnv, testUser, testPass)
+	smtp := testenv.StartSMTP(t, tlsEnv, testUser, testPass)
+	c, err := New(Config{DBPath: t.TempDir() + "/t.db", Secrets: secrets.NewMemory(), Notifier: &recNotifier{},
+		TLS: tlsEnv.Client, SkipInitialSync: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	require.NoError(t, imap.User.Create("Trash", nil))
+	imap.Deliver(t, "Trash", rawMail("Bea <bea@ej.com>", "t-1"))
+	acc, _ := setupSynced(t, imap, smtp, c)
+	trashID := folderID(t, c, acc.ID, "Trash")
+	require.NoError(t, c.SyncFolder(context.Background(), trashID))
+
+	_, err = c.EmptyTrash(context.Background(), trashID)
+	requireUserError(t, err, "unsupported")
+	assert.Equal(t, []string{"t-1"}, serverSubjects(t, c, imap, testUser, "Trash"))
+	assert.Len(t, listAll(t, c, trashID), 1)
+}
+
+func TestEmptyTrash_OtherFolderRefused(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	deliverN(t, imap, 1, "m")
+	_, inboxID := setupSynced(t, imap, smtp, c)
+
+	_, err := c.EmptyTrash(context.Background(), inboxID)
+	ue := requireUserError(t, err, "invalid")
+	assert.Equal(t, "Solo se puede vaciar la Papelera.", ue.Msg)
+	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "INBOX"))
+}
+
 func TestDeleteMessages_MixedTrashAndInbox(t *testing.T) {
 	c, imap, smtp, _ := newTestCore(t)
 	deliverN(t, imap, 2, "m")
