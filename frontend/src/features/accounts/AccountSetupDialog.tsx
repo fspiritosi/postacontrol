@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -219,10 +220,9 @@ export function AccountSetupDialog({ open, onOpenChange }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="acc-pass">Contraseña</Label>
-              <Input
+              <PasswordInput
                 id="acc-pass"
                 spellCheck={false}
-                type="password"
                 autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

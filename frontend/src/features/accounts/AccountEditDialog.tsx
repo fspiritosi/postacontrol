@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -166,9 +167,8 @@ function EditForm({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="edit-pass">Contraseña</Label>
-            <Input
+            <PasswordInput
               id="edit-pass"
-              type="password"
               spellCheck={false}
               autoComplete="new-password"
               value={password}

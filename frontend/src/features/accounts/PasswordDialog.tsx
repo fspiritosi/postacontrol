@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 
 type Props = { account: Account | null; open: boolean; onOpenChange: (open: boolean) => void };
@@ -62,9 +62,8 @@ export function PasswordDialog({ account, open, onOpenChange }: Props) {
         <form onSubmit={save} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="pwd-new">Contraseña</Label>
-            <Input
+            <PasswordInput
               id="pwd-new"
-              type="password"
               autoComplete="off"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
