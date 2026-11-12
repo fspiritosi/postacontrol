@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
 } from "react";
 import { Label } from "@/components/ui/label";
@@ -19,6 +20,20 @@ import {
 import { cn } from "@/lib/utils";
 import type { Address, Suggestion } from "../../../bindings/postacontrol/core/model/models";
 
+// Tipo propio del arrastre de un chip: un campo de texto (Asunto, el cuerpo) no
+// lo acepta, así que la dirección no se pega ahí como texto.
+export const RECIPIENT_DRAG_TYPE = "application/x-postacontrol-recipient";
+
+// Arrastrar chips entre Para, CC y CCO. El redactor sabe qué chip está en vuelo
+// y mueve la dirección de un campo al otro.
+export type RecipientDrag = {
+  // Hay un chip de otro campo en vuelo: este campo lo recibe.
+  accepting: boolean;
+  start: (index: number, token: string) => void;
+  end: () => void;
+  drop: () => void;
+};
+
 type Props = {
   id: string;
   label: string;
@@ -27,6 +42,7 @@ type Props = {
   // Avisa cuándo abre la lista de sugerencias (con una función para cerrarla) y
   // cuándo cierra, como onSlashMenuChange: dentro del diálogo, el Esc lo ve Radix primero.
   onSuggestionsChange?: (close: (() => void) | null) => void;
+  drag?: RecipientDrag;
 };
 
 const NO_SUGGESTIONS: Suggestion[] = [];
@@ -39,8 +55,13 @@ function singleEmail(text: string): string | null {
 
 // Destinatarios como chips. El valor sigue siendo el texto completo (se parsea
 // al enviar): los chips son sus tokens y lo que se está escribiendo va al final.
-export function RecipientInput({ id, label, value, onChange, onSuggestionsChange }: Props) {
+export function RecipientInput({ id, label, value, onChange, onSuggestionsChange, drag }: Props) {
   const [pending, setPending] = useState("");
+  // El chip en vuelo está sobre este campo. Al terminar el arrastre se
+  // olvida, aunque no haya llegado el dragleave.
+  const [over, setOver] = useState(false);
+  const accepting = drag?.accepting ?? false;
+  if (over && !accepting) setOver(false);
   // Texto para el que se cerró la lista con Esc: al seguir escribiendo vuelve a abrir.
   const [dismissed, setDismissed] = useState<string | null>(null);
   // La opción elegida con las flechas (o el mouse) va con la lista y el texto a
@@ -139,6 +160,27 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
     changeText(pending.slice(0, start) + text + pending.slice(end));
   };
 
+  // Solo cuenta un chip de otro campo: ni archivos, ni texto, ni uno de acá mismo.
+  const acceptsDrag = (e: DragEvent) => accepting && e.dataTransfer.types.includes(RECIPIENT_DRAG_TYPE);
+
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!acceptsDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setOver(true);
+  };
+
+  const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+  };
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (!acceptsDrag(e)) return;
+    e.preventDefault();
+    setOver(false);
+    drag?.drop();
+  };
+
   const listId = `${id}-suggestions`;
   const optionId = (i: number) => `${id}-suggestion-${i}`;
 
@@ -149,7 +191,15 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
       </Label>
       <div className="relative min-w-0 flex-1">
         <div
-          className="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-1.5 py-1 shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30"
+          className={cn(
+            "flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-1.5 py-1 shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30",
+            accepting && "border-dashed border-primary/60",
+            over && "border-solid border-primary bg-primary/5 ring-3 ring-ring/50",
+          )}
+          onDragEnter={onDragOver}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
           // Un click en el espacio libre entre chips lleva al campo.
           onMouseDown={(e) => {
             if (e.target !== e.currentTarget) return;
@@ -162,9 +212,18 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
               key={`${i}:${token}`}
               title={token}
               aria-invalid={!addr || undefined}
+              draggable={drag !== undefined}
+              onDragStart={(e) => {
+                if (!drag) return;
+                e.dataTransfer.setData(RECIPIENT_DRAG_TYPE, token);
+                e.dataTransfer.effectAllowed = "move";
+                drag.start(i, token);
+              }}
+              onDragEnd={() => drag?.end()}
               className={cn(
                 "inline-flex max-w-full items-center gap-0.5 rounded-sm bg-secondary py-0.5 pr-0.5 pl-2 text-sm text-secondary-foreground",
                 !addr && "bg-destructive/10 text-destructive",
+                drag && "cursor-grab active:cursor-grabbing",
               )}
             >
               <span className="truncate">{addr ? addr.name || addr.email : token}</span>
