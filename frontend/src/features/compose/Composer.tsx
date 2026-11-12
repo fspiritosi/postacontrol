@@ -26,12 +26,12 @@ import { errorMessage, isNotFoundError } from "@/lib/errors";
 import { onFilesStaged, type FilesStaged } from "@/lib/events";
 import { formatSize } from "@/lib/format";
 import { useAccounts, useSignatures } from "@/lib/queries";
-import { formatRecipients, parseRecipients } from "@/lib/recipients";
+import { formatRecipients, moveRecipient, parseRecipients } from "@/lib/recipients";
 import { SafeHtmlFrame } from "../reader/SafeHtmlFrame";
 import type { SendRequest, StagedAttachment } from "../../../bindings/postacontrol/core/model/models";
 import { AttachmentList } from "./AttachmentList";
 import type { ComposerInit } from "./ComposerContext";
-import { RecipientInput } from "./RecipientInput";
+import { RecipientInput, type RecipientDrag } from "./RecipientInput";
 import { RichEditor } from "./RichEditor";
 import { SignaturePicker } from "./SignaturePicker";
 import { sendStarted } from "./sendNotices";
@@ -74,6 +74,8 @@ function isBlankHtml(html: string): boolean {
 // (cerrar, guardar antes de salir) y sigue el asunto en el título.
 type Props = { init: ComposerInit; onClose: () => void; windowId?: number };
 
+type RecipientField = "to" | "cc" | "bcc";
+
 export function Composer({ init, onClose, windowId }: Props) {
   const accounts = useAccounts();
   const [accountId, setAccountId] = useState(init.accountId);
@@ -81,6 +83,8 @@ export function Composer({ init, onClose, windowId }: Props) {
   const [cc, setCc] = useState(formatRecipients(init.cc));
   const [bcc, setBcc] = useState(formatRecipients(init.bcc));
   const [showCc, setShowCc] = useState(init.cc.length > 0 || init.bcc.length > 0);
+  // El chip que se está arrastrando, para pasarlo a otro campo.
+  const [dragged, setDragged] = useState<{ field: RecipientField; index: number; token: string } | null>(null);
   const [subject, setSubject] = useState(init.subject);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -190,6 +194,34 @@ export function Composer({ init, onClose, windowId }: Props) {
     touch();
     set(v);
   };
+
+  const recipients: Record<RecipientField, [string, (v: string) => void]> = {
+    to: [to, setTo],
+    cc: [cc, setCc],
+    bcc: [bcc, setBcc],
+  };
+
+  // Un chip se puede soltar en cualquiera de los otros dos campos. Al empezar
+  // a arrastrar se muestran CC y CCO, para que haya dónde soltarlo.
+  const dragFor = (field: RecipientField): RecipientDrag => ({
+    accepting: dragged !== null && dragged.field !== field,
+    start: (index, token) => {
+      setDragged({ field, index, token });
+      setShowCc(true);
+    },
+    end: () => setDragged(null),
+    drop: () => {
+      setDragged(null);
+      if (!dragged || dragged.field === field) return;
+      const [fromValue, setFrom] = recipients[dragged.field];
+      const [targetValue, setTarget] = recipients[field];
+      const moved = moveRecipient(fromValue, dragged.index, dragged.token, targetValue);
+      if (!moved) return;
+      touch();
+      setFrom(moved.from);
+      setTarget(moved.to);
+    },
+  });
 
   // El envío en curso: la salida de la app lo espera antes de responder.
   const sendRef = useRef<Promise<number> | null>(null);
@@ -431,6 +463,7 @@ export function Composer({ init, onClose, windowId }: Props) {
                   value={to}
                   onChange={edit(setTo)}
                   onSuggestionsChange={onSuggestionsChange}
+                  drag={dragFor("to")}
                 />
               </div>
               {!showCc && (
@@ -447,6 +480,7 @@ export function Composer({ init, onClose, windowId }: Props) {
                   value={cc}
                   onChange={edit(setCc)}
                   onSuggestionsChange={onSuggestionsChange}
+                  drag={dragFor("cc")}
                 />
                 <RecipientInput
                   id="compose-bcc"
@@ -454,6 +488,7 @@ export function Composer({ init, onClose, windowId }: Props) {
                   value={bcc}
                   onChange={edit(setBcc)}
                   onSuggestionsChange={onSuggestionsChange}
+                  drag={dragFor("bcc")}
                 />
               </>
             )}

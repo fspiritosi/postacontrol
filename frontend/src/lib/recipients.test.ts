@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   balanceRecipientToken,
   formatRecipients,
+  moveRecipient,
   parseRecipients,
   splitRecipientTokens,
   takeRecipientTokens,
@@ -93,5 +94,40 @@ describe("comillas escapadas", () => {
     const list = [{ name: 'Ana "la', email: "a@x.com" }, { name: "", email: "b@x.com" }];
     expect(splitRecipientTokens(formatRecipients(list))).toHaveLength(2);
     expect(parseRecipients(formatRecipients(list)).valid).toEqual(list);
+  });
+});
+
+describe("moveRecipient", () => {
+  it("saca el destinatario de un campo y lo suma al final del otro", () => {
+    expect(moveRecipient("Ana <a@x.com>, b@x.com", 0, "Ana <a@x.com>", "c@x.com")).toEqual({
+      from: "b@x.com",
+      to: "c@x.com, Ana <a@x.com>",
+    });
+  });
+
+  it("respeta los nombres con coma y llega a un campo vacío", () => {
+    expect(moveRecipient('a@x.com, "Peña, F" <f@x.com>', 1, '"Peña, F" <f@x.com>', "")).toEqual({
+      from: "a@x.com",
+      to: '"Peña, F" <f@x.com>',
+    });
+  });
+
+  it("si el destino ya tiene esa dirección no la repite", () => {
+    expect(moveRecipient("a@x.com, b@x.com", 1, "b@x.com", "Beto <B@X.com>")).toEqual({
+      from: "a@x.com",
+      to: "Beto <B@X.com>",
+    });
+  });
+
+  it("si el campo cambió y el chip ya no está ahí no hace nada", () => {
+    expect(moveRecipient("a@x.com", 1, "b@x.com", "")).toBeNull();
+    expect(moveRecipient("z@x.com, b@x.com", 0, "b@x.com", "")).toBeNull();
+  });
+
+  it("también mueve una dirección inválida, para corregirla en el otro campo", () => {
+    expect(moveRecipient("sin-arroba", 0, "sin-arroba", "a@x.com")).toEqual({
+      from: "",
+      to: "a@x.com, sin-arroba",
+    });
   });
 });

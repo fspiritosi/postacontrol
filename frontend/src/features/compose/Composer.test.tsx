@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -202,6 +202,20 @@ beforeAll(() => {
   );
 });
 
+// jsdom no trae DataTransfer: alcanza con lo que usan los chips al arrastrarse.
+function dragData() {
+  const data = new Map<string, string>();
+  return {
+    effectAllowed: "all",
+    dropEffect: "none",
+    get types() {
+      return [...data.keys()];
+    },
+    setData: (type: string, value: string) => void data.set(type, value),
+    getData: (type: string) => data.get(type) ?? "",
+  };
+}
+
 describe("Composer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -285,6 +299,40 @@ describe("Composer", () => {
     expect(screen.getByText("Revisá estas direcciones: sin-arroba")).toBeInTheDocument();
   });
 
+
+  it("arrastrar un chip de Para a CC lo cambia de campo (y abre CC/CCO)", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(12);
+    const user = setup();
+    await user.click(screen.getByText("responder"));
+    const chip = await screen.findByTitle("Ana <ana@x.com>");
+    expect(screen.queryByLabelText("CC")).not.toBeInTheDocument();
+    const dataTransfer = dragData();
+    fireEvent.dragStart(chip, { dataTransfer });
+    const ccField = (await screen.findByLabelText("CC")).parentElement!;
+    fireEvent.dragOver(ccField, { dataTransfer });
+    fireEvent.drop(ccField, { dataTransfer });
+    fireEvent.dragEnd(chip, { dataTransfer });
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    const req = vi.mocked(svc.QueueSend).mock.calls[0][0];
+    expect(req.to).toEqual([]);
+    expect(req.cc).toEqual([{ name: "Ana", email: "ana@x.com" }]);
+  });
+
+  it("soltar el chip en su mismo campo no cambia nada", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(12);
+    const user = setup();
+    await user.click(screen.getByText("responder"));
+    const chip = await screen.findByTitle("Ana <ana@x.com>");
+    const dataTransfer = dragData();
+    fireEvent.dragStart(chip, { dataTransfer });
+    const toField = screen.getByLabelText("Para").parentElement!;
+    fireEvent.drop(toField, { dataTransfer });
+    fireEvent.dragEnd(chip, { dataTransfer });
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].to).toEqual([{ name: "Ana", email: "ana@x.com" }]);
+  });
 
   it("Esc con el menú / abierto lo cierra y no cierra el redactor", async () => {
     const user = setup();

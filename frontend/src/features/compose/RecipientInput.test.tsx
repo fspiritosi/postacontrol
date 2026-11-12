@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
 
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { parseRecipients } from "@/lib/recipients";
-import { RecipientInput } from "./RecipientInput";
+import { RECIPIENT_DRAG_TYPE, RecipientInput, type RecipientDrag } from "./RecipientInput";
 
 // Radix y ProseMirror piden APIs que jsdom no trae (las mismas que en SignaturesSection.test).
 beforeAll(() => {
@@ -380,5 +380,46 @@ describe("RecipientInput", () => {
     const [query, exclude] = calls[calls.length - 1];
     expect(query).toBe("jua");
     expect(exclude).toContain("juan@x.com");
+  });
+});
+
+describe("RecipientInput: arrastrar chips", () => {
+  const renderWith = (drag?: RecipientDrag) =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RecipientInput id="cc" label="CC" value="Ana <a@x.com>" onChange={() => {}} drag={drag} />
+      </QueryClientProvider>,
+    );
+  const dataTransfer = (types: string[]) => ({ types, setData: vi.fn(), effectAllowed: "all", dropEffect: "none" });
+  const makeDrag = (accepting: boolean): RecipientDrag => ({ accepting, start: vi.fn(), end: vi.fn(), drop: vi.fn() });
+
+  it("sin drag los chips no se arrastran", () => {
+    renderWith();
+    expect(screen.getByTitle("Ana <a@x.com>")).toHaveAttribute("draggable", "false");
+  });
+
+  it("al arrastrar un chip avisa cuál es y lo marca con su tipo", () => {
+    const drag = makeDrag(false);
+    renderWith(drag);
+    const dt = dataTransfer([]);
+    fireEvent.dragStart(screen.getByTitle("Ana <a@x.com>"), { dataTransfer: dt });
+    expect(dt.setData).toHaveBeenCalledWith(RECIPIENT_DRAG_TYPE, "Ana <a@x.com>");
+    expect(drag.start).toHaveBeenCalledWith(0, "Ana <a@x.com>");
+  });
+
+  it("solo recibe un chip de otro campo: ni archivos ni nada si no está esperando uno", () => {
+    const accepting = makeDrag(true);
+    const { unmount } = renderWith(accepting);
+    const field = () => screen.getByLabelText("CC").parentElement!;
+    fireEvent.drop(field(), { dataTransfer: dataTransfer(["Files"]) });
+    expect(accepting.drop).not.toHaveBeenCalled();
+    fireEvent.drop(field(), { dataTransfer: dataTransfer([RECIPIENT_DRAG_TYPE]) });
+    expect(accepting.drop).toHaveBeenCalledTimes(1);
+    unmount();
+
+    const idle = makeDrag(false);
+    renderWith(idle);
+    fireEvent.drop(field(), { dataTransfer: dataTransfer([RECIPIENT_DRAG_TYPE]) });
+    expect(idle.drop).not.toHaveBeenCalled();
   });
 });

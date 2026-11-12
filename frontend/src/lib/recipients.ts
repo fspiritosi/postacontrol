@@ -107,3 +107,26 @@ export function formatRecipients(list: Address[] | null | undefined): string {
     })
     .join(", ");
 }
+
+const emailOf = (token: string) => parseRecipients(token).valid[0]?.email.toLowerCase();
+
+// Pasa un destinatario de un campo a otro (al arrastrar su chip): sale de la
+// posición index de from y va al final de to. token es el chip tal como se
+// arrastró: si from cambió y ahí ya no está, no hace nada (null). Si to ya
+// tiene esa dirección, no la repite.
+export function moveRecipient(
+  from: string,
+  index: number,
+  token: string,
+  to: string,
+): { from: string; to: string } | null {
+  const source = splitRecipientTokens(from).map(balanceRecipientToken);
+  if (source[index] !== token) return null;
+  const target = splitRecipientTokens(to).map(balanceRecipientToken);
+  const email = emailOf(token);
+  const repeated = email !== undefined && target.some((t) => emailOf(t) === email);
+  return {
+    from: source.filter((_, i) => i !== index).join(", "),
+    to: (repeated ? target : [...target, token]).join(", "),
+  };
+}
