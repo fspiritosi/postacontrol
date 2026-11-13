@@ -68,7 +68,7 @@ export function requestPassword(accountId: number): void {
 
 // Pedido de abrir Configuración, opcionalmente en una sección. Lo escucha la
 // barra lateral, que es quien tiene el diálogo.
-export type SettingsSection = "general" | "reading" | "compose" | "accounts" | "labels" | "rules";
+export type SettingsSection = "general" | "reading" | "compose" | "accounts" | "labels" | "rules" | "backup";
 const settingsListeners = new Set<(section?: SettingsSection) => void>();
 
 export function onSettingsRequest(cb: (section?: SettingsSection) => void): () => void {
