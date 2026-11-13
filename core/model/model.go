@@ -405,3 +405,21 @@ type AutoBackupInfo struct {
 	Dir      string `json:"dir"`
 	LastDate string `json:"lastDate"`
 }
+
+// Unsubscribe es cómo desuscribirse de un correo, según sus encabezados
+// List-Unsubscribe. OneClick: el remitente acepta la baja con un POST a URL
+// (RFC 8058). URL es la página (https o http) y Mailto la dirección de baja.
+type Unsubscribe struct {
+	Available bool   `json:"available"`
+	OneClick  bool   `json:"oneClick"`
+	URL       string `json:"url"`
+	Mailto    string `json:"mailto"`
+}
+
+// UnsubscribeResult es cómo terminó la baja. Method: "post" (confirmada con un
+// clic), "mail" (se mandó el correo de baja) o "web" (hay que terminarla en
+// la página URL, que abre el usuario).
+type UnsubscribeResult struct {
+	Method string `json:"method"`
+	URL    string `json:"url"`
+}

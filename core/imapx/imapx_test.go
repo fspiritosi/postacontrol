@@ -1041,3 +1041,24 @@ func TestMoveUIDs_ReportsDestinationUIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchHeaderFields_OnlyThoseAndUnread(t *testing.T) {
+	s, tlsc := setup(t)
+	s.Deliver(t, "INBOX", []byte("From: a@b.c\r\nSubject: news\r\nList-Unsubscribe: <https://x.com/u>\r\n"+
+		"List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nhola\r\n"))
+	c := dial(t, s, tlsc)
+	_, err := c.Select("INBOX")
+	require.NoError(t, err)
+	uids, err := c.AllUIDs()
+	require.NoError(t, err)
+
+	raw, err := c.FetchHeaderFields(uids[0], "List-Unsubscribe", "List-Unsubscribe-Post")
+	require.NoError(t, err)
+	got := string(raw)
+	assert.Contains(t, got, "List-Unsubscribe: <https://x.com/u>")
+	assert.Contains(t, got, "List-Unsubscribe-Post: List-Unsubscribe=One-Click")
+	assert.NotContains(t, got, "Subject")
+	fl, err := c.FetchFlags(uids)
+	require.NoError(t, err)
+	assert.NotContains(t, fl[uids[0]], imap.FlagSeen)
+}

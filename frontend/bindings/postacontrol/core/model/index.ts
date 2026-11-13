@@ -41,5 +41,7 @@ export type {
     StagedAttachment,
     SubfolderCount,
     Suggestion,
-    ThreadSummary
+    ThreadSummary,
+    Unsubscribe,
+    UnsubscribeResult
 } from "./models.js";

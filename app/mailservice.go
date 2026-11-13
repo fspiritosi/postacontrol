@@ -533,6 +533,16 @@ func (s *MailService) CancelSend(ctx context.Context, draftID int64) error {
 	return s.core.CancelSend(ctx, draftID)
 }
 
+// UnsubscribeInfo dice si el correo trae cómo desuscribirse y de qué forma.
+func (s *MailService) UnsubscribeInfo(ctx context.Context, messageID int64) (model.Unsubscribe, error) {
+	return s.core.UnsubscribeInfo(ctx, messageID)
+}
+
+// Unsubscribe da de baja la dirección del remitente del correo.
+func (s *MailService) Unsubscribe(ctx context.Context, messageID int64) (model.UnsubscribeResult, error) {
+	return s.core.Unsubscribe(ctx, messageID)
+}
+
 // TrustImageSender muestra siempre las imágenes remotas de ese remitente.
 func (s *MailService) TrustImageSender(ctx context.Context, email string) error {
 	return s.core.TrustImageSender(ctx, email)
