@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -133,11 +133,11 @@ describe("ThreadView", () => {
     const { user, selectThread } = setup();
     await screen.findByText("Cuerpo 3");
     const last = items()[2];
-    await waitFor(() =>
-      expect(within(last).getByRole("button", { name: "Mover a…" }).hasAttribute("disabled")).toBe(false),
-    );
-    await user.click(within(last).getByRole("button", { name: "Mover a…" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Trabajo" }));
+    await user.click(within(last).getByRole("button", { name: "Más acciones" }));
+    const move = await screen.findByRole("menuitem", { name: /^Mover a/ });
+    await waitFor(() => expect(move.getAttribute("data-disabled")).toBeNull());
+    fireEvent.keyDown(move, { key: "ArrowRight" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Trabajo" }));
     await waitFor(() => expect(selectThread).toHaveBeenCalledWith(null));
     expect(svc.MoveMessages).toHaveBeenCalledWith([3], 5);
   });

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -61,24 +61,47 @@ function setup(m: MessageDetail, qc = new QueryClient()) {
   return { selectMessage, user };
 }
 
+// Las acciones van en el menú "Más acciones" (salvo Seguir editando).
+const openMenu = async (user: ReturnType<typeof userEvent.setup>) =>
+  user.click(screen.getByRole("button", { name: "Más acciones" }));
+// Los ítems con atajo (Destacar S, Archivar E…) llevan la tecla en su nombre.
+const item = (name: string) => screen.findByRole("menuitem", { name: new RegExp(`^${name}`) });
+// Los submenús se abren con la flecha derecha y se elige con un clic directo:
+// en jsdom, mover el puntero de userEvent cierra el submenú antes del clic.
+const openSub = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  await openMenu(user);
+  await enabled(name);
+  fireEvent.keyDown(await item(name), { key: "ArrowRight" });
+};
+const pick = async (name: string) => fireEvent.click(await screen.findByRole("menuitem", { name }));
+// Hasta saber la carpeta, algunos ítems quedan deshabilitados.
+const enabled = async (name: string) =>
+  waitFor(async () => expect((await item(name)).getAttribute("data-disabled")).toBeNull());
+
 describe("MessageActions", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("a la vista solo queda el botón del menú", () => {
+    setup(msg(1));
+    expect(screen.getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Más acciones"]);
+  });
+
   it("Marcar como no leído llama SetSeen(false) y cierra el lector", async () => {
     const { selectMessage, user } = setup(msg(1));
-    await user.click(screen.getByRole("button", { name: "Marcar como no leído" }));
+    await openMenu(user);
+    await user.click(await item("Marcar como no leído"));
     await waitFor(() => expect(selectMessage).toHaveBeenCalledWith(null));
     expect(svc.SetSeen).toHaveBeenCalledWith([55], false);
   });
 
-  it("Mover a… lista las carpetas de la cuenta salvo la actual y mueve", async () => {
+  it("Mover a lista las carpetas de la cuenta salvo la actual y mueve", async () => {
     const { selectMessage, user } = setup(msg(1));
-    await user.click(await screen.findByRole("button", { name: "Mover a…" }));
+    await openSub(user, "Mover a");
     expect(await screen.findByRole("menuitem", { name: "Trabajo" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Papelera" })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Entrada" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Padre" })).toBeNull();
-    await user.click(screen.getByRole("menuitem", { name: "Trabajo" }));
+    await pick("Trabajo");
     await waitFor(() => expect(svc.MoveMessages).toHaveBeenCalledWith([55], 2));
     expect(selectMessage).toHaveBeenCalledWith(null);
     expect(toast.success).toHaveBeenCalledWith("Movido a Trabajo");
@@ -86,7 +109,8 @@ describe("MessageActions", () => {
 
   it("Archivar lo manda a Archivo y cierra el lector", async () => {
     const { selectMessage, user } = setup(msg(1));
-    await user.click(await screen.findByRole("button", { name: "Archivar" }));
+    await openMenu(user);
+    await user.click(await item("Archivar"));
     await waitFor(() => expect(svc.ArchiveMessages).toHaveBeenCalledWith([55]));
     expect(selectMessage).toHaveBeenCalledWith(null);
     expect(toast.success).toHaveBeenCalledWith("Archivado");
@@ -95,8 +119,8 @@ describe("MessageActions", () => {
   it("mover ofrece Deshacer, que devuelve el correo", async () => {
     vi.mocked(svc.MoveMessages).mockResolvedValueOnce(9 as never);
     const { user } = setup(msg(1));
-    await user.click(await screen.findByRole("button", { name: "Mover a…" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Trabajo" }));
+    await openSub(user, "Mover a");
+    await pick("Trabajo");
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
         "Movido a Trabajo",
@@ -110,8 +134,8 @@ describe("MessageActions", () => {
 
   it("Posponer hasta mañana a las 8 cierra el lector y avisa", async () => {
     const { selectMessage, user } = setup(msg(1));
-    await user.click(await screen.findByRole("button", { name: "Posponer" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Mañana, 8:00" }));
+    await openSub(user, "Posponer");
+    await pick("Mañana, 8:00");
     const tomorrow8 = new Date();
     tomorrow8.setDate(tomorrow8.getDate() + 1);
     tomorrow8.setHours(8, 0, 0, 0);
@@ -120,16 +144,18 @@ describe("MessageActions", () => {
     expect(toast.success).toHaveBeenCalledWith("Pospuesto hasta mañana a las 8:00");
   });
 
-  it("en Borradores no se ofrece Posponer", async () => {
-    setup(msg(5));
-    await screen.findByRole("button", { name: "Mover a…" });
-    expect(screen.queryByRole("button", { name: "Posponer" })).toBeNull();
+  it("en Borradores no se ofrece Posponer ni Archivar", async () => {
+    const { user } = setup(msg(5));
+    await openMenu(user);
+    await enabled("Mover a");
+    expect(screen.queryByRole("menuitem", { name: /^Posponer/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^Archivar/ })).toBeNull();
   });
 
-  it("Más acciones: ver el código fuente y guardar como .eml", async () => {
+  it("ver el código fuente y guardar como .eml", async () => {
     const { user } = setup(msg(1));
-    await user.click(screen.getByRole("button", { name: "Más acciones" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Ver código fuente/ }));
+    await openMenu(user);
+    await user.click(await item("Ver código fuente"));
     expect(await screen.findByLabelText("Código fuente del correo")).toHaveTextContent("Subject: s");
     expect(svc.MessageSource).toHaveBeenCalledWith(55);
     await user.click(screen.getByRole("button", { name: "Guardar como .eml" }));
@@ -137,26 +163,27 @@ describe("MessageActions", () => {
     expect(toast.success).toHaveBeenCalledWith("Guardado.");
   });
 
-  it("Más acciones: imprimir arma un iframe aparte con el correo", async () => {
+  it("imprimir arma un iframe aparte con el correo", async () => {
     const { user } = setup(msg(1));
-    await user.click(screen.getByRole("button", { name: "Más acciones" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Imprimir/ }));
+    await openMenu(user);
+    await user.click(await item("Imprimir"));
     const frame = document.querySelector("iframe[sandbox='allow-same-origin allow-modals']") as HTMLIFrameElement;
     expect(frame).not.toBeNull();
     expect(frame.srcdoc).toContain("Content-Security-Policy");
   });
 
   it("en Archivo no se ofrece Archivar", async () => {
-    setup(msg(6));
-    await screen.findByRole("button", { name: "Mover a…" });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Archivar" })).toBeNull());
+    const { user } = setup(msg(6));
+    await openMenu(user);
+    await enabled("Mover a");
+    expect(screen.queryByRole("menuitem", { name: /^Archivar/ })).toBeNull();
   });
 
   it("Borrar fuera de Papelera no pide confirmación", async () => {
     const { selectMessage, user } = setup(msg(1));
-    const del = screen.getByRole("button", { name: "Borrar" });
-    await waitFor(() => expect((del as HTMLButtonElement).disabled).toBe(false));
-    await user.click(del);
+    await openMenu(user);
+    await enabled("Borrar");
+    await user.click(await item("Borrar"));
     await waitFor(() => expect(svc.DeleteMessages).toHaveBeenCalledWith([55]));
     expect(selectMessage).toHaveBeenCalledWith(null);
     expect(toast.success).toHaveBeenCalledWith("Movido a la Papelera");
@@ -164,17 +191,16 @@ describe("MessageActions", () => {
 
   it("en Papelera pide confirmación y dice Eliminar definitivamente", async () => {
     const { selectMessage, user } = setup(msg(3));
-    await screen.findByRole("button", { name: "Eliminar definitivamente" });
-    await user.click(screen.getByRole("button", { name: "Eliminar definitivamente" }));
+    await openMenu(user);
+    await user.click(await item("Eliminar definitivamente"));
     expect(svc.DeleteMessages).not.toHaveBeenCalled();
     expect(await screen.findByText("¿Eliminar definitivamente? No se puede deshacer.")).toBeTruthy();
-    const confirm = screen.getAllByRole("button", { name: "Eliminar definitivamente" }).slice(-1)[0];
-    await user.click(confirm);
+    await user.click(screen.getByRole("button", { name: "Eliminar definitivamente" }));
     await waitFor(() => expect(svc.DeleteMessages).toHaveBeenCalledWith([55]));
     expect(selectMessage).toHaveBeenCalledWith(null);
   });
 
-  it("mientras no se sabe en qué carpeta está, Borrar y Mover a… quedan deshabilitados", async () => {
+  it("mientras no se sabe en qué carpeta está, Borrar y Mover a quedan deshabilitados", async () => {
     let resolve: (fs: Folder[]) => void = () => {};
     const pending = new Promise<Folder[]>((r) => (resolve = r));
     // La CancellablePromise de los bindings no hace falta para useQuery.
@@ -185,31 +211,26 @@ describe("MessageActions", () => {
         <MessageActions message={msg(3)} selectMessage={vi.fn()} />
       </QueryClientProvider>,
     );
-    const del = screen.getByRole("button", { name: "Borrar" }) as HTMLButtonElement;
-    expect(del.disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Mover a…" }) as HTMLButtonElement).disabled).toBe(true);
-    await user.click(del);
-    expect(svc.DeleteMessages).not.toHaveBeenCalled();
+    await openMenu(user);
+    expect((await item("Borrar")).getAttribute("data-disabled")).not.toBeNull();
+    expect((await item("Mover a")).getAttribute("data-disabled")).not.toBeNull();
 
     resolve(folders);
-    const perm = await screen.findByRole("button", { name: "Eliminar definitivamente" });
-    expect((perm as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Mover a…" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(await item("Eliminar definitivamente")).toBeTruthy();
+    await enabled("Mover a");
   });
 
   it("Destacar alterna", async () => {
     const { user } = setup(msg(1, false));
-    const star = screen.getByRole("button", { name: "Destacar" });
-    expect(star.getAttribute("aria-pressed")).toBe("false");
-    await user.click(star);
+    await openMenu(user);
+    await user.click(await item("Destacar"));
     await waitFor(() => expect(svc.SetFlagged).toHaveBeenCalledWith([55], true));
   });
 
   it("Quitar destacado cuando ya está destacado", async () => {
     const { user } = setup(msg(1, true));
-    const star = screen.getByRole("button", { name: "Quitar destacado" });
-    expect(star.getAttribute("aria-pressed")).toBe("true");
-    await user.click(star);
+    await openMenu(user);
+    await user.click(await item("Quitar destacado"));
     await waitFor(() => expect(svc.SetFlagged).toHaveBeenCalledWith([55], false));
   });
 
@@ -217,7 +238,8 @@ describe("MessageActions", () => {
     const qc = new QueryClient();
     const invalidate = vi.spyOn(qc, "invalidateQueries");
     const { user } = setup(msg(1), qc);
-    await user.click(screen.getByRole("button", { name: "Marcar como no leído" }));
+    await openMenu(user);
+    await user.click(await item("Marcar como no leído"));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["search"] }));
   });
 
@@ -229,9 +251,6 @@ describe("MessageActions", () => {
     vi.mocked(svc.OpenDraftMessage).mockResolvedValue(d as never);
     const { user } = setup(msg(5));
     const keep = await screen.findByRole("button", { name: "Seguir editando" });
-    // Borrar y mover siguen estando.
-    expect(screen.getByRole("button", { name: "Borrar" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mover a…" })).toBeTruthy();
     await user.click(keep);
     await waitFor(() => expect(composer.openComposeDraft).toHaveBeenCalledWith(d));
     expect(svc.OpenDraftMessage).toHaveBeenCalledWith(55);
@@ -239,7 +258,7 @@ describe("MessageActions", () => {
 
   it("fuera de Borradores no muestra Seguir editando", async () => {
     setup(msg(1));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Borrar" }) as HTMLButtonElement).disabled).toBe(false));
+    await screen.findByRole("button", { name: "Más acciones" });
     expect(screen.queryByRole("button", { name: "Seguir editando" })).toBeNull();
   });
 
