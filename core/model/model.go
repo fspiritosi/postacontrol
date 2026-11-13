@@ -172,10 +172,13 @@ type MessageDetail struct {
 	Cc         []Address `json:"cc"`
 	ReplyTo    []Address `json:"replyTo"`
 	// HTML ya viene sanitizado (imágenes remotas en data-remote-src).
-	HTML            string       `json:"html"`
-	Text            string       `json:"text"`
-	HasRemoteImages bool         `json:"hasRemoteImages"`
-	Attachments     []Attachment `json:"attachments"`
+	HTML            string `json:"html"`
+	Text            string `json:"text"`
+	HasRemoteImages bool   `json:"hasRemoteImages"`
+	// RemoteImagesTrusted: el remitente está entre los que se eligió mostrarle
+	// siempre las imágenes remotas.
+	RemoteImagesTrusted bool         `json:"remoteImagesTrusted"`
+	Attachments         []Attachment `json:"attachments"`
 }
 
 type ComposeMode string // "new","reply","replyAll","forward"
@@ -326,6 +329,9 @@ type Settings struct {
 	ReadingPane string `json:"readingPane"`
 	// Background es el nombre del archivo de fondo dentro de la carpeta de datos; vacío = sin fondo.
 	Background string `json:"background"`
+	// DisableUndoSend manda los correos enseguida, sin los segundos para
+	// deshacer el envío (cero = se puede deshacer).
+	DisableUndoSend bool `json:"disableUndoSend"`
 }
 
 // Rule es una regla de una cuenta, como los filtros de Thunderbird: si un

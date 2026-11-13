@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
-  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false })),
+  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, threadedList: false })),
   SetSettings: vi.fn(() => Promise.resolve()),
   GetStartAtLogin: vi.fn(() => Promise.resolve(false)),
   SetStartAtLogin: vi.fn(() => Promise.resolve()),
@@ -15,6 +15,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ClearBackground: vi.fn(() => Promise.resolve()),
   ListLabels: vi.fn(() => Promise.resolve([])),
   CreateLabel: vi.fn(() => Promise.resolve()),
+  ListImageSenders: vi.fn(() => Promise.resolve([])),
+  UntrustImageSender: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -70,7 +72,7 @@ describe("SettingsDialog", () => {
     const sw = await screen.findByRole("switch", { name: "Bandeja unificada" });
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     await user.click(sw);
-    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" }));
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false }));
   });
 
   it("el interruptor de notificaciones guarda disableNotifications", async () => {
@@ -81,7 +83,7 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, disableSpellcheck: false, threadedList: false, readingPane: "", background: "" }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false }),
     );
   });
 
@@ -93,7 +95,7 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: true, threadedList: false, readingPane: "", background: "" }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: true, threadedList: false, readingPane: "", background: "", disableUndoSend: false }),
     );
   });
 
@@ -122,7 +124,7 @@ describe("SettingsDialog", () => {
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: true,
       background: "",
-      disableNotifications: true, disableSpellcheck: false,
+      disableNotifications: true, disableSpellcheck: false, disableUndoSend: false,
       threadedList: true,
       readingPane: "",
     });
@@ -135,7 +137,7 @@ describe("SettingsDialog", () => {
       expect(svc.SetSettings).toHaveBeenCalledWith({
         unifiedInbox: true,
         background: "",
-        disableNotifications: true, disableSpellcheck: false,
+        disableNotifications: true, disableSpellcheck: false, disableUndoSend: false,
         threadedList: true,
         readingPane: "right",
       }),
@@ -160,7 +162,7 @@ describe("SettingsDialog", () => {
   it("con fondo muestra la miniatura y Quitar", async () => {
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: false,
-      disableNotifications: false, disableSpellcheck: false,
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
       threadedList: false,
       readingPane: "",
       background: "background-1.png",
@@ -194,5 +196,25 @@ describe("SettingsDialog", () => {
     renderDialog("labels");
     expect(await screen.findByRole("heading", { name: "Etiquetas" })).toBeTruthy();
     expect(screen.queryByRole("switch", { name: "Bandeja unificada" })).toBeNull();
+  });
+
+  it("Lectura lista los remitentes con imágenes permitidas y deja quitarlos", async () => {
+    vi.mocked(svc.ListImageSenders).mockResolvedValue(["avisos@banco.com"]);
+    const user = userEvent.setup();
+    renderDialog("reading");
+    const list = await screen.findByRole("list", { name: "Remitentes con imágenes permitidas" });
+    expect(within(list).getByText("avisos@banco.com")).toBeInTheDocument();
+    await user.click(within(list).getByRole("button", { name: "Bloquear de nuevo las imágenes de avisos@banco.com" }));
+    expect(svc.UntrustImageSender).toHaveBeenCalledWith("avisos@banco.com");
+  });
+
+  it("Redacción permite apagar deshacer envío", async () => {
+    const user = userEvent.setup();
+    renderDialog("compose");
+    const sw = await screen.findByRole("switch", { name: "Deshacer envío" });
+    await waitFor(() => expect(sw).toBeEnabled());
+    expect(sw).toBeChecked();
+    await user.click(sw);
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith(expect.objectContaining({ disableUndoSend: true })));
   });
 });

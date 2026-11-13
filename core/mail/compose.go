@@ -188,19 +188,144 @@ func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResul
 // QueueSend valida req, lo guarda en la bandeja de salida y lo envía en
 // segundo plano. Devuelve enseguida el id del correo en la bandeja; el
 // resultado llega por EventSendFinished. Con req.DraftID reintenta ese correo.
+// Salvo que se haya apagado en la configuración, el correo espera
+// Config.UndoSendDelay antes de salir: mientras tanto CancelSend lo frena.
 func (c *Core) QueueSend(ctx context.Context, req model.SendRequest) (int64, error) {
 	qctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
+	delay := c.cfg.UndoSendDelay
+	if delay > 0 {
+		if st, err := c.store.GetSettings(qctx); err == nil && st.DisableUndoSend {
+			delay = 0
+		}
+	}
 	q, err := c.enqueue(qctx, req)
 	if err != nil {
 		return 0, err
 	}
-	if !c.spawn(func(life context.Context) { _, _ = c.deliver(life, q) }) {
+	var held *heldSend
+	if delay > 0 {
+		h := c.holdSend(q.id)
+		held = &h
+	}
+	if !c.spawn(func(life context.Context) {
+		if held != nil {
+			defer c.heldWG.Done()
+			if !c.waitToSend(life, q.id, delay, *held) {
+				return
+			}
+		}
+		_, _ = c.deliver(life, q)
+	}) {
 		// El núcleo se está cerrando: el correo queda en la bandeja y al volver
 		// figura como interrumpido.
+		if held != nil {
+			c.releaseSend(q.id)
+			c.heldWG.Done()
+		}
 		return 0, context.Canceled
 	}
 	return q.id, nil
+}
+
+const (
+	msgSendCancelled   = "Cancelaste el envío."
+	msgSendAlreadyGone = "El correo ya salió."
+	// closeSendTimeout acota cuánto espera Close a los correos que manda al cerrar.
+	closeSendTimeout = 30 * time.Second
+)
+
+// heldSend es un envío que espera: cerrar cancel lo frena y cerrar now lo
+// manda sin esperar más.
+type heldSend struct {
+	cancel chan struct{}
+	now    chan struct{}
+}
+
+// holdSend anota que el envío id espera.
+func (c *Core) holdSend(id int64) heldSend {
+	c.pendingMu.Lock()
+	defer c.pendingMu.Unlock()
+	if c.pendingSends == nil {
+		c.pendingSends = map[int64]heldSend{}
+	}
+	h := heldSend{cancel: make(chan struct{}), now: make(chan struct{})}
+	c.pendingSends[id] = h
+	c.heldWG.Add(1)
+	return h
+}
+
+// releaseSend saca el envío de la espera. Devuelve false si ya no estaba
+// (lo canceló CancelSend).
+func (c *Core) releaseSend(id int64) bool {
+	c.pendingMu.Lock()
+	defer c.pendingMu.Unlock()
+	_, ok := c.pendingSends[id]
+	delete(c.pendingSends, id)
+	return ok
+}
+
+// waitToSend espera delay (o a que Close lo apure) y dice si el correo tiene
+// que salir: no si se canceló, ni si la app se cierra sin poder mandarlo (ahí
+// queda en la bandeja como interrumpido).
+func (c *Core) waitToSend(life context.Context, id int64, delay time.Duration, h heldSend) bool {
+	t := time.NewTimer(delay)
+	defer t.Stop()
+	select {
+	case <-h.cancel:
+		return false
+	case <-life.Done():
+		if c.releaseSend(id) {
+			_ = c.failSend(life, id, life.Err())
+		}
+		return false
+	case <-h.now:
+		return c.releaseSend(id)
+	case <-t.C:
+		return c.releaseSend(id)
+	}
+}
+
+// sendHeldNow manda ya los envíos que esperan y espera a que terminen, hasta
+// timeout.
+func (c *Core) sendHeldNow(timeout time.Duration) {
+	c.pendingMu.Lock()
+	for _, h := range c.pendingSends {
+		select {
+		case <-h.now:
+		default:
+			close(h.now)
+		}
+	}
+	c.pendingMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		c.heldWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
+}
+
+// CancelSend frena un correo que todavía espera para salir (ver QueueSend).
+// Queda en la bandeja de salida, como no enviado, para seguir editándolo.
+func (c *Core) CancelSend(ctx context.Context, id int64) error {
+	c.pendingMu.Lock()
+	h, ok := c.pendingSends[id]
+	delete(c.pendingSends, id)
+	c.pendingMu.Unlock()
+	if !ok {
+		return &UserError{Code: "notfound", Msg: msgSendAlreadyGone}
+	}
+	close(h.cancel)
+	// Aunque se esté cerrando la app: si no, quedaría como "enviando".
+	if err := c.store.FailLocalDraft(context.WithoutCancel(ctx), id, msgSendCancelled); err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	c.emit(EventOutboxUpdated, nil)
+	return nil
 }
 
 // queuedSend es un correo que enqueue puso en la bandeja de salida, listo

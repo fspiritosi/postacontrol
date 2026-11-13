@@ -10,6 +10,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   AddSenderToContacts: vi.fn(),
   ListLabels: vi.fn(),
   SetLabel: vi.fn(() => Promise.resolve()),
+  TrustImageSender: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../compose/ComposerContext", () => ({ useComposer: () => ({ openFrom: vi.fn() }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -32,7 +33,7 @@ const account: Account = {
 const ana = { name: "Ana", email: "ana@x.y" };
 const contact: Contact = { id: 7, name: "Ana", emails: ["ana@x.y"], phones: [], company: "", notes: "" };
 
-function setup(role: string, labels: number[] = []) {
+function setup(role: string, labels: number[] = [], over: Partial<MessageDetail> = {}) {
   const folder: Folder = {
     id: 3, accountId: 7, name: "F", delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0,
   };
@@ -40,7 +41,8 @@ function setup(role: string, labels: number[] = []) {
     id: 1, accountId: 7, folderId: 3, uid: 1, from: ana, subject: "Hola", snippet: "",
     date: "2026-10-20T10:00:00Z", seen: true, flagged: false, answered: false, hasAttachments: false,
     messageId: "", inReplyTo: "", references: null, to: null, cc: null, replyTo: null,
-    html: "", text: "Cuerpo", hasRemoteImages: false, attachments: null, labels,
+    html: "", text: "Cuerpo", hasRemoteImages: false, remoteImagesTrusted: false, attachments: null, labels,
+    ...over,
   };
   vi.mocked(svc.GetMessage).mockResolvedValue(msg);
   vi.mocked(svc.ListFolders).mockResolvedValue([folder]);
@@ -180,5 +182,27 @@ describe("MessageView: etiquetas", () => {
     await user.click(await screen.findByRole("menuitem", { name: /Viaje/ }));
     expect(svc.SetLabel).toHaveBeenCalledWith([1], 6, true);
     expect(await screen.findByRole("button", { name: "Quitar etiqueta Viaje" })).toBeTruthy();
+  });
+});
+
+describe("MessageView: imágenes remotas", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(svc.ContactForEmail).mockResolvedValue(null);
+  });
+
+  it("bloqueadas: se muestran en este correo o siempre para el remitente", async () => {
+    const { user } = setup("inbox", [], { hasRemoteImages: true, html: "<p>x</p>" });
+    expect(await screen.findByRole("button", { name: "Mostrar imágenes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Siempre de este remitente" }));
+    expect(svc.TrustImageSender).toHaveBeenCalledWith("ana@x.y");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Mostrar imágenes" })).toBeNull());
+    expect(toast.success).toHaveBeenCalledWith("Los correos de ana@x.y van a mostrar sus imágenes.");
+  });
+
+  it("de un remitente de confianza se muestran sin preguntar", async () => {
+    setup("inbox", [], { hasRemoteImages: true, remoteImagesTrusted: true, html: "<p>x</p>" });
+    await screen.findByText("Hola");
+    expect(screen.queryByRole("button", { name: "Mostrar imágenes" })).toBeNull();
   });
 });

@@ -15,6 +15,7 @@ import type {
 import { errorMessage } from "@/lib/errors";
 import { Events } from "@wailsio/runtime";
 import { serializeInit } from "@/lib/composeWindow";
+import { useSettings } from "@/lib/queries";
 import { sendStarted, useSendNotices } from "./sendNotices";
 
 export type ComposerInit = {
@@ -146,7 +147,10 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       },
     };
   }, [open, qc]);
-  useSendNotices(api.openDraftById);
+  // Sin la configuración todavía, el aviso no ofrece deshacer (la espera la
+  // decide el núcleo con la misma opción).
+  const settings = useSettings();
+  useSendNotices(api.openDraftById, settings.data != null && !settings.data.disableUndoSend);
   // El envío arranca en la ventana del redactor; el aviso se muestra en todas.
   useEffect(() => Events.On("compose:send-started", (ev) => sendStarted(ev.data as number)), []);
   // Los avisos de un redactor que se cerró (su ventana ya no está para mostrarlos).

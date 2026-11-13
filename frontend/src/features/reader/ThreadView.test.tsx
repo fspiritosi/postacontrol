@@ -54,7 +54,7 @@ const thread = [summary(1, 3, "Ana", 20), summary(2, 4, "Yo", 21), summary(3, 3,
 function detail(s: MessageSummary): MessageDetail {
   return {
     ...s, messageId: "", inReplyTo: "", references: null, to: null, cc: null, replyTo: null,
-    html: "", text: `Cuerpo ${s.id}`, hasRemoteImages: false, attachments: null,
+    html: "", text: `Cuerpo ${s.id}`, hasRemoteImages: false, remoteImagesTrusted: false, attachments: null,
   };
 }
 

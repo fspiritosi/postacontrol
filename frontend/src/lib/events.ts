@@ -277,6 +277,11 @@ export function useMailEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ["folders"] });
         refreshSearchThrottled();
       }),
+      Events.On("mail:image-senders-changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["imageSenders"] });
+        // El correo abierto ya se muestra: se marca viejo y se recarga al volver a abrirlo.
+        void queryClient.invalidateQueries({ queryKey: ["message"], refetchType: "none" });
+      }),
       Events.On("mail:rules-changed", () => {
         void queryClient.invalidateQueries({ queryKey: ["rules"] });
       }),

@@ -26,6 +26,14 @@ export function useSignatures() {
   });
 }
 
+// Remitentes a los que se les muestran siempre las imágenes remotas.
+export function useImageSenders() {
+  return useQuery({
+    queryKey: ["imageSenders"],
+    queryFn: async () => (await svc.ListImageSenders()) ?? [],
+  });
+}
+
 export function useLabels() {
   return useQuery({
     queryKey: ["labels"],
