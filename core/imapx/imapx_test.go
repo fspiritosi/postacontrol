@@ -1062,3 +1062,21 @@ func TestFetchHeaderFields_OnlyThoseAndUnread(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, fl[uids[0]], imap.FlagSeen)
 }
+
+func TestFetchRaw_WholeMessageUnread(t *testing.T) {
+	s, tlsc := setup(t)
+	raw := "From: a@b.c\r\nSubject: crudo\r\n\r\nhola\r\n"
+	s.Deliver(t, "INBOX", []byte(raw))
+	c := dial(t, s, tlsc)
+	_, err := c.Select("INBOX")
+	require.NoError(t, err)
+	uids, err := c.AllUIDs()
+	require.NoError(t, err)
+
+	got, err := c.FetchRaw(uids[0])
+	require.NoError(t, err)
+	assert.Equal(t, raw, string(got))
+	fl, err := c.FetchFlags(uids)
+	require.NoError(t, err)
+	assert.NotContains(t, fl[uids[0]], imap.FlagSeen)
+}

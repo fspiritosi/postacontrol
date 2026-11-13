@@ -323,6 +323,13 @@ export function ListUnified(view: model$0.UnifiedView, q: model$0.ListQuery): $C
 }
 
 /**
+ * MessageSource devuelve el mensaje tal como está en el servidor, para verlo.
+ */
+export function MessageSource(messageID: number): $CancellablePromise<model$0.MessageSource> {
+    return $Call.ByID(290750923, messageID);
+}
+
+/**
  * MoveFolder mueve la carpeta bajo otro padre; 0 es el primer nivel.
  */
 export function MoveFolder(folderID: number, newParentFolderID: number): $CancellablePromise<model$0.Folder> {
@@ -482,6 +489,14 @@ export function SaveContact(c: model$0.Contact): $CancellablePromise<model$0.Con
  */
 export function SaveDraft(id: number, req: model$0.SendRequest): $CancellablePromise<model$0.Draft> {
     return $Call.ByID(1483319153, id, req);
+}
+
+/**
+ * SaveMessageSource pregunta dónde guardar el mensaje como .eml y lo guarda.
+ * Devuelve false (sin error) si se cancela.
+ */
+export function SaveMessageSource(messageID: number): $CancellablePromise<boolean> {
+    return $Call.ByID(1040348740, messageID);
 }
 
 /**

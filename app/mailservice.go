@@ -529,6 +529,32 @@ func (s *MailService) QueueSend(ctx context.Context, req model.SendRequest) (int
 	return s.core.QueueSend(ctx, req)
 }
 
+// MessageSource devuelve el mensaje tal como está en el servidor, para verlo.
+func (s *MailService) MessageSource(ctx context.Context, messageID int64) (model.MessageSource, error) {
+	return s.core.MessageSource(ctx, messageID)
+}
+
+// SaveMessageSource pregunta dónde guardar el mensaje como .eml y lo guarda.
+// Devuelve false (sin error) si se cancela.
+func (s *MailService) SaveMessageSource(ctx context.Context, messageID int64) (bool, error) {
+	dlg := s.app.Dialog.SaveFile().SetFilename(s.core.EmlFilename(ctx, messageID)).
+		AddFilter("Correo (.eml)", "*.eml;*.EML")
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	dest, err := dlg.PromptForSingleSelection()
+	if err != nil {
+		return false, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if dest == "" {
+		return false, nil
+	}
+	if err := s.core.SaveMessageSource(ctx, messageID, dest); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ListTemplates devuelve las plantillas del redactor.
 func (s *MailService) ListTemplates(ctx context.Context) ([]model.Template, error) {
 	return s.core.ListTemplates(ctx)

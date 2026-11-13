@@ -25,6 +25,7 @@ export type {
     ListQuery,
     LocalDraft,
     MessageDetail,
+    MessageSource,
     MessageSummary,
     PickedImage,
     ReplyContext,

@@ -264,6 +264,15 @@ export interface MessageDetail {
     "attachments": Attachment[] | null;
 }
 
+/**
+ * MessageSource es el mensaje tal como está en el servidor, para verlo. Si es
+ * muy largo, Text trae solo el principio y Truncated lo dice.
+ */
+export interface MessageSource {
+    "text": string;
+    "truncated": boolean;
+}
+
 export interface MessageSummary {
     "id": number;
     "accountId": number;

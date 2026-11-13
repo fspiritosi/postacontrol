@@ -21,6 +21,7 @@ import { MessageActions } from "./MessageActions";
 import { SafeHtmlFrame } from "./SafeHtmlFrame";
 import { UnsubscribeButton } from "./UnsubscribeButton";
 import { SnoozeBanner } from "./SnoozeBanner";
+import { InviteCard, isCalendar } from "./InviteCard";
 import { ReaderBackdrop } from "./ReaderBackdrop";
 
 export type ComposeMode = "reply" | "replyAll" | "forward";
@@ -145,6 +146,8 @@ function Body({
   const inDrafts = role === "drafts";
   const compose = onCompose ?? ((id: number, mode: ComposeMode) => void composer.openFrom(id, mode));
   const to = message.to ?? [];
+  // La primera invitación de calendario adjunta, si hay.
+  const invite = (message.attachments ?? []).find(isCalendar);
   const actions: { mode: ComposeMode; label: string; icon: React.ReactNode }[] = inDrafts
     ? []
     : [
@@ -236,6 +239,7 @@ function Body({
 
         <SafeHtmlFrame html={message.html} text={message.text} allowRemote={allowRemote} accountId={message.accountId} />
       </div>
+      {invite && <InviteCard messageId={message.id} attachment={invite} />}
       <AttachmentList messageId={message.id} attachments={message.attachments ?? []} />
     </div>
   );

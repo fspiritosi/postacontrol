@@ -449,3 +449,10 @@ type Template struct {
 	Subject string `json:"subject"`
 	HTML    string `json:"html"`
 }
+
+// MessageSource es el mensaje tal como está en el servidor, para verlo. Si es
+// muy largo, Text trae solo el principio y Truncated lo dice.
+type MessageSource struct {
+	Text      string `json:"text"`
+	Truncated bool   `json:"truncated"`
+}

@@ -12,6 +12,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ArchiveMessages: vi.fn(() => Promise.resolve()),
   UndoMove: vi.fn(() => Promise.resolve()),
   SnoozeMessages: vi.fn(() => Promise.resolve(0)),
+  SaveMessageSource: vi.fn(() => Promise.resolve(true)),
+  MessageSource: vi.fn(() => Promise.resolve({ text: "From: a@b.c\r\nSubject: s\r\n\r\nhola", truncated: false })),
   OpenDraftMessage: vi.fn(),
   ListLabels: vi.fn(),
   SetLabel: vi.fn(() => Promise.resolve()),
@@ -122,6 +124,26 @@ describe("MessageActions", () => {
     setup(msg(5));
     await screen.findByRole("button", { name: "Mover a…" });
     expect(screen.queryByRole("button", { name: "Posponer" })).toBeNull();
+  });
+
+  it("Más acciones: ver el código fuente y guardar como .eml", async () => {
+    const { user } = setup(msg(1));
+    await user.click(screen.getByRole("button", { name: "Más acciones" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Ver código fuente/ }));
+    expect(await screen.findByLabelText("Código fuente del correo")).toHaveTextContent("Subject: s");
+    expect(svc.MessageSource).toHaveBeenCalledWith(55);
+    await user.click(screen.getByRole("button", { name: "Guardar como .eml" }));
+    await waitFor(() => expect(svc.SaveMessageSource).toHaveBeenCalledWith(55));
+    expect(toast.success).toHaveBeenCalledWith("Guardado.");
+  });
+
+  it("Más acciones: imprimir arma un iframe aparte con el correo", async () => {
+    const { user } = setup(msg(1));
+    await user.click(screen.getByRole("button", { name: "Más acciones" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Imprimir/ }));
+    const frame = document.querySelector("iframe[sandbox='allow-same-origin allow-modals']") as HTMLIFrameElement;
+    expect(frame).not.toBeNull();
+    expect(frame.srcdoc).toContain("Content-Security-Policy");
   });
 
   it("en Archivo no se ofrece Archivar", async () => {

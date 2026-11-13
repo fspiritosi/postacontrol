@@ -165,3 +165,38 @@ func TestNotificationOpensMessage_NewMail(t *testing.T) {
 		t.Fatal("la de correo nuevo abre el mensaje")
 	}
 }
+
+func TestNewMailNotification_ActionsOnlyForOne(t *testing.T) {
+	one := NewMailNotification(model.NewMail{AccountID: 3, FolderID: 9, Count: 1, Items: []model.NewMailItem{{MessageID: 7, FromName: "Ana"}}}, "yo@x.com")
+	if one.CategoryID != newMailCategory {
+		t.Fatalf("uno solo: categoría %q", one.CategoryID)
+	}
+	many := NewMailNotification(model.NewMail{AccountID: 3, FolderID: 9, Count: 4, Items: []model.NewMailItem{{FromName: "Ana"}}}, "yo@x.com")
+	if many.CategoryID != "" {
+		t.Fatalf("varios: no lleva botones, categoría %q", many.CategoryID)
+	}
+	cat := NewMailCategory()
+	if cat.ID != newMailCategory || len(cat.Actions) != 2 || cat.Actions[0].ID != notifActionArchive || cat.Actions[1].ID != notifActionRead {
+		t.Fatalf("categoría %+v", cat)
+	}
+}
+
+func TestNotificationMessageAction(t *testing.T) {
+	cases := []struct {
+		action string
+		data   map[string]interface{}
+		want   string
+		id     int64
+	}{
+		{notifActionArchive, map[string]interface{}{"messageId": int64(7)}, notifActionArchive, 7},
+		{notifActionRead, map[string]interface{}{"messageId": float64(8)}, notifActionRead, 8},
+		{notifActionRead, map[string]interface{}{"folderId": int64(9)}, "", 0}, // sin mensaje
+		{"otra", map[string]interface{}{"messageId": int64(7)}, "", 0},
+	}
+	for _, c := range cases {
+		got, id := notificationMessageAction(c.action, c.data)
+		if got != c.want || id != c.id {
+			t.Fatalf("%s %v: got %q %d", c.action, c.data, got, id)
+		}
+	}
+}

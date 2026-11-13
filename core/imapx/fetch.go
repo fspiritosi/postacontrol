@@ -200,3 +200,22 @@ func (c *Conn) FetchHeaderFields(uid uint32, fields ...string) ([]byte, error) {
 	}
 	return []byte{}, nil
 }
+
+// FetchRaw baja el mensaje entero, tal como está en el servidor, sin marcarlo
+// leído (BODY.PEEK[]).
+func (c *Conn) FetchRaw(uid uint32) ([]byte, error) {
+	sec := &imap.FetchItemBodySection{Peek: true}
+	msgs, err := c.c.Fetch(toUIDs([]uint32{uid}), &imap.FetchOptions{
+		UID: true, BodySection: []*imap.FetchItemBodySection{sec},
+	}).Collect()
+	if err != nil {
+		return nil, opErr("UID FETCH mensaje", err)
+	}
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("%w: UID %d", ErrNoMessage, uid)
+	}
+	for _, s := range msgs[0].BodySection {
+		return s.Bytes, nil
+	}
+	return nil, errors.New("imapx: el servidor no devolvió el mensaje")
+}
