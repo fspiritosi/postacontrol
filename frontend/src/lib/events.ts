@@ -299,9 +299,14 @@ export function useMailEvents(queryClient: QueryClient): void {
           { id: `labels-local-only-${accountId}`, duration: 10000 },
         );
       }),
+      Events.On("mail:auto-backup-failed", (ev) => {
+        const { message } = ev.data as { message: string };
+        toast.warning(message, { id: "auto-backup-failed", duration: 15000 });
+      }),
       Events.On("mail:settings-changed", () => {
         // También cambia el fondo: useBackground va por el nombre guardado.
         void queryClient.invalidateQueries({ queryKey: ["settings"] });
+        void queryClient.invalidateQueries({ queryKey: ["autoBackup"] });
       }),
       Events.On("mail:sync-progress", (ev) => {
         const p = ev.data as SyncProgress;

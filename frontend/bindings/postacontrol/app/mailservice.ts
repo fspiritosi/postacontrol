@@ -46,6 +46,14 @@ export function AttachmentData(messageID: number, index: number): $CancellablePr
 }
 
 /**
+ * AutoBackupInfo devuelve la carpeta del respaldo automático y la fecha de la
+ * última copia.
+ */
+export function AutoBackupInfo(): $CancellablePromise<model$0.AutoBackupInfo> {
+    return $Call.ByID(4290073922);
+}
+
+/**
  * BackgroundImage devuelve el fondo como data URL, o "" si no hay.
  */
 export function BackgroundImage(): $CancellablePromise<string> {
@@ -58,6 +66,13 @@ export function BackgroundImage(): $CancellablePromise<string> {
  */
 export function CancelSend(draftID: number): $CancellablePromise<void> {
     return $Call.ByID(938852947, draftID);
+}
+
+/**
+ * ClearAutoBackupDir apaga el respaldo automático (las copias quedan).
+ */
+export function ClearAutoBackupDir(): $CancellablePromise<void> {
+    return $Call.ByID(4223069924);
 }
 
 /**
@@ -358,6 +373,15 @@ export function PickAttachments(): $CancellablePromise<model$0.StagedAttachment[
 }
 
 /**
+ * PickAutoBackupDir pregunta en qué carpeta guardar el respaldo automático
+ * semanal, la guarda y hace la primera copia si hace falta. Devuelve false
+ * (sin error) si se cancela.
+ */
+export function PickAutoBackupDir(): $CancellablePromise<boolean> {
+    return $Call.ByID(2045987182);
+}
+
+/**
  * PickBackground abre el diálogo nativo para elegir la imagen de fondo. Devuelve
  * false (sin error) si se cancela.
  */
@@ -410,6 +434,13 @@ export function ReorderLabels(ids: number[] | null): $CancellablePromise<void> {
 
 export function ReorderRules(accountID: number, ids: number[] | null): $CancellablePromise<void> {
     return $Call.ByID(2477328953, accountID, ids);
+}
+
+/**
+ * RunAutoBackupNow guarda ya una copia en la carpeta del respaldo automático.
+ */
+export function RunAutoBackupNow(): $CancellablePromise<void> {
+    return $Call.ByID(4243937087);
 }
 
 /**

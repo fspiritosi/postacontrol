@@ -1,4 +1,5 @@
-import { DownloadIcon, UploadIcon } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DownloadIcon, FolderClockIcon, UploadIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -12,6 +13,7 @@ const KINDS = [
   ["signatures", "firma", "firmas"],
   ["labels", "etiqueta", "etiquetas"],
   ["rules", "regla", "reglas"],
+  ["imageSenders", "remitente con imágenes permitidas", "remitentes con imágenes permitidas"],
 ] as const;
 
 function count(n: number, one: string, many: string) {
@@ -92,6 +94,7 @@ export function BackupSection() {
           <UploadIcon /> Importar respaldo…
         </Button>
       </div>
+      <AutoBackup />
       {summary && (
         <div role="status" className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm">
           {summary.map((line) => (
@@ -100,5 +103,79 @@ export function BackupSection() {
         </div>
       )}
     </section>
+  );
+}
+
+// "2026-11-10" → "10/11/2026".
+function shortDate(iso: string) {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+// La copia semanal en una carpeta (Drive, Nextcloud, un pendrive...).
+function AutoBackup() {
+  const queryClient = useQueryClient();
+  const info = useQuery({ queryKey: ["autoBackup"], queryFn: () => svc.AutoBackupInfo() });
+  const [busy, setBusy] = useState(false);
+  const dir = info.data?.dir ?? "";
+
+  const run = async (fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      if (ok) toast.success(ok);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+      void queryClient.invalidateQueries({ queryKey: ["autoBackup"] });
+    }
+  };
+
+  return (
+    <div className="space-y-2 border-t pt-4">
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium">Respaldo automático</h3>
+        <p className="text-sm text-muted-foreground">
+          Una vez por semana se guarda una copia en la carpeta que elijas y se conservan las últimas 8. Conviene que
+          sea una carpeta que se sincronice fuera de esta PC (Drive, Nextcloud) o un pendrive.
+        </p>
+      </div>
+      {info.isPending ? null : dir ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm">
+            <FolderClockIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate font-mono text-xs">{dir}</span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {info.data?.lastDate ? `Última copia: ${shortDate(info.data.lastDate)}.` : "Todavía no hay copias en esa carpeta."}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void run(() => svc.RunAutoBackupNow(), "Copia guardada.")}
+            >
+              Hacer una copia ahora
+            </Button>
+            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => svc.PickAutoBackupDir())}>
+              Cambiar carpeta…
+            </Button>
+            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => svc.ClearAutoBackupDir())}>
+              Apagar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-muted-foreground">Apagado.</p>
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run(() => svc.PickAutoBackupDir())}>
+            Elegir carpeta…
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

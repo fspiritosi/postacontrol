@@ -1,10 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ExportBackup: vi.fn(),
   ImportBackup: vi.fn(),
+  AutoBackupInfo: vi.fn(),
+  PickAutoBackupDir: vi.fn(() => Promise.resolve(true)),
+  ClearAutoBackupDir: vi.fn(() => Promise.resolve()),
+  RunAutoBackupNow: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -15,10 +20,16 @@ import { BackupSection, describeImport } from "./BackupSection";
 const none = {
   contactsAdded: 0, contactsSkipped: 0, signaturesAdded: 0, signaturesSkipped: 0,
   labelsAdded: 0, labelsSkipped: 0, labelsFailed: 0, rulesAdded: 0, rulesSkipped: 0, rulesFailed: 0,
+  imageSendersAdded: 0, imageSendersSkipped: 0,
 };
 
-function setup() {
-  render(<BackupSection />);
+function setup(info = { dir: "", lastDate: "" }) {
+  vi.mocked(svc.AutoBackupInfo).mockResolvedValue(info);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <BackupSection />
+    </QueryClientProvider>,
+  );
   return userEvent.setup();
 }
 
@@ -65,6 +76,28 @@ describe("BackupSection", () => {
   });
 });
 
+describe("BackupSection: respaldo automático", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("apagado: se activa eligiendo una carpeta", async () => {
+    const user = setup();
+    expect(await screen.findByText("Apagado.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Elegir carpeta…" }));
+    expect(svc.PickAutoBackupDir).toHaveBeenCalled();
+  });
+
+  it("prendido: muestra la carpeta y la última copia, copia ahora y se apaga", async () => {
+    const user = setup({ dir: "/home/yo/Drive/respaldos", lastDate: "2026-11-10" });
+    expect(await screen.findByText("/home/yo/Drive/respaldos")).toBeInTheDocument();
+    expect(screen.getByText(/Última copia: 10\/11\/2026/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hacer una copia ahora" }));
+    await waitFor(() => expect(svc.RunAutoBackupNow).toHaveBeenCalled());
+    expect(toast.success).toHaveBeenCalledWith("Copia guardada.");
+    await user.click(screen.getByRole("button", { name: "Apagar" }));
+    expect(svc.ClearAutoBackupDir).toHaveBeenCalled();
+  });
+});
+
 describe("describeImport", () => {
   it("sin nada nuevo lo dice", () => {
     expect(describeImport(none)).toEqual(["No había nada nuevo para sumar."]);
@@ -72,9 +105,9 @@ describe("describeImport", () => {
 
   it("lista lo sumado, lo que ya estaba y lo que no se pudo", () => {
     expect(
-      describeImport({ ...none, signaturesAdded: 1, labelsAdded: 3, rulesAdded: 2, labelsSkipped: 1, rulesFailed: 1 }),
+      describeImport({ ...none, signaturesAdded: 1, labelsAdded: 3, rulesAdded: 2, imageSendersAdded: 2, labelsSkipped: 1, rulesFailed: 1 }),
     ).toEqual([
-      "Se sumaron: 1 firma, 3 etiquetas y 2 reglas.",
+      "Se sumaron: 1 firma, 3 etiquetas, 2 reglas y 2 remitentes con imágenes permitidas.",
       "Ya estaban y no se tocaron: 1 etiqueta.",
       "No se pudieron restaurar: 1 regla. Falta la cuenta, la carpeta o la etiqueta de la que dependen, o ya se llegó al máximo.",
     ]);

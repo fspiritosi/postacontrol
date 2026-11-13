@@ -8,6 +8,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Label } from "@/components/ui/label";
 import { useSuggestions } from "@/lib/queries";
 import {
@@ -32,6 +33,8 @@ export type RecipientDrag = {
   start: (index: number, token: string) => void;
   end: () => void;
   drop: () => void;
+  // Los otros campos, para "Mover a…" desde el clic derecho (sin arrastrar).
+  targets: { label: string; move: (index: number, token: string) => void }[];
 };
 
 type Props = {
@@ -208,38 +211,50 @@ export function RecipientInput({ id, label, value, onChange, onSuggestionsChange
           }}
         >
           {parsed.map(({ token, addr }, i) => (
-            <span
-              key={`${i}:${token}`}
-              title={token}
-              aria-invalid={!addr || undefined}
-              draggable={drag !== undefined}
-              onDragStart={(e) => {
-                if (!drag) return;
-                e.dataTransfer.setData(RECIPIENT_DRAG_TYPE, token);
-                e.dataTransfer.effectAllowed = "move";
-                drag.start(i, token);
-              }}
-              onDragEnd={() => drag?.end()}
-              className={cn(
-                "inline-flex max-w-full items-center gap-0.5 rounded-sm bg-secondary py-0.5 pr-0.5 pl-2 text-sm text-secondary-foreground",
-                !addr && "bg-destructive/10 text-destructive",
-                drag && "cursor-grab active:cursor-grabbing",
+            <ContextMenu key={`${i}:${token}`}>
+              <ContextMenuTrigger asChild>
+                <span
+                  title={token}
+                  aria-invalid={!addr || undefined}
+                  draggable={drag !== undefined}
+                  onDragStart={(e) => {
+                    if (!drag) return;
+                    e.dataTransfer.setData(RECIPIENT_DRAG_TYPE, token);
+                    e.dataTransfer.effectAllowed = "move";
+                    drag.start(i, token);
+                  }}
+                  onDragEnd={() => drag?.end()}
+                  className={cn(
+                    "inline-flex max-w-full items-center gap-0.5 rounded-sm bg-secondary py-0.5 pr-0.5 pl-2 text-sm text-secondary-foreground",
+                    !addr && "bg-destructive/10 text-destructive",
+                    drag && "cursor-grab active:cursor-grabbing",
+                  )}
+                >
+                  <span className="truncate">{addr ? addr.name || addr.email : token}</span>
+                  <button
+                    type="button"
+                    // Desde el teclado se quitan con Backspace; así Tab no pasa por cada chip.
+                    tabIndex={-1}
+                    aria-label={`Quitar ${token}`}
+                    // mousedown (y no click) para no sacarle el foco al campo.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => remove(i)}
+                    className="rounded-sm p-0.5 opacity-60 hover:bg-foreground/10 hover:opacity-100"
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                </span>
+              </ContextMenuTrigger>
+              {drag && drag.targets.length > 0 && (
+                <ContextMenuContent>
+                  {drag.targets.map((t) => (
+                    <ContextMenuItem key={t.label} onSelect={() => t.move(i, token)}>
+                      Mover a {t.label}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuContent>
               )}
-            >
-              <span className="truncate">{addr ? addr.name || addr.email : token}</span>
-              <button
-                type="button"
-                // Desde el teclado se quitan con Backspace; así Tab no pasa por cada chip.
-                tabIndex={-1}
-                aria-label={`Quitar ${token}`}
-                // mousedown (y no click) para no sacarle el foco al campo.
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => remove(i)}
-                className="rounded-sm p-0.5 opacity-60 hover:bg-foreground/10 hover:opacity-100"
-              >
-                <XIcon className="size-3" />
-              </button>
-            </span>
+            </ContextMenu>
           ))}
           <input
             ref={inputRef}

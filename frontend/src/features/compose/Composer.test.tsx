@@ -319,6 +319,23 @@ describe("Composer", () => {
     expect(req.cc).toEqual([{ name: "Ana", email: "ana@x.com" }]);
   });
 
+  it("clic derecho en un chip lo mueve a CCO sin arrastrar", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(12);
+    const user = setup();
+    await user.click(screen.getByText("responder"));
+    const chip = await screen.findByTitle("Ana <ana@x.com>");
+    fireEvent.contextMenu(chip);
+    expect(await screen.findByRole("menuitem", { name: "Mover a CC" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Mover a Para" })).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: "Mover a CCO" }));
+    expect(await screen.findByLabelText("CCO")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    const req = vi.mocked(svc.QueueSend).mock.calls[0][0];
+    expect(req.to).toEqual([]);
+    expect(req.bcc).toEqual([{ name: "Ana", email: "ana@x.com" }]);
+  });
+
   it("soltar el chip en su mismo campo no cambia nada", async () => {
     vi.mocked(svc.QueueSend).mockResolvedValue(12);
     const user = setup();
