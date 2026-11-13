@@ -30,14 +30,23 @@ jobs:
       TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
           # La versión del paquete sale de git describe: hacen falta los tags.
           fetch-depth: 0
           fetch-tags: true
 
-      - uses: ./.github/actions/setup
+      # Un tag anterior al CI no tiene la acción de preparación: se trae la de
+      # este workflow aparte, sin tocar el código del tag. Va después del
+      # checkout del tag, que limpia la carpeta del repo.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .ci
+          sparse-checkout: .github
+
+      - uses: ./.ci/.github/actions/setup
 
       - name: task check
         run: task check
