@@ -259,6 +259,24 @@ describe("Composer", () => {
     });
   });
 
+  it("programar el envío lo deja para mañana a las 8 y avisa", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(12);
+    const user = setup();
+    await user.click(screen.getByText("responder"));
+    await screen.findByTitle("Ana <ana@x.com>");
+    await user.click(screen.getByRole("button", { name: "Programar envío" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mañana, 8:00" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    const req = vi.mocked(svc.QueueSend).mock.calls[0][0];
+    const tomorrow8 = new Date();
+    tomorrow8.setDate(tomorrow8.getDate() + 1);
+    tomorrow8.setHours(8, 0, 0, 0);
+    expect(req.sendAt).toBe(Math.floor(tomorrow8.getTime() / 1000));
+    expect(toast.success).toHaveBeenCalledWith("Programado para mañana a las 8:00. Está en la Bandeja de salida.");
+    expect(toast.loading).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
+  });
+
   it("si no se puede poner en cola queda abierto con el error", async () => {
     vi.mocked(svc.QueueSend).mockRejectedValue(new Error("Agregá al menos un destinatario."));
     const user = setup();

@@ -215,6 +215,9 @@ type SendRequest struct {
 	ComposeDraftID int64 `json:"composeDraftId"`
 	// DraftMessageID es el Message-ID del borrador del que viene el envío.
 	DraftMessageID string `json:"draftMessageId"`
+	// SendAt programa el envío para esa hora (segundos unix); 0 o una hora
+	// que ya pasó = ahora.
+	SendAt int64 `json:"sendAt,omitempty"`
 }
 
 // Draft es un borrador autoguardado del redactor: se sube a la carpeta
@@ -265,8 +268,9 @@ type SendResult struct {
 
 // Estados de un correo de la bandeja de salida.
 const (
-	DraftSending = "sending" // en camino; si la app se cierra, pasa a failed al volver
-	DraftFailed  = "failed"
+	DraftSending   = "sending" // en camino; si la app se cierra, pasa a failed al volver
+	DraftFailed    = "failed"
+	DraftScheduled = "scheduled" // espera su hora (Request.SendAt); sobrevive a cerrar la app
 )
 
 // LocalDraft es un correo de la bandeja de salida: entra antes de enviarse y
@@ -275,7 +279,7 @@ type LocalDraft struct {
 	ID        int64       `json:"id"`
 	CreatedAt time.Time   `json:"createdAt"`
 	Request   SendRequest `json:"request"`
-	Status    string      `json:"status"` // DraftSending o DraftFailed
+	Status    string      `json:"status"` // DraftSending, DraftFailed o DraftScheduled
 	Error     string      `json:"error"`
 }
 
@@ -422,4 +426,14 @@ type Unsubscribe struct {
 type UnsubscribeResult struct {
 	Method string `json:"method"`
 	URL    string `json:"url"`
+}
+
+// Snooze es un correo pospuesto: vuelve a ReturnFolder a la hora Until
+// (segundos unix). MessageID es su encabezado Message-ID.
+type Snooze struct {
+	ID           int64  `json:"id"`
+	AccountID    int64  `json:"accountId"`
+	MessageID    string `json:"messageId"`
+	ReturnFolder string `json:"returnFolder"`
+	Until        int64  `json:"until"`
 }

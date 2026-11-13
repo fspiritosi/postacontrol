@@ -11,6 +11,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   DeleteMessages: vi.fn(() => Promise.resolve()),
   ArchiveMessages: vi.fn(() => Promise.resolve()),
   UndoMove: vi.fn(() => Promise.resolve()),
+  SnoozeMessages: vi.fn(() => Promise.resolve(0)),
   OpenDraftMessage: vi.fn(),
   ListLabels: vi.fn(),
   SetLabel: vi.fn(() => Promise.resolve()),
@@ -103,6 +104,24 @@ describe("MessageActions", () => {
     const opts = vi.mocked(toast.success).mock.calls[0][1] as unknown as { action: { onClick: () => void } };
     opts.action.onClick();
     await waitFor(() => expect(svc.UndoMove).toHaveBeenCalledWith(9));
+  });
+
+  it("Posponer hasta mañana a las 8 cierra el lector y avisa", async () => {
+    const { selectMessage, user } = setup(msg(1));
+    await user.click(await screen.findByRole("button", { name: "Posponer" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mañana, 8:00" }));
+    const tomorrow8 = new Date();
+    tomorrow8.setDate(tomorrow8.getDate() + 1);
+    tomorrow8.setHours(8, 0, 0, 0);
+    await waitFor(() => expect(svc.SnoozeMessages).toHaveBeenCalledWith([55], tomorrow8.getTime() / 1000));
+    expect(selectMessage).toHaveBeenCalledWith(null);
+    expect(toast.success).toHaveBeenCalledWith("Pospuesto hasta mañana a las 8:00");
+  });
+
+  it("en Borradores no se ofrece Posponer", async () => {
+    setup(msg(5));
+    await screen.findByRole("button", { name: "Mover a…" });
+    expect(screen.queryByRole("button", { name: "Posponer" })).toBeNull();
   });
 
   it("en Archivo no se ofrece Archivar", async () => {

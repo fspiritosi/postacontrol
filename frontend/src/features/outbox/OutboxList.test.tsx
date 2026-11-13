@@ -9,6 +9,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListLocalDrafts: vi.fn(),
   DeleteLocalDraft: vi.fn(() => Promise.resolve()),
   QueueSend: vi.fn(),
+  SendScheduledNow: vi.fn(() => Promise.resolve()),
+  UnscheduleSend: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({
   toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -64,7 +66,7 @@ describe("OutboxList", () => {
     await screen.findByText("Presupuesto");
     const [retry] = screen.getAllByRole("button", { name: "Reintentar" });
     await user.click(retry);
-    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalledWith({ ...request, draftId: 3 }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalledWith({ ...request, sendAt: 0, draftId: 3 }));
     expect(toast.loading).toHaveBeenCalledWith("Enviando correo…", { id: "send-3" });
   });
 
@@ -100,5 +102,28 @@ describe("OutboxList", () => {
     vi.mocked(svc.ListLocalDrafts).mockResolvedValue([]);
     setup();
     expect(await screen.findByText("No hay correos pendientes de envío.")).toBeInTheDocument();
+  });
+
+  it("un programado muestra su hora y se puede mandar ya o cancelar", async () => {
+    const at = new Date();
+    at.setDate(at.getDate() + 1);
+    at.setHours(8, 0, 0, 0);
+    const scheduled = { ...failed, id: 7, request: { ...request, subject: "Para mañana", sendAt: at.getTime() / 1000 }, status: "scheduled", error: "" };
+    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([scheduled] as never);
+    const user = setup();
+    expect(await screen.findByText("Programado para mañana a las 8:00")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Enviar ahora" }));
+    expect(svc.SendScheduledNow).toHaveBeenCalledWith(7);
+    await user.click(screen.getByRole("button", { name: "Cancelar programación" }));
+    expect(svc.UnscheduleSend).toHaveBeenCalledWith(7);
+  });
+
+  it("reintentar uno que estaba programado lo manda ahora", async () => {
+    vi.mocked(svc.QueueSend).mockResolvedValue(3);
+    vi.mocked(svc.ListLocalDrafts).mockResolvedValue([{ ...failed, request: { ...request, sendAt: 9999999999 } }] as never);
+    const user = setup();
+    await user.click(await screen.findByRole("button", { name: "Reintentar" }));
+    await waitFor(() => expect(svc.QueueSend).toHaveBeenCalled());
+    expect(vi.mocked(svc.QueueSend).mock.calls[0][0].sendAt).toBe(0);
   });
 });

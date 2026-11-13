@@ -38,6 +38,7 @@ export type {
     ServerSettings,
     Settings,
     Signature,
+    Snooze,
     StagedAttachment,
     SubfolderCount,
     Suggestion,

@@ -10,6 +10,7 @@ import { labelChipStyle, orderedLabels } from "@/lib/labels";
 import { contactDisplayName } from "@/lib/contacts";
 import { errorMessage, isStaleError } from "@/lib/errors";
 import { syncFolder, syncUnified } from "@/lib/events";
+import { isSnoozeFolder } from "@/lib/folders";
 import { fullDate, initials } from "@/lib/format";
 import { useAllFolders, useContactForEmail, useFolders, useLabels, useMessage } from "@/lib/queries";
 import { applyLabel } from "../labels/applyLabel";
@@ -19,6 +20,7 @@ import { AttachmentList } from "./AttachmentList";
 import { MessageActions } from "./MessageActions";
 import { SafeHtmlFrame } from "./SafeHtmlFrame";
 import { UnsubscribeButton } from "./UnsubscribeButton";
+import { SnoozeBanner } from "./SnoozeBanner";
 import { ReaderBackdrop } from "./ReaderBackdrop";
 
 export type ComposeMode = "reply" | "replyAll" | "forward";
@@ -137,7 +139,8 @@ function Body({
     }
   };
   const composer = useComposer();
-  const role = useFolders(message.accountId).data?.find((f) => f.id === message.folderId)?.role;
+  const folder = useFolders(message.accountId).data?.find((f) => f.id === message.folderId);
+  const role = folder?.role;
   // Un borrador no se responde ni se reenvía (MessageActions ofrece seguir editándolo).
   const inDrafts = role === "drafts";
   const compose = onCompose ?? ((id: number, mode: ComposeMode) => void composer.openFrom(id, mode));
@@ -209,6 +212,10 @@ function Body({
           </div>
           <MessageLabels message={message} />
         </div>
+
+        {folder && isSnoozeFolder(folder) && (
+          <SnoozeBanner messageId={message.id} onReturned={() => selectMessage(null)} />
+        )}
 
         {message.hasRemoteImages && !allowRemote && (
           <div className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-md border bg-muted/50 px-3 py-2 text-xs">

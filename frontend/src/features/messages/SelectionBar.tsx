@@ -7,6 +7,7 @@ import {
   TagIcon,
   Trash2Icon,
   ArchiveIcon,
+  AlarmClockIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -42,6 +43,8 @@ import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
 import { useAllFolders } from "@/lib/queries";
 import { undoableToast } from "@/lib/undo";
+import { formatWhen } from "@/lib/when";
+import { WhenMenu } from "../when/WhenMenu";
 import { LabelMenuItems } from "../labels/LabelMenu";
 
 // Cómo terminó una acción: qué ids salieron bien, cuáles fallaron y si los
@@ -235,6 +238,24 @@ export function SelectionBar({
     );
   };
 
+  const snooze = (at: Date) => {
+    const undos: number[] = [];
+    return act(
+      async (_a, ids) => {
+        undos.push(await svc.SnoozeMessages(ids, Math.floor(at.getTime() / 1000)));
+      },
+      {
+        removed: true,
+        onOk: (done) =>
+          undoableToast(
+            queryClient,
+            `${done.length === 1 ? "Pospuesto" : `${done.length} pospuestos`} hasta ${formatWhen(at)}`,
+            undos,
+          ),
+      },
+    );
+  };
+
   const remove = (all: Target[]) => {
     const undos: number[] = [];
     return act(
@@ -337,6 +358,19 @@ export function SelectionBar({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {!allTrash && (
+        <WhenMenu
+          title="Posponer hasta…"
+          align="start"
+          onPick={(at) => void snooze(at)}
+          trigger={
+            <Button variant="outline" size="sm" disabled={!ready}>
+              <AlarmClockIcon />
+              Posponer
+            </Button>
+          }
+        />
       )}
       {!allArchived && (
         <Button

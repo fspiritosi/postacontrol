@@ -18,6 +18,13 @@ export function folderLabel(f: Pick<Folder, "name" | "delimiter" | "role">): str
   return ROLE_LABEL[f.role] ?? segs[segs.length - 1];
 }
 
+// La carpeta de los pospuestos (core/mail/snooze.go): se la reconoce por su
+// último nombre, con o sin el prefijo del servidor (INBOX.Pospuestos).
+export function isSnoozeFolder(f: Pick<Folder, "name" | "delimiter">): boolean {
+  const segs = f.delimiter ? f.name.split(f.delimiter) : [f.name];
+  return segs[segs.length - 1].toLowerCase() === "pospuestos";
+}
+
 function byLabel(a: FolderNode, b: FolderNode): number {
   return a.label.localeCompare(b.label, "es", { sensitivity: "base" });
 }
