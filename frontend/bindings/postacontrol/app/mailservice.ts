@@ -53,6 +53,14 @@ export function BackgroundImage(): $CancellablePromise<string> {
 }
 
 /**
+ * CancelSend frena un correo que todavía espera para salir: queda en la
+ * Bandeja de salida para seguir editándolo.
+ */
+export function CancelSend(draftID: number): $CancellablePromise<void> {
+    return $Call.ByID(938852947, draftID);
+}
+
+/**
  * ClearBackground quita la imagen de fondo.
  */
 export function ClearBackground(): $CancellablePromise<void> {
@@ -218,6 +226,13 @@ export function ListContacts(query: string): $CancellablePromise<model$0.Contact
 
 export function ListFolders(accountID: number): $CancellablePromise<model$0.Folder[] | null> {
     return $Call.ByID(4066439256, accountID);
+}
+
+/**
+ * ListImageSenders devuelve los remitentes con imágenes remotas permitidas.
+ */
+export function ListImageSenders(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(3195753066);
 }
 
 export function ListLabeled(labelID: number, accountID: number, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
@@ -519,10 +534,24 @@ export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void
 }
 
 /**
+ * TrustImageSender muestra siempre las imágenes remotas de ese remitente.
+ */
+export function TrustImageSender(email: string): $CancellablePromise<void> {
+    return $Call.ByID(2332409129, email);
+}
+
+/**
  * UndoMove devuelve a su carpeta lo que movió una de las acciones de arriba.
  */
 export function UndoMove(undoID: number): $CancellablePromise<void> {
     return $Call.ByID(3885534608, undoID);
+}
+
+/**
+ * UntrustImageSender vuelve a bloquear las imágenes remotas de ese remitente.
+ */
+export function UntrustImageSender(email: string): $CancellablePromise<void> {
+    return $Call.ByID(4268265162, email);
 }
 
 /**

@@ -37,6 +37,9 @@ type Config struct {
 	Autoconfig autoconfig.Options
 	// SkipInitialSync evita lanzar SyncAccount al agregar una cuenta (solo para tests).
 	SkipInitialSync bool
+	// UndoSendDelay es cuánto espera un correo en la bandeja de salida antes
+	// de salir, para poder deshacer el envío (CancelSend). 0 = sale enseguida.
+	UndoSendDelay time.Duration
 }
 
 type Core struct {
@@ -73,6 +76,12 @@ type Core struct {
 	undoMu  sync.Mutex
 	undoSeq int64
 	undos   map[int64]undoEntry
+
+	// pendingSends son los envíos que esperan UndoSendDelay (ver CancelSend);
+	// heldWG espera a que terminen los que Close manda sin esperar más.
+	pendingMu    sync.Mutex
+	pendingSends map[int64]heldSend
+	heldWG       sync.WaitGroup
 
 	poolMu sync.Mutex
 	pool   map[int64]*pooledConn // una conexión IMAP por cuenta
@@ -163,6 +172,9 @@ func New(cfg Config) (*Core, error) {
 // las conexiones IMAP y por último el store. Se puede llamar más de una vez.
 func (c *Core) Close() error {
 	c.closeOnce.Do(func() {
+		// Lo que esperaba para poder deshacerse sale ahora: cerrar la app no
+		// es arrepentirse del envío.
+		c.sendHeldNow(closeSendTimeout)
 		c.lifeMu.Lock()
 		c.closed = true
 		c.lifeMu.Unlock()

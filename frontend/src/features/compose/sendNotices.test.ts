@@ -10,12 +10,16 @@ vi.mock("@wailsio/runtime", () => ({
     },
   },
 }));
+vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
+  CancelSend: vi.fn(() => Promise.resolve()),
+}));
 vi.mock("sonner", () => ({
   toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
 import { toast } from "sonner";
-import { resetSendNoticesForTests, sendStarted, sendToastId, useSendNotices } from "./sendNotices";
+import * as svc from "../../../bindings/postacontrol/app/mailservice";
+import { UNDO_SEND_MS, resetSendNoticesForTests, sendStarted, sendToastId, useSendNotices } from "./sendNotices";
 
 function finish(data: { draftId: number; ok: boolean; message?: string; warning?: string }) {
   act(() => handlers.get("mail:send-finished")!({ data: { message: "", warning: "", ...data } }));
@@ -65,5 +69,42 @@ describe("avisos de envío", () => {
     sendStarted(8);
     expect(toast.loading).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it("con deshacer envío, Enviando… ofrece Deshacer: frena el correo y lo abre", async () => {
+    const open = vi.fn();
+    renderHook(() => useSendNotices(open, true));
+    sendStarted(4);
+    const [title, opts] = vi.mocked(toast.loading).mock.calls[0] as [string, Record<string, unknown>];
+    expect(title).toBe("Enviando correo…");
+    const action = opts.action as { label: string; onClick: () => void };
+    expect(action.label).toBe("Deshacer");
+    action.onClick();
+    await vi.waitFor(() => expect(open).toHaveBeenCalledWith(4));
+    expect(svc.CancelSend).toHaveBeenCalledWith(4);
+    expect(toast.success).toHaveBeenCalledWith("Envío cancelado", expect.objectContaining({ id: sendToastId(4) }));
+  });
+
+  it("pasado el tiempo para deshacer, el aviso ya no ofrece Deshacer", () => {
+    vi.useFakeTimers();
+    try {
+      renderHook(() => useSendNotices(vi.fn(), true));
+      sendStarted(4);
+      vi.advanceTimersByTime(UNDO_SEND_MS + 1);
+      expect(toast.loading).toHaveBeenLastCalledWith("Enviando correo…", { id: sendToastId(4) });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("si ya salió, Deshacer lo avisa", async () => {
+    vi.mocked(svc.CancelSend).mockRejectedValueOnce(new Error("El correo ya salió."));
+    const open = vi.fn();
+    renderHook(() => useSendNotices(open, true));
+    sendStarted(4);
+    const opts = vi.mocked(toast.loading).mock.calls[0][1] as unknown as { action: { onClick: () => void } };
+    opts.action.onClick();
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith("El correo ya salió."));
+    expect(open).not.toHaveBeenCalled();
   });
 });

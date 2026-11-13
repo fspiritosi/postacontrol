@@ -16,6 +16,8 @@ const (
 	EventContactsChanged = "mail:contacts-changed" // data: nil
 	// EventLabelsChanged: hubo un alta, un cambio, un reordenamiento o una baja de etiquetas.
 	EventLabelsChanged = "mail:labels-changed" // data: nil
+	// EventImageSendersChanged: cambió la lista de remitentes con imágenes permitidas.
+	EventImageSendersChanged = "mail:image-senders-changed" // data: nil
 	// EventLabelsLocalOnly: el servidor de la cuenta no guarda keywords; sus etiquetas quedan solo en esta PC.
 	EventLabelsLocalOnly = "mail:labels-local-only" // data: {"accountId": int64, "email": string}
 	// EventRulesChanged: hubo un alta, un cambio, un reordenamiento o una baja de reglas de la cuenta.

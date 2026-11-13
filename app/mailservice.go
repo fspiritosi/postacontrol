@@ -22,6 +22,10 @@ import (
 
 const syncEvery = 5 * time.Minute
 
+// undoSendDelay es cuánto espera un correo antes de salir, para poder deshacer
+// el envío.
+const undoSendDelay = 10 * time.Second
+
 // MailService es el servicio que ve el frontend. Delega en mail.Core; los
 // errores del núcleo (*mail.UserError) llegan a JS con su mensaje en español,
 // porque Wails usa err.Error().
@@ -68,6 +72,8 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 		DBPath:   filepath.Join(dir, "postacontrol.db"),
 		Secrets:  secrets.NewKeyring(),
 		Notifier: wailsNotifier{app: s.app, hub: &s.hub},
+		// Los segundos para deshacer un envío (se puede apagar en Redacción).
+		UndoSendDelay: undoSendDelay,
 	})
 	if err != nil {
 		return err
@@ -424,6 +430,27 @@ func (s *MailService) PrepareCompose(ctx context.Context, messageID int64, mode 
 // plano; el resultado llega por el evento mail:send-finished.
 func (s *MailService) QueueSend(ctx context.Context, req model.SendRequest) (int64, error) {
 	return s.core.QueueSend(ctx, req)
+}
+
+// CancelSend frena un correo que todavía espera para salir: queda en la
+// Bandeja de salida para seguir editándolo.
+func (s *MailService) CancelSend(ctx context.Context, draftID int64) error {
+	return s.core.CancelSend(ctx, draftID)
+}
+
+// TrustImageSender muestra siempre las imágenes remotas de ese remitente.
+func (s *MailService) TrustImageSender(ctx context.Context, email string) error {
+	return s.core.TrustImageSender(ctx, email)
+}
+
+// UntrustImageSender vuelve a bloquear las imágenes remotas de ese remitente.
+func (s *MailService) UntrustImageSender(ctx context.Context, email string) error {
+	return s.core.UntrustImageSender(ctx, email)
+}
+
+// ListImageSenders devuelve los remitentes con imágenes remotas permitidas.
+func (s *MailService) ListImageSenders(ctx context.Context) ([]string, error) {
+	return s.core.ListImageSenders(ctx)
 }
 
 func (s *MailService) ListLocalDrafts(ctx context.Context) ([]model.LocalDraft, error) {
