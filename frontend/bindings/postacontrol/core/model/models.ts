@@ -212,7 +212,7 @@ export interface LocalDraft {
     "request": SendRequest;
 
     /**
-     * DraftSending o DraftFailed
+     * DraftSending, DraftFailed o DraftScheduled
      */
     "status": string;
     "error": string;
@@ -445,6 +445,12 @@ export interface SendRequest {
      * DraftMessageID es el Message-ID del borrador del que viene el envío.
      */
     "draftMessageId": string;
+
+    /**
+     * SendAt programa el envío para esa hora (segundos unix); 0 o una hora
+     * que ya pasó = ahora.
+     */
+    "sendAt"?: number;
 }
 
 export interface ServerSettings {
@@ -506,6 +512,18 @@ export interface Signature {
     "id": number;
     "name": string;
     "html": string;
+}
+
+/**
+ * Snooze es un correo pospuesto: vuelve a ReturnFolder a la hora Until
+ * (segundos unix). MessageID es su encabezado Message-ID.
+ */
+export interface Snooze {
+    "id": number;
+    "accountId": number;
+    "messageId": string;
+    "returnFolder": string;
+    "until": number;
 }
 
 /**

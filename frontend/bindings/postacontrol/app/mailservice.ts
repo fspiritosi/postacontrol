@@ -490,6 +490,13 @@ export function SearchServer(folderID: number, text: string): $CancellablePromis
 }
 
 /**
+ * SendScheduledNow manda ya un correo programado.
+ */
+export function SendScheduledNow(draftID: number): $CancellablePromise<void> {
+    return $Call.ByID(2971390676, draftID);
+}
+
+/**
  * SetAccountSignature fija la firma por defecto de la cuenta (0 = sin firma).
  */
 export function SetAccountSignature(accountID: number, signatureID: number): $CancellablePromise<void> {
@@ -543,6 +550,21 @@ export function SetStartAtLogin(enabled: boolean): $CancellablePromise<void> {
 }
 
 /**
+ * SnoozeFor dice cuándo vuelve el correo, o nil si no está pospuesto.
+ */
+export function SnoozeFor(messageID: number): $CancellablePromise<model$0.Snooze | null> {
+    return $Call.ByID(1238901760, messageID);
+}
+
+/**
+ * SnoozeMessages pospone los correos hasta until (segundos unix) y devuelve
+ * con qué deshacerlo (UndoMove).
+ */
+export function SnoozeMessages(ids: number[] | null, until: number): $CancellablePromise<number> {
+    return $Call.ByID(3250792197, ids, until);
+}
+
+/**
  * SpellcheckEnabled dice si el corrector va prendido; si no se puede leer la
  * configuración, prendido (es el valor de fábrica).
  */
@@ -592,6 +614,20 @@ export function TrustImageSender(email: string): $CancellablePromise<void> {
  */
 export function UndoMove(undoID: number): $CancellablePromise<void> {
     return $Call.ByID(3885534608, undoID);
+}
+
+/**
+ * UnscheduleSend cancela la programación: queda en la Bandeja de salida.
+ */
+export function UnscheduleSend(draftID: number): $CancellablePromise<void> {
+    return $Call.ByID(2339211423, draftID);
+}
+
+/**
+ * Unsnooze devuelve ya un correo pospuesto a su carpeta.
+ */
+export function Unsnooze(snoozeID: number): $CancellablePromise<void> {
+    return $Call.ByID(3060131682, snoozeID);
 }
 
 /**

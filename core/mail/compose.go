@@ -178,6 +178,7 @@ func (c *Core) PrepareCompose(ctx context.Context, messageID int64, mode model.C
 func (c *Core) Send(ctx context.Context, req model.SendRequest) (model.SendResult, error) {
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
+	req.SendAt = 0 // Send espera el resultado: sale ahora
 	q, err := c.enqueue(ctx, req)
 	if err != nil {
 		return model.SendResult{}, err
@@ -202,6 +203,9 @@ func (c *Core) QueueSend(ctx context.Context, req model.SendRequest) (int64, err
 	q, err := c.enqueue(qctx, req)
 	if err != nil {
 		return 0, err
+	}
+	if q.scheduled {
+		return q.id, nil // lo manda el temporizador (sendDueScheduled) a su hora
 	}
 	var held *heldSend
 	if delay > 0 {
@@ -334,6 +338,8 @@ type queuedSend struct {
 	id  int64
 	acc model.Account
 	req model.SendRequest
+	// scheduled: quedó esperando su hora (req.SendAt), no se manda ahora.
+	scheduled bool
 	// oldDraftAccountID es la cuenta en cuya carpeta Borradores quedó la
 	// última copia del borrador del que sale el envío, si no es la del envío
 	// (cambió "De"); 0 si no hay.
@@ -400,7 +406,12 @@ func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (queuedSend, 
 	// cuando el correo sale) pero no el id del borrador, que deja de existir.
 	stored := req
 	stored.ComposeDraftID = 0
-	id, err := c.store.QueueLocalDraft(ctx, req.DraftID, stored)
+	scheduled := req.SendAt > time.Now().Unix()
+	put := c.store.QueueLocalDraft
+	if scheduled {
+		put = c.store.ScheduleLocalDraft
+	}
+	id, err := put(ctx, req.DraftID, stored)
 	if errors.Is(err, store.ErrBusy) {
 		return queuedSend{}, &UserError{Code: "busy", Msg: "Este correo ya se está enviando."}
 	}
@@ -416,7 +427,7 @@ func (c *Core) enqueue(ctx context.Context, req model.SendRequest) (queuedSend, 
 			c.emit(EventDraftsChanged, nil)
 		}
 	}
-	return queuedSend{id: id, acc: acc, req: req, oldDraftAccountID: oldDraftAccountID}, nil
+	return queuedSend{id: id, acc: acc, req: req, scheduled: scheduled, oldDraftAccountID: oldDraftAccountID}, nil
 }
 
 // checkSize verifica que los adjuntos preparados existan y que el correo (esos

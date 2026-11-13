@@ -10,6 +10,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   MoveMessages: vi.fn(() => Promise.resolve()),
   DeleteMessages: vi.fn(() => Promise.resolve()),
   ArchiveMessages: vi.fn(() => Promise.resolve()),
+  SnoozeMessages: vi.fn(() => Promise.resolve(0)),
   GetThread: vi.fn(),
   ListLabels: vi.fn(() => Promise.resolve([])),
   SetLabel: vi.fn(() => Promise.resolve()),
@@ -137,6 +138,15 @@ describe("SelectionBar", () => {
     expect(svc.ArchiveMessages).toHaveBeenCalledWith([3]);
     expect(toast.success).toHaveBeenCalledWith("3 archivados");
     expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ ok: [1, 2, 3], removed: true }));
+  });
+
+  it("Posponer pospone lo marcado por cuenta", async () => {
+    const { onDone } = renderBar([t(1, 7, 70), t(2, 8, 80)]);
+    await userEvent.click(await screen.findByRole("button", { name: "Posponer" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Mañana, 8:00" }));
+    await waitFor(() => expect(svc.SnoozeMessages).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(svc.SnoozeMessages).mock.calls.map((c) => c[0])).toEqual([[1], [2]]);
+    expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ ok: [1, 2], removed: true }));
   });
 
   it("si todo ya está en Archivo no se ofrece Archivar", async () => {

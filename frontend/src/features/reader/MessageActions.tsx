@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ArchiveIcon, FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
+import { AlarmClockIcon, ArchiveIcon, FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -26,6 +26,8 @@ import { folderLabel } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
 import { ruleDraftFromSender } from "@/lib/rules";
 import { undoableToast } from "@/lib/undo";
+import { formatWhen } from "@/lib/when";
+import { WhenMenu } from "../when/WhenMenu";
 import { LabelMenuItems } from "../labels/LabelMenu";
 import { useComposer } from "../compose/ComposerContext";
 
@@ -48,6 +50,8 @@ export function MessageActions({ message, selectMessage }: Props) {
   const inDrafts = current?.role === "drafts";
   // Archivar no tiene sentido en Archivo ni en Borradores (ahí se sigue editando).
   const canArchive = folderKnown && current.role !== "archive" && !inDrafts;
+  // Posponer: no en Borradores, Enviados ni Papelera.
+  const canSnooze = folderKnown && !inDrafts && current.role !== "sent" && current.role !== "trash";
   const targets = folders.filter((f) => f.selectable && f.id !== message.folderId);
 
   const labelTarget = {
@@ -94,6 +98,8 @@ export function MessageActions({ message, selectMessage }: Props) {
       },
     );
   };
+  const snooze = (at: Date) =>
+    moveAway(() => svc.SnoozeMessages([message.id], Math.floor(at.getTime() / 1000)), `Pospuesto hasta ${formatWhen(at)}`);
   const moveTo = (id: number, label: string) => moveAway(() => svc.MoveMessages([message.id], id), `Movido a ${label}`);
   const archive = () => moveAway(() => svc.ArchiveMessages([message.id]), "Archivado");
   // En la Papelera es definitivo: no hay nada que avisar ni deshacer.
@@ -165,6 +171,19 @@ export function MessageActions({ message, selectMessage }: Props) {
           Crear regla…
         </Button>
       ) : null}
+      {canSnooze && (
+        <WhenMenu
+          title="Posponer hasta…"
+          align="start"
+          onPick={(at) => void snooze(at)}
+          trigger={
+            <Button variant="outline" size="sm">
+              <AlarmClockIcon />
+              Posponer
+            </Button>
+          }
+        />
+      )}
       {canArchive && (
         <Button variant="outline" size="sm" onClick={() => void archive()}>
           <ArchiveIcon />

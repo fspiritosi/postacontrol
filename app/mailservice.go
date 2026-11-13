@@ -88,6 +88,8 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 	// La copia es semanal; revisar cada pocas horas alcanza para no saltearla
 	// si la PC se usa poco.
 	core.StartAutoBackup(ctx, autoBackupCheckEvery)
+	// Envíos programados y correos pospuestos: alcanza con mirar cada minuto.
+	core.StartScheduler(ctx, time.Minute)
 	return nil
 }
 
@@ -525,6 +527,32 @@ func (s *MailService) PrepareCompose(ctx context.Context, messageID int64, mode 
 // plano; el resultado llega por el evento mail:send-finished.
 func (s *MailService) QueueSend(ctx context.Context, req model.SendRequest) (int64, error) {
 	return s.core.QueueSend(ctx, req)
+}
+
+// SendScheduledNow manda ya un correo programado.
+func (s *MailService) SendScheduledNow(ctx context.Context, draftID int64) error {
+	return s.core.SendScheduledNow(ctx, draftID)
+}
+
+// UnscheduleSend cancela la programación: queda en la Bandeja de salida.
+func (s *MailService) UnscheduleSend(ctx context.Context, draftID int64) error {
+	return s.core.UnscheduleSend(ctx, draftID)
+}
+
+// SnoozeMessages pospone los correos hasta until (segundos unix) y devuelve
+// con qué deshacerlo (UndoMove).
+func (s *MailService) SnoozeMessages(ctx context.Context, ids []int64, until int64) (int64, error) {
+	return s.core.SnoozeMessages(ctx, ids, until)
+}
+
+// SnoozeFor dice cuándo vuelve el correo, o nil si no está pospuesto.
+func (s *MailService) SnoozeFor(ctx context.Context, messageID int64) (*model.Snooze, error) {
+	return s.core.SnoozeFor(ctx, messageID)
+}
+
+// Unsnooze devuelve ya un correo pospuesto a su carpeta.
+func (s *MailService) Unsnooze(ctx context.Context, snoozeID int64) error {
+	return s.core.Unsnooze(ctx, snoozeID)
 }
 
 // CancelSend frena un correo que todavía espera para salir: queda en la

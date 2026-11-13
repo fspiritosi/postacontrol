@@ -1,4 +1,4 @@
-import { LoaderCircleIcon } from "lucide-react";
+import { ClockIcon, LoaderCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { errorMessage } from "@/lib/errors";
 import { relativeDate } from "@/lib/format";
+import { formatWhen } from "@/lib/when";
 import { useDrafts } from "@/lib/queries";
 import { useComposer } from "../compose/ComposerContext";
 import { sendStarted } from "../compose/sendNotices";
@@ -26,6 +27,7 @@ function recipients(d: LocalDraft): string {
 function OutboxItem({ draft, onDelete }: { draft: LocalDraft; onDelete: () => void }) {
   const { openDraft } = useComposer();
   const sending = draft.status === "sending";
+  const scheduled = draft.status === "scheduled";
 
   const reopen = async () => {
     try {
@@ -35,9 +37,19 @@ function OutboxItem({ draft, onDelete }: { draft: LocalDraft; onDelete: () => vo
     }
   };
 
+  const act = async (fn: () => Promise<unknown>, after?: () => void) => {
+    try {
+      await fn();
+      after?.();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   const retry = async () => {
     try {
-      sendStarted(await svc.QueueSend({ ...draft.request, draftId: draft.id }));
+      // Reintentar es mandarlo ya, aunque hubiera estado programado.
+      sendStarted(await svc.QueueSend({ ...draft.request, sendAt: 0, draftId: draft.id }));
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -54,13 +66,28 @@ function OutboxItem({ draft, onDelete }: { draft: LocalDraft; onDelete: () => vo
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <LoaderCircleIcon className="size-3.5 animate-spin" /> Enviando…
         </p>
+      ) : scheduled ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <ClockIcon className="size-3.5" /> Programado para {formatWhen(new Date((draft.request.sendAt ?? 0) * 1000))}
+        </p>
       ) : (
         <p className="text-xs text-destructive">{draft.error}</p>
       )}
       <div className="flex gap-1.5 pt-1">
-        <Button size="sm" variant="outline" disabled={sending} onClick={() => void retry()}>
-          Reintentar
-        </Button>
+        {scheduled ? (
+          <>
+            <Button size="sm" variant="outline" onClick={() => void act(() => svc.SendScheduledNow(draft.id), () => sendStarted(draft.id))}>
+              Enviar ahora
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void act(() => svc.UnscheduleSend(draft.id))}>
+              Cancelar programación
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" variant="outline" disabled={sending} onClick={() => void retry()}>
+            Reintentar
+          </Button>
+        )}
         <Button size="sm" variant="ghost" disabled={sending} onClick={() => void reopen()}>
           Abrir
         </Button>

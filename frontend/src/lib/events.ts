@@ -299,6 +299,12 @@ export function useMailEvents(queryClient: QueryClient): void {
           { id: `labels-local-only-${accountId}`, duration: 10000 },
         );
       }),
+      Events.On("mail:snoozes-changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["snooze"] });
+      }),
+      Events.On("mail:snooze-returned", () => {
+        toast.info("Volvió un correo que habías pospuesto.");
+      }),
       Events.On("mail:auto-backup-failed", (ev) => {
         const { message } = ev.data as { message: string };
         toast.warning(message, { id: "auto-backup-failed", duration: 15000 });

@@ -1,5 +1,5 @@
 import { Events, Window } from "@wailsio/runtime";
-import { PaperclipIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, PaperclipIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -27,6 +27,8 @@ import { onFilesStaged, type FilesStaged } from "@/lib/events";
 import { formatSize } from "@/lib/format";
 import { useAccounts, useSignatures } from "@/lib/queries";
 import { formatRecipients, moveRecipient, parseRecipients } from "@/lib/recipients";
+import { formatWhen } from "@/lib/when";
+import { WhenMenu } from "../when/WhenMenu";
 import { SafeHtmlFrame } from "../reader/SafeHtmlFrame";
 import type { SendRequest, StagedAttachment } from "../../../bindings/postacontrol/core/model/models";
 import { AttachmentList } from "./AttachmentList";
@@ -63,6 +65,10 @@ const DRAFT_STATUS_TEXT: Record<DraftStatus, string> = {
   saved: "Guardado",
   local: "Guardado solo en esta compu",
 };
+
+// La hora, para medir cuánto se vio "Enviando…". Afuera del componente: send
+// solo corre por un clic (el botón o el menú de programar), nunca al pintar.
+const clockNow = () => Date.now();
 
 // Sin texto ni imágenes: lo que deja el editor vacío ("<p></p>").
 function isBlankHtml(html: string): boolean {
@@ -240,24 +246,31 @@ export function Composer({ init, onClose, windowId }: Props) {
   // El correo entra a la bandeja de salida y se envía en segundo plano; el
   // resultado lo avisa useSendNotices. Solo los errores de validación dejan
   // el redactor abierto.
-  const send = async () => {
+  // sendAt (segundos unix) programa el envío para esa hora.
+  const send = async (sendAt?: Date) => {
     setSending(true);
     setError(null);
-    const shownAt = Date.now();
+    const shownAt = clockNow();
     // Se arma antes del primer await para que compose:flush ya lo vea.
     const queued = (async () => {
       // Un guardado en vuelo podría llegar después del envío (y recrear el
       // borrador): se cancelan los timers y se espera antes de encolar.
       await autosave.cancel();
       const { draftId: composeDraftId, messageId: draftMessageId } = autosave.current();
-      return svc.QueueSend({ ...buildRequest(), composeDraftId, draftMessageId });
+      const when = sendAt ? { sendAt: Math.floor(sendAt.getTime() / 1000) } : {};
+      return svc.QueueSend({ ...buildRequest(), composeDraftId, draftMessageId, ...when });
     })();
     sendRef.current = queued;
     try {
       const id = await queued;
-      // En su ventana, el aviso "Enviando…" lo muestran todas (también la principal).
-      if (windowId !== undefined) void svc.ComposeSendStarted(id);
-      else sendStarted(id);
+      if (sendAt) {
+        notify("success", `Programado para ${formatWhen(sendAt)}. Está en la Bandeja de salida.`);
+      } else if (windowId !== undefined) {
+        // En su ventana, el aviso "Enviando…" lo muestran todas (también la principal).
+        void svc.ComposeSendStarted(id);
+      } else {
+        sendStarted(id);
+      }
     } catch (e) {
       sendRef.current = null;
       setError(errorMessage(e));
@@ -266,7 +279,7 @@ export function Composer({ init, onClose, windowId }: Props) {
       autosave.resume();
       return;
     }
-    const left = SENDING_FEEDBACK_MS - (Date.now() - shownAt);
+    const left = SENDING_FEEDBACK_MS - (clockNow() - shownAt);
     if (left > 0) await new Promise((r) => setTimeout(r, left));
     onClose();
   };
@@ -597,9 +610,27 @@ export function Composer({ init, onClose, windowId }: Props) {
                 Cancelar
               </Button>
             )}
-            <Button type="button" onClick={() => void send()} disabled={!canSend || closing}>
-              {sending ? "Enviando…" : "Enviar"}
-            </Button>
+            <div className="flex">
+              <Button type="button" className="rounded-r-none" onClick={() => void send()} disabled={!canSend || closing}>
+                {sending ? "Enviando…" : "Enviar"}
+              </Button>
+              <WhenMenu
+                title="Programar envío"
+                onPick={(at) => void send(at)}
+                trigger={
+                  <Button
+                    type="button"
+                    size="icon"
+                    aria-label="Programar envío"
+                    title="Programar envío"
+                    className="rounded-l-none border-l border-primary-foreground/20"
+                    disabled={!canSend || closing || sending}
+                  >
+                    <ChevronDownIcon />
+                  </Button>
+                }
+              />
+            </div>
           </div>
         </footer>
       </main>
