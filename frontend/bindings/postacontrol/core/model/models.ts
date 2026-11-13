@@ -59,6 +59,25 @@ export interface AttachmentData {
     "data": string | null;
 }
 
+/**
+ * BackupImport es el resumen de importar un respaldo. Lo que ya estaba se
+ * saltea (Skipped) y no se pisa; Failed es lo que no se pudo restaurar porque
+ * falta algo de lo que depende (la cuenta, la carpeta o la etiqueta) o porque
+ * se llegó al máximo.
+ */
+export interface BackupImport {
+    "contactsAdded": number;
+    "contactsSkipped": number;
+    "signaturesAdded": number;
+    "signaturesSkipped": number;
+    "labelsAdded": number;
+    "labelsSkipped": number;
+    "labelsFailed": number;
+    "rulesAdded": number;
+    "rulesSkipped": number;
+    "rulesFailed": number;
+}
+
 export interface ComposeDraft {
     "accountId": number;
     "to": Address[] | null;

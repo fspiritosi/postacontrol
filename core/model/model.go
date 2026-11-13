@@ -369,3 +369,20 @@ type RuleRun struct {
 	// Matched es cuántos correos cumplieron al menos una regla.
 	Matched int `json:"matched"`
 }
+
+// BackupImport es el resumen de importar un respaldo. Lo que ya estaba se
+// saltea (Skipped) y no se pisa; Failed es lo que no se pudo restaurar porque
+// falta algo de lo que depende (la cuenta, la carpeta o la etiqueta) o porque
+// se llegó al máximo.
+type BackupImport struct {
+	ContactsAdded     int `json:"contactsAdded"`
+	ContactsSkipped   int `json:"contactsSkipped"`
+	SignaturesAdded   int `json:"signaturesAdded"`
+	SignaturesSkipped int `json:"signaturesSkipped"`
+	LabelsAdded       int `json:"labelsAdded"`
+	LabelsSkipped     int `json:"labelsSkipped"`
+	LabelsFailed      int `json:"labelsFailed"`
+	RulesAdded        int `json:"rulesAdded"`
+	RulesSkipped      int `json:"rulesSkipped"`
+	RulesFailed       int `json:"rulesFailed"`
+}

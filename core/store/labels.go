@@ -122,6 +122,28 @@ func (s *Store) InsertLabel(ctx context.Context, name, color, keyword string) (m
 	return l, err
 }
 
+// RestoreLabel crea una etiqueta con un keyword que ya existía (al importar un
+// respaldo), así se reengancha con los correos que lo tienen en el servidor.
+// Si había una limpieza pendiente de ese keyword (la etiqueta se borró), se
+// cancela: si no, le sacaría el keyword a esos correos.
+func (s *Store) RestoreLabel(ctx context.Context, name, color, keyword string) (model.Label, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.Label{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM label_cleanup WHERE keyword = ?`, keyword); err != nil {
+		return model.Label{}, err
+	}
+	l := model.Label{Name: name, Color: color}
+	if err := tx.QueryRowContext(ctx, `INSERT INTO labels (name, color, keyword, position)
+ VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM labels)) RETURNING id, position`,
+		name, color, keyword).Scan(&l.ID, &l.Position); err != nil {
+		return model.Label{}, err
+	}
+	return l, tx.Commit()
+}
+
 // UpdateLabel cambia solo nombre y color; el keyword no se toca nunca.
 func (s *Store) UpdateLabel(ctx context.Context, l model.Label) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE labels SET name = ?, color = ? WHERE id = ?`, l.Name, l.Color, l.ID)

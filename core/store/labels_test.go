@@ -257,3 +257,22 @@ func TestSearchByLabel(t *testing.T) {
 	require.Len(t, ms, 1)
 	assert.Equal(t, id1, ms[0].ID)
 }
+
+func TestRestoreLabelKeepsKeywordAndCancelsCleanup(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	acc, _ := seedFolder(t, s)
+	l := mkLabel(t, s, "a", "$pc_aaaaaaaa")
+	_, err := s.DeleteLabel(ctx, l.ID, []int64{acc})
+	require.NoError(t, err)
+
+	back, err := s.RestoreLabel(ctx, "a", "#ff0000", "$pc_aaaaaaaa")
+	require.NoError(t, err)
+	kw, err := s.LabelKeyword(ctx, back.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "$pc_aaaaaaaa", kw)
+	// Si no, la limpieza le sacaría el keyword en el servidor a la etiqueta recién restaurada.
+	p, err := s.PendingLabelCleanups(ctx, acc)
+	require.NoError(t, err)
+	assert.Empty(t, p)
+}

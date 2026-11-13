@@ -1,4 +1,5 @@
 import {
+  ArchiveRestoreIcon,
   FilterIcon,
   type LucideIcon,
   MailOpenIcon,
@@ -17,6 +18,7 @@ import {
 import type { RuleDraft, SettingsSection } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { AccountsSection } from "./AccountsSection";
+import { BackupSection } from "./BackupSection";
 import { LabelsSection } from "./LabelsSection";
 import { RulesSection } from "./RulesSection";
 import { ComposePage, GeneralPage, ReadingPage } from "./SettingsPages";
@@ -28,6 +30,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
   { id: "accounts", label: "Cuentas", icon: UsersIcon },
   { id: "labels", label: "Etiquetas", icon: TagIcon },
   { id: "rules", label: "Reglas", icon: FilterIcon },
+  { id: "backup", label: "Respaldo", icon: ArchiveRestoreIcon },
 ];
 
 type Props = {
@@ -107,6 +110,7 @@ export function SettingsDialog({ open, onOpenChange, focusSection, ruleDraft }: 
           {section === "accounts" ? <AccountsSection /> : null}
           {section === "labels" ? <LabelsSection /> : null}
           {section === "rules" ? <RulesSection draft={draft} onDraftDone={() => setDraft(null)} /> : null}
+          {section === "backup" ? <BackupSection /> : null}
         </div>
       </DialogContent>
     </Dialog>

@@ -166,6 +166,14 @@ export function EmptyTrash(folderID: number): $CancellablePromise<number> {
     return $Call.ByID(628908462, folderID);
 }
 
+/**
+ * ExportBackup pregunta dónde guardar el respaldo de contactos, firmas,
+ * etiquetas y reglas, y lo escribe. Devuelve false (sin error) si se cancela.
+ */
+export function ExportBackup(): $CancellablePromise<boolean> {
+    return $Call.ByID(2962194959);
+}
+
 export function GetContact(id: number): $CancellablePromise<model$0.Contact> {
     return $Call.ByID(333453687, id);
 }
@@ -187,6 +195,14 @@ export function GetStartAtLogin(): $CancellablePromise<boolean> {
 
 export function GetThread(folderID: number, threadRoot: string): $CancellablePromise<model$0.MessageSummary[] | null> {
     return $Call.ByID(4271611221, folderID, threadRoot);
+}
+
+/**
+ * ImportBackup pregunta qué respaldo importar y suma lo que trae, sin pisar lo
+ * que ya hay. Devuelve nil (sin error) si se cancela.
+ */
+export function ImportBackup(): $CancellablePromise<model$0.BackupImport | null> {
+    return $Call.ByID(2888958544);
 }
 
 export function LabelUsage(id: number): $CancellablePromise<number> {

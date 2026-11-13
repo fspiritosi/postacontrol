@@ -12,6 +12,7 @@ export type {
     Address,
     Attachment,
     AttachmentData,
+    BackupImport,
     ComposeDraft,
     ComposeMode,
     Contact,

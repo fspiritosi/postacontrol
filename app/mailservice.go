@@ -318,6 +318,53 @@ func (s *MailService) PickBackground(ctx context.Context) (bool, error) {
 	return true, s.core.SetBackground(ctx, path)
 }
 
+// backupPatterns es el filtro de los diálogos del respaldo (en Linux GTK
+// distingue mayúsculas).
+const backupPatterns = "*.json;*.JSON"
+
+// ExportBackup pregunta dónde guardar el respaldo de contactos, firmas,
+// etiquetas y reglas, y lo escribe. Devuelve false (sin error) si se cancela.
+func (s *MailService) ExportBackup(ctx context.Context) (bool, error) {
+	name := "postacontrol-respaldo-" + time.Now().Format("2006-01-02") + ".json"
+	dlg := s.app.Dialog.SaveFile().SetFilename(name).AddFilter("Respaldo de PostaControl", backupPatterns)
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	dest, err := dlg.PromptForSingleSelection()
+	if err != nil {
+		return false, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if dest == "" {
+		return false, nil
+	}
+	if err := s.core.ExportBackup(ctx, dest); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ImportBackup pregunta qué respaldo importar y suma lo que trae, sin pisar lo
+// que ya hay. Devuelve nil (sin error) si se cancela.
+func (s *MailService) ImportBackup(ctx context.Context) (*model.BackupImport, error) {
+	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Importar respaldo").
+		AddFilter("Respaldo de PostaControl", backupPatterns)
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	path, err := dlg.PromptForSingleSelection()
+	if err != nil {
+		return nil, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if path == "" {
+		return nil, nil
+	}
+	res, err := s.core.ImportBackup(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // ClearBackground quita la imagen de fondo.
 func (s *MailService) ClearBackground(ctx context.Context) error {
 	return s.core.ClearBackground(ctx)
