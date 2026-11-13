@@ -17,6 +17,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { invalidateMailQueries } from "@/lib/bulk";
@@ -29,7 +34,7 @@ import { undoableToast } from "@/lib/undo";
 import { formatWhen } from "@/lib/when";
 import { printMessage } from "@/lib/print";
 import { SourceDialog } from "./SourceDialog";
-import { WhenMenu } from "../when/WhenMenu";
+import { WhenDialog, WhenItems } from "../when/WhenMenu";
 import { LabelMenuItems } from "../labels/LabelMenu";
 import { useComposer } from "../compose/ComposerContext";
 
@@ -44,6 +49,10 @@ export function MessageActions({ message, selectMessage }: Props) {
   const folders = useFolders(message.accountId).data ?? [];
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
+  // Hora de referencia de "Posponer", tomada al abrir el menú; y el diálogo
+  // de fecha y hora a mano (null = cerrado).
+  const [now, setNow] = useState<Date>(() => new Date());
+  const [customSnooze, setCustomSnooze] = useState<Date | null>(null);
   const current = folders.find((f) => f.id === message.folderId);
   // Hasta saber en qué carpeta está no se puede borrar: en la Papelera el
   // borrado es definitivo y tiene que pedir confirmación.
@@ -132,93 +141,79 @@ export function MessageActions({ message, selectMessage }: Props) {
           Seguir editando
         </Button>
       )}
-      <Button
-        variant="outline"
-        size="sm"
-        aria-pressed={message.flagged}
-        aria-label={message.flagged ? "Quitar destacado" : "Destacar"}
-        onClick={() => void toggleFlag()}
-      >
-        <StarIcon className={message.flagged ? "fill-current" : undefined} />
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm">
-            <TagIcon />
-            Etiquetas
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <LabelMenuItems kind="dropdown" targets={[labelTarget]} />
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <Button variant="outline" size="sm" onClick={() => void markUnread()}>
-        <MailIcon />
-        Marcar como no leído
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" aria-label="Mover a…" disabled={!folderKnown}>
-            <FolderInputIcon />
-            Mover a…
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          {targets.map((f) => (
-            <DropdownMenuItem key={f.id} onSelect={() => void moveTo(f.id, folderLabel(f))}>
-              {folderLabel(f)}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {message.from?.email && !inDrafts ? (
-        <Button
-          variant="outline"
-          size="sm"
-          title="Crear una regla para lo que llega de este remitente"
-          onClick={() => requestNewRule(ruleDraftFromSender(message.accountId, message.from))}
-        >
-          <FilterIcon />
-          Crear regla…
-        </Button>
-      ) : null}
-      {canSnooze && (
-        <WhenMenu
-          title="Posponer hasta…"
-          align="start"
-          onPick={(at) => void snooze(at)}
-          trigger={
-            <Button variant="outline" size="sm">
-              <AlarmClockIcon />
-              Posponer
-            </Button>
-          }
-        />
-      )}
-      {canArchive && (
-        <Button variant="outline" size="sm" onClick={() => void archive()}>
-          <ArchiveIcon />
-          Archivar
-        </Button>
-      )}
-      {inTrash ? (
-        <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)}>
-          <Trash2Icon />
-          Eliminar definitivamente
-        </Button>
-      ) : (
-        <Button variant="outline" size="sm" disabled={!folderKnown} onClick={() => void remove()}>
-          <Trash2Icon />
-          Borrar
-        </Button>
-      )}
-      <DropdownMenu>
+      {/* Todo lo que no es responder va en un solo menú: así la barra queda limpia. */}
+      <DropdownMenu onOpenChange={(o) => o && setNow(new Date())}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" aria-label="Más acciones" title="Más acciones">
             <EllipsisIcon />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="min-w-56">
+          <DropdownMenuItem onSelect={() => void toggleFlag()}>
+            <StarIcon className={message.flagged ? "fill-current" : undefined} />
+            {message.flagged ? "Quitar destacado" : "Destacar"}
+            <DropdownMenuShortcut>S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void markUnread()}>
+            <MailIcon /> Marcar como no leído
+            <DropdownMenuShortcut>U</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <TagIcon /> Etiquetas
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <LabelMenuItems kind="dropdown" targets={[labelTarget]} />
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={!folderKnown}>
+              <FolderInputIcon /> Mover a
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {targets.map((f) => (
+                <DropdownMenuItem key={f.id} onSelect={() => void moveTo(f.id, folderLabel(f))}>
+                  {folderLabel(f)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          {canSnooze && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <AlarmClockIcon /> Posponer
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <WhenItems now={now} onPick={(at) => void snooze(at)} onCustom={() => setCustomSnooze(new Date())} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+          <DropdownMenuSeparator />
+          {canArchive && (
+            <DropdownMenuItem onSelect={() => void archive()}>
+              <ArchiveIcon /> Archivar
+              <DropdownMenuShortcut>E</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+          {inTrash ? (
+            <DropdownMenuItem variant="destructive" onSelect={() => setConfirmOpen(true)}>
+              <Trash2Icon /> Eliminar definitivamente…
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem disabled={!folderKnown} onSelect={() => void remove()}>
+              <Trash2Icon /> Borrar
+              <DropdownMenuShortcut>Supr</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+          {message.from?.email && !inDrafts ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => requestNewRule(ruleDraftFromSender(message.accountId, message.from))}>
+                <FilterIcon /> Crear regla para este remitente…
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => printMessage(message, message.remoteImagesTrusted)}>
             <PrinterIcon /> Imprimir o guardar como PDF…
           </DropdownMenuItem>
@@ -230,6 +225,7 @@ export function MessageActions({ message, selectMessage }: Props) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <WhenDialog title="Posponer hasta…" openedAt={customSnooze} onPick={(at) => void snooze(at)} onClose={() => setCustomSnooze(null)} />
       {sourceOpen && <SourceDialog messageId={message.id} onClose={() => setSourceOpen(false)} />}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

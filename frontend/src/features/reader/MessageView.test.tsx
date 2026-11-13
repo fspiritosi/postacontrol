@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -154,9 +154,9 @@ describe("MessageView: etiquetas", () => {
     expect(screen.queryByRole("button", { name: /Quitar etiqueta/ })).toBeNull();
   });
 
-  it("el botón Etiquetas abre el menú con la marca en la que tiene el correo", async () => {
+  it("Etiquetas, en Más acciones, muestra la marca en la que tiene el correo", async () => {
     const { user } = setup("inbox", [5]);
-    await user.click(await screen.findByRole("button", { name: "Etiquetas" }));
+    await openLabels(user);
     const facturas = await screen.findByRole("menuitem", { name: /Facturas/ });
     expect(facturas.querySelector('[data-testid="label-all"]')).not.toBeNull();
     const viaje = screen.getByRole("menuitem", { name: /Viaje/ });
@@ -177,14 +177,21 @@ describe("MessageView: etiquetas", () => {
 
   it("una etiqueta puesta desde el menú aparece como pastilla", async () => {
     const { user } = setup("inbox", []);
-    await user.click(await screen.findByRole("button", { name: "Etiquetas" }));
+    await openLabels(user);
     const msg = await vi.mocked(svc.GetMessage).mock.results[0].value;
     vi.mocked(svc.GetMessage).mockResolvedValue({ ...msg, labels: [6] });
-    await user.click(await screen.findByRole("menuitem", { name: /Viaje/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Viaje/ }));
     expect(svc.SetLabel).toHaveBeenCalledWith([1], 6, true);
     expect(await screen.findByRole("button", { name: "Quitar etiqueta Viaje" })).toBeTruthy();
   });
 });
+
+// Etiquetas es un submenú de "Más acciones": se abre con la flecha derecha (en
+// jsdom, mover el puntero de userEvent lo cierra).
+async function openLabels(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Más acciones" }));
+  fireEvent.keyDown(await screen.findByRole("menuitem", { name: /^Etiquetas/ }), { key: "ArrowRight" });
+}
 
 describe("MessageView: imágenes remotas", () => {
   beforeEach(() => {
