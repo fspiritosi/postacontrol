@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatWhen, fromLocalInput, toLocalInput, whenPresets } from "./when";
+import { dayOptions, firstPick, formatWhen, fromLocalInput, toLocalInput, whenPresets } from "./when";
 
 // Viernes 13/11/2026 a las 10:30 (hora local).
 const fri = new Date(2026, 10, 13, 10, 30);
@@ -33,5 +33,19 @@ describe("datetime-local", () => {
     expect(toLocalInput(new Date(2026, 0, 5, 9, 7))).toBe("2026-01-05T09:07");
     expect(fromLocalInput("2026-01-05T09:07")).toEqual(new Date(2026, 0, 5, 9, 7));
     expect(fromLocalInput("")).toBeNull();
+  });
+});
+
+describe("dayOptions / firstPick", () => {
+  it("lista los días desde hoy con nombre", () => {
+    const days = dayOptions(fri, 4);
+    expect(days.map((d) => d.label)).toEqual(["Hoy, vie 13/11", "Mañana, sáb 14/11", "dom 15/11", "lun 16/11"]);
+    expect(days[2].date).toEqual(new Date(2026, 10, 15));
+  });
+
+  it("propone una hora más tarde, redondeada a 5 minutos", () => {
+    expect(firstPick(new Date(2026, 10, 13, 10, 31))).toEqual({ dayIndex: 0, hour: 11, minute: 35 });
+    // De noche pasa al día siguiente.
+    expect(firstPick(new Date(2026, 10, 13, 23, 30))).toEqual({ dayIndex: 1, hour: 0, minute: 30 });
   });
 });

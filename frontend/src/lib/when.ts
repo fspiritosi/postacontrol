@@ -48,3 +48,23 @@ export function fromLocalInput(s: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(s);
   return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
 }
+
+// Los días que ofrece el selector a mano, desde hoy: "Hoy, vie 13/11",
+// "Mañana, sáb 14/11", "dom 15/11"…
+export function dayOptions(now: Date, count = 60): { label: string; date: Date }[] {
+  return Array.from({ length: count }, (_, i) => {
+    const date = addDays(now, i);
+    const base = `${DAYS[date.getDay()]} ${date.getDate()}/${date.getMonth() + 1}`;
+    return { label: i === 0 ? `Hoy, ${base}` : i === 1 ? `Mañana, ${base}` : base, date };
+  });
+}
+
+// Lo que propone el selector a mano: una hora después de now, redondeada
+// hacia arriba a 5 minutos.
+export function firstPick(now: Date): { dayIndex: number; hour: number; minute: number } {
+  const t = new Date(now.getTime() + 60 * 60 * 1000);
+  const extra = (5 - (t.getMinutes() % 5)) % 5;
+  const r = new Date(t.getTime() + extra * 60 * 1000);
+  const dayIndex = Math.round((at(r, 0).getTime() - at(now, 0).getTime()) / (24 * 60 * 60 * 1000));
+  return { dayIndex, hour: r.getHours(), minute: r.getMinutes() };
+}
