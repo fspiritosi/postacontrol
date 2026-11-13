@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
-import { useBackground, useSettings } from "@/lib/queries";
+import { useBackground, useImageSenders, useSettings } from "@/lib/queries";
 import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
 import type { Settings } from "../../../bindings/postacontrol/core/model/models";
 import { SignaturesSection } from "./SignaturesSection";
@@ -191,7 +191,46 @@ export function ReadingPage() {
           </div>
         </SettingRow>
       </div>
+      <ImageSendersSection />
     </section>
+  );
+}
+
+// Los remitentes a los que se les eligió mostrar siempre las imágenes remotas.
+function ImageSendersSection() {
+  const senders = useImageSenders();
+  const list = senders.data ?? [];
+  const untrust = async (email: string) => {
+    try {
+      await svc.UntrustImageSender(email);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+  return (
+    <div className="space-y-2 pt-3">
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium">Imágenes remotas permitidas</h3>
+        <p className="text-sm text-muted-foreground">
+          Las imágenes remotas se bloquean porque pueden avisarle al remitente que abriste el correo. A estos
+          remitentes se les muestran siempre; se agregan desde un correo, con «Siempre de este remitente».
+        </p>
+      </div>
+      {list.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{senders.isPending ? "Cargando…" : "Ninguno todavía."}</p>
+      ) : (
+        <ul aria-label="Remitentes con imágenes permitidas" className="divide-y rounded-md border">
+          {list.map((email) => (
+            <li key={email} className="flex items-center justify-between gap-3 px-3 py-1.5 text-sm">
+              <span className="truncate">{email}</span>
+              <Button variant="ghost" size="sm" aria-label={`Bloquear de nuevo las imágenes de ${email}`} onClick={() => void untrust(email)}>
+                Quitar
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -212,6 +251,18 @@ export function ComposePage() {
               checked={!(settings.data?.disableSpellcheck ?? false)}
               disabled={settings.isPending}
               onCheckedChange={(v) => void save({ disableSpellcheck: !v })}
+            />
+          </SettingRow>
+          <SettingRow
+            htmlFor="undo-send"
+            label="Deshacer envío"
+            description="El correo espera 10 segundos antes de salir, para poder arrepentirte desde el aviso."
+          >
+            <Switch
+              id="undo-send"
+              checked={!(settings.data?.disableUndoSend ?? false)}
+              disabled={settings.isPending}
+              onCheckedChange={(v) => void save({ disableUndoSend: !v })}
             />
           </SettingRow>
         </div>

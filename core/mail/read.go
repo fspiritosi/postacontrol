@@ -66,6 +66,10 @@ func (c *Core) GetMessage(ctx context.Context, messageID int64) (model.MessageDe
 			d.Seen = true
 		}
 	}
+	if d.HasRemoteImages && d.From.Email != "" {
+		// Si no se puede leer la lista, las imágenes quedan bloqueadas.
+		d.RemoteImagesTrusted, _ = c.store.ImageSenderTrusted(ctx, d.From.Email)
+	}
 	return normalizeDetail(d), nil
 }
 

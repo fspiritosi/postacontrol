@@ -25,7 +25,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
     Promise.resolve({
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false,
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
       threadedList: false,
       readingPane: "",
     }),
@@ -178,7 +178,7 @@ describe("MessageList posición del panel", () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false,
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
       threadedList: false,
       readingPane,
     });
@@ -222,7 +222,7 @@ describe("MessageList conversaciones", () => {
     const settings = {
       unifiedInbox: true,
       background: "",
-      disableNotifications: true, disableSpellcheck: false,
+      disableNotifications: true, disableSpellcheck: false, disableUndoSend: false,
       threadedList: false,
       readingPane: "",
     };
@@ -263,7 +263,7 @@ describe("MessageList conversaciones", () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: true,
       background: "",
-      disableNotifications: false, disableSpellcheck: false,
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
       threadedList: true,
       readingPane: "",
     });
@@ -577,7 +577,7 @@ describe("MessageList selección múltiple", () => {
     const settings = {
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false,
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
       threadedList: false,
       readingPane: "",
     };
@@ -635,7 +635,7 @@ describe("MessageList no leídos", () => {
       vi.mocked(svc.GetSettings).mockResolvedValue({
         unifiedInbox: false,
         background: "",
-        disableNotifications: false, disableSpellcheck: false,
+        disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
         threadedList: false,
         readingPane,
       });
@@ -827,7 +827,7 @@ describe("MessageList filtro por etiqueta", () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false,
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
       threadedList: true,
       readingPane: "",
     });

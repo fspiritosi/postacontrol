@@ -1018,3 +1018,26 @@ func TestSelect_KeywordSupport(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, imapx.KeywordsUnknown, info.Keywords, "PERMANENTFLAGS vacío")
 }
+
+func TestMoveUIDs_ReportsDestinationUIDs(t *testing.T) {
+	for name, start := range map[string]func(t *testing.T) (*testenv.IMAP, testenv.TLS){
+		"MOVE":         func(t *testing.T) (*testenv.IMAP, testenv.TLS) { return setup(t) },
+		"UIDPLUS solo": uidplusOnly,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, tlsc := start(t)
+			require.NoError(t, s.User.Create("Trash", nil))
+			c := dial(t, s, tlsc)
+			uids := seedTwo(t, s, c)
+
+			res, err := c.MoveUIDs(uids, "Trash")
+			require.NoError(t, err)
+			info, err := c.Select("Trash")
+			require.NoError(t, err)
+			assert.Equal(t, info.UIDValidity, res.UIDValidity)
+			got, err := c.AllUIDs()
+			require.NoError(t, err)
+			assert.Equal(t, got, res.Dest)
+		})
+	}
+}

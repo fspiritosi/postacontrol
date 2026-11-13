@@ -29,6 +29,7 @@ export async function saveSettings(
     threadedList: false,
     readingPane: "",
     background: "",
+    disableUndoSend: false,
     ...current,
     ...patch,
   });

@@ -122,8 +122,19 @@ function Body({
   openContact: (id: number) => void;
   embedded: boolean;
 }) {
-  // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para este.
-  const [allowRemote, setAllowRemote] = useState(false);
+  // El estado vive acá, con key por mensaje: "Mostrar imágenes" vale solo para
+  // este. Un remitente de confianza ya las trae permitidas.
+  const [allowRemote, setAllowRemote] = useState(message.remoteImagesTrusted);
+  const sender = message.from.email;
+  const trustSender = async () => {
+    try {
+      await svc.TrustImageSender(sender);
+      setAllowRemote(true);
+      toast.success(`Los correos de ${sender} van a mostrar sus imágenes.`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   const composer = useComposer();
   const role = useFolders(message.accountId).data?.find((f) => f.id === message.folderId)?.role;
   // Un borrador no se responde ni se reenvía (MessageActions ofrece seguir editándolo).
@@ -196,9 +207,17 @@ function Body({
         {message.hasRemoteImages && !allowRemote && (
           <div className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-md border bg-muted/50 px-3 py-2 text-xs">
             <span>Este correo tiene imágenes remotas bloqueadas para proteger tu privacidad.</span>
-            <Button size="sm" variant="outline" onClick={() => setAllowRemote(true)}>
-              Mostrar imágenes
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" variant="outline" onClick={() => setAllowRemote(true)}>
+                Mostrar imágenes
+              </Button>
+              {/* Uno mismo no se manda imágenes de seguimiento: en Enviados no hace falta. */}
+              {sender && role !== "sent" && !inDrafts && (
+                <Button size="sm" variant="ghost" onClick={() => void trustSender()}>
+                  Siempre de este remitente
+                </Button>
+              )}
+            </div>
           </div>
         )}
 

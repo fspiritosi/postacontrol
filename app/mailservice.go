@@ -22,6 +22,10 @@ import (
 
 const syncEvery = 5 * time.Minute
 
+// undoSendDelay es cuánto espera un correo antes de salir, para poder deshacer
+// el envío.
+const undoSendDelay = 10 * time.Second
+
 // MailService es el servicio que ve el frontend. Delega en mail.Core; los
 // errores del núcleo (*mail.UserError) llegan a JS con su mensaje en español,
 // porque Wails usa err.Error().
@@ -68,6 +72,8 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 		DBPath:   filepath.Join(dir, "postacontrol.db"),
 		Secrets:  secrets.NewKeyring(),
 		Notifier: wailsNotifier{app: s.app, hub: &s.hub},
+		// Los segundos para deshacer un envío (se puede apagar en Redacción).
+		UndoSendDelay: undoSendDelay,
 	})
 	if err != nil {
 		return err
@@ -473,6 +479,27 @@ func (s *MailService) QueueSend(ctx context.Context, req model.SendRequest) (int
 	return s.core.QueueSend(ctx, req)
 }
 
+// CancelSend frena un correo que todavía espera para salir: queda en la
+// Bandeja de salida para seguir editándolo.
+func (s *MailService) CancelSend(ctx context.Context, draftID int64) error {
+	return s.core.CancelSend(ctx, draftID)
+}
+
+// TrustImageSender muestra siempre las imágenes remotas de ese remitente.
+func (s *MailService) TrustImageSender(ctx context.Context, email string) error {
+	return s.core.TrustImageSender(ctx, email)
+}
+
+// UntrustImageSender vuelve a bloquear las imágenes remotas de ese remitente.
+func (s *MailService) UntrustImageSender(ctx context.Context, email string) error {
+	return s.core.UntrustImageSender(ctx, email)
+}
+
+// ListImageSenders devuelve los remitentes con imágenes remotas permitidas.
+func (s *MailService) ListImageSenders(ctx context.Context) ([]string, error) {
+	return s.core.ListImageSenders(ctx)
+}
+
 func (s *MailService) ListLocalDrafts(ctx context.Context) ([]model.LocalDraft, error) {
 	return s.core.ListLocalDrafts(ctx)
 }
@@ -668,18 +695,27 @@ func (s *MailService) RunRules(ctx context.Context, folderID int64) (model.RuleR
 	return s.core.RunRules(ctx, folderID)
 }
 
-func (s *MailService) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) error {
-	return s.core.MoveMessages(ctx, ids, destFolderID)
+// MoveMessages mueve los mensajes a otra carpeta y devuelve con qué
+// deshacerlo (UndoMove; 0 = nada que deshacer).
+func (s *MailService) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) (int64, error) {
+	return s.core.MoveMessagesUndoable(ctx, ids, destFolderID)
 }
 
-func (s *MailService) DeleteMessages(ctx context.Context, ids []int64) error {
-	return s.core.DeleteMessages(ctx, ids)
+// DeleteMessages manda los mensajes a la Papelera (los que ya estaban ahí se
+// borran definitivamente) y devuelve con qué deshacer lo que fue a la Papelera.
+func (s *MailService) DeleteMessages(ctx context.Context, ids []int64) (int64, error) {
+	return s.core.DeleteMessagesUndoable(ctx, ids)
 }
 
 // ArchiveMessages mueve los mensajes a la carpeta Archivo de su cuenta (la
-// crea si no hay).
-func (s *MailService) ArchiveMessages(ctx context.Context, ids []int64) error {
-	return s.core.ArchiveMessages(ctx, ids)
+// crea si no hay) y devuelve con qué deshacerlo.
+func (s *MailService) ArchiveMessages(ctx context.Context, ids []int64) (int64, error) {
+	return s.core.ArchiveMessagesUndoable(ctx, ids)
+}
+
+// UndoMove devuelve a su carpeta lo que movió una de las acciones de arriba.
+func (s *MailService) UndoMove(ctx context.Context, undoID int64) error {
+	return s.core.UndoMove(ctx, undoID)
 }
 
 // EmptyTrash borra definitivamente todos los correos de la Papelera y

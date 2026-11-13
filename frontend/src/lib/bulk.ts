@@ -7,6 +7,7 @@ import type {
 } from "../../bindings/postacontrol/core/model/models";
 import { errorMessage } from "./errors";
 import { folderLabel } from "./folders";
+import { undoableToast } from "./undo";
 
 // Lo que cambia después de mover, borrar o marcar correos.
 export function invalidateMailQueries(queryClient: QueryClient) {
@@ -44,22 +45,23 @@ export type AccountFailure = {
 // El núcleo rechaza ids de más de una cuenta: se agrupa por cuenta y se llama
 // una vez por cada una, en secuencia. Nunca rechaza: lo que falla vuelve en
 // `failed` y las demás cuentas igual se hacen.
-export async function runPerAccount(
+export async function runPerAccount<R = unknown>(
   targets: Target[],
-  fn: (accountId: number, ids: number[]) => Promise<void>,
-): Promise<{ failed: AccountFailure[] }> {
+  fn: (accountId: number, ids: number[]) => Promise<R>,
+): Promise<{ failed: AccountFailure[]; results: R[] }> {
   const byAccount = new Map<number, number[]>();
   for (const t of targets)
     byAccount.set(t.accountId, [...(byAccount.get(t.accountId) ?? []), t.id]);
   const failed: AccountFailure[] = [];
+  const results: R[] = [];
   for (const [accountId, ids] of byAccount) {
     try {
-      await fn(accountId, ids);
+      results.push(await fn(accountId, ids));
     } catch (error) {
       failed.push({ accountId, ids, error });
     }
   }
-  return { failed };
+  return { failed, results };
 }
 
 // Los mensajes de las conversaciones marcadas. GetThread trae también las
@@ -112,7 +114,7 @@ export async function moveAndReport(
   nameOf: (accountId: number) => string,
   queryClient: QueryClient,
 ): Promise<{ ok: number[]; failed: number[] }> {
-  const { failed } = await moveMarked(targets, folder);
+  const { failed, results } = await moveMarked(targets, folder);
   const failedIds = new Set(failed.flatMap((f) => f.ids));
   const done = targets.filter((t) => !failedIds.has(t.id));
   for (const f of failed)
@@ -120,7 +122,7 @@ export async function moveAndReport(
       `No se pudo en ${nameOf(f.accountId)}: ${errorMessage(f.error)}`,
     );
   if (done.length > 0)
-    toast.success(`${done.length} movidos a ${folderLabel(folder)}`);
+    undoableToast(queryClient, `${done.length} movidos a ${folderLabel(folder)}`, results);
   invalidateMailQueries(queryClient);
   return { ok: done.map((t) => t.id), failed: [...failedIds] };
 }

@@ -32,9 +32,9 @@ export function AddSenderToContacts(addr: model$0.Address): $CancellablePromise<
 
 /**
  * ArchiveMessages mueve los mensajes a la carpeta Archivo de su cuenta (la
- * crea si no hay).
+ * crea si no hay) y devuelve con qué deshacerlo.
  */
-export function ArchiveMessages(ids: number[] | null): $CancellablePromise<void> {
+export function ArchiveMessages(ids: number[] | null): $CancellablePromise<number> {
     return $Call.ByID(3024840463, ids);
 }
 
@@ -50,6 +50,14 @@ export function AttachmentData(messageID: number, index: number): $CancellablePr
  */
 export function BackgroundImage(): $CancellablePromise<string> {
     return $Call.ByID(1470781552);
+}
+
+/**
+ * CancelSend frena un correo que todavía espera para salir: queda en la
+ * Bandeja de salida para seguir editándolo.
+ */
+export function CancelSend(draftID: number): $CancellablePromise<void> {
+    return $Call.ByID(938852947, draftID);
 }
 
 /**
@@ -150,7 +158,11 @@ export function DeleteLocalDraft(id: number): $CancellablePromise<void> {
     return $Call.ByID(1825177514, id);
 }
 
-export function DeleteMessages(ids: number[] | null): $CancellablePromise<void> {
+/**
+ * DeleteMessages manda los mensajes a la Papelera (los que ya estaban ahí se
+ * borran definitivamente) y devuelve con qué deshacer lo que fue a la Papelera.
+ */
+export function DeleteMessages(ids: number[] | null): $CancellablePromise<number> {
     return $Call.ByID(2312673024, ids);
 }
 
@@ -232,6 +244,13 @@ export function ListFolders(accountID: number): $CancellablePromise<model$0.Fold
     return $Call.ByID(4066439256, accountID);
 }
 
+/**
+ * ListImageSenders devuelve los remitentes con imágenes remotas permitidas.
+ */
+export function ListImageSenders(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(3195753066);
+}
+
 export function ListLabeled(labelID: number, accountID: number, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
     return $Call.ByID(1106578742, labelID, accountID, q);
 }
@@ -281,7 +300,11 @@ export function MoveFolder(folderID: number, newParentFolderID: number): $Cancel
     return $Call.ByID(4146554542, folderID, newParentFolderID);
 }
 
-export function MoveMessages(ids: number[] | null, destFolderID: number): $CancellablePromise<void> {
+/**
+ * MoveMessages mueve los mensajes a otra carpeta y devuelve con qué
+ * deshacerlo (UndoMove; 0 = nada que deshacer).
+ */
+export function MoveMessages(ids: number[] | null, destFolderID: number): $CancellablePromise<number> {
     return $Call.ByID(2219385610, ids, destFolderID);
 }
 
@@ -524,6 +547,27 @@ export function SyncUnified(view: model$0.UnifiedView): $CancellablePromise<void
 
 export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void> {
     return $Call.ByID(1412243062, $in);
+}
+
+/**
+ * TrustImageSender muestra siempre las imágenes remotas de ese remitente.
+ */
+export function TrustImageSender(email: string): $CancellablePromise<void> {
+    return $Call.ByID(2332409129, email);
+}
+
+/**
+ * UndoMove devuelve a su carpeta lo que movió una de las acciones de arriba.
+ */
+export function UndoMove(undoID: number): $CancellablePromise<void> {
+    return $Call.ByID(3885534608, undoID);
+}
+
+/**
+ * UntrustImageSender vuelve a bloquear las imágenes remotas de ese remitente.
+ */
+export function UntrustImageSender(email: string): $CancellablePromise<void> {
+    return $Call.ByID(4268265162, email);
 }
 
 /**

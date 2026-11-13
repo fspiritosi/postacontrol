@@ -234,6 +234,12 @@ export interface MessageDetail {
     "html": string;
     "text": string;
     "hasRemoteImages": boolean;
+
+    /**
+     * RemoteImagesTrusted: el remitente está entre los que se eligió mostrarle
+     * siempre las imágenes remotas.
+     */
+    "remoteImagesTrusted": boolean;
     "attachments": Attachment[] | null;
 }
 
@@ -464,6 +470,12 @@ export interface Settings {
      * Background es el nombre del archivo de fondo dentro de la carpeta de datos; vacío = sin fondo.
      */
     "background": string;
+
+    /**
+     * DisableUndoSend manda los correos enseguida, sin los segundos para
+     * deshacer el envío (cero = se puede deshacer).
+     */
+    "disableUndoSend": boolean;
 }
 
 /**

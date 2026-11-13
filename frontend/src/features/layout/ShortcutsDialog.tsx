@@ -25,6 +25,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
       [["Supr", "#"], "Mandar a la Papelera"],
       [["s"], "Destacar o quitar destacado"],
       [["u"], "Marcar como no leído"],
+      [["z"], "Deshacer lo último que se movió"],
       [["1", "…", "9"], "Poner o sacar la etiqueta de esa posición"],
     ],
   },

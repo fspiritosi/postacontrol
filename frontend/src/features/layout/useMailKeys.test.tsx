@@ -10,6 +10,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SetSeen: vi.fn(() => Promise.resolve()),
   GetMessage: vi.fn(),
   GetThread: vi.fn(),
+  UndoMove: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 const composer = vi.hoisted(() => ({ openFrom: vi.fn(() => Promise.resolve()), openNew: vi.fn() }));
@@ -179,6 +180,15 @@ describe("useMailKeys", () => {
     screen.getByLabelText("Buscar correo").blur();
     press("?", { shiftKey: true });
     expect(await screen.findByText("ayuda abierta")).toBeInTheDocument();
+  });
+
+  it("z deshace lo último que se archivó", async () => {
+    vi.mocked(svc.ArchiveMessages).mockResolvedValueOnce(21 as never);
+    setup(shell({ messageId: 11 }));
+    press("e");
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    press("z");
+    await waitFor(() => expect(svc.UndoMove).toHaveBeenCalledWith(21));
   });
 
   it("con Ctrl no es un atajo", () => {
