@@ -20,6 +20,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    // Los tests que recorren el redactor o un diálogo entero rondan los 2-3 s:
+    // con la máquina cargada (o en CI) el tope de 5 s los cortaba de a ratos.
+    testTimeout: 15_000,
   },
   plugins: [react(), tailwindcss(), wails("./bindings")],
 });
