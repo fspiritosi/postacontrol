@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { AlarmClockIcon, ArchiveIcon, FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
+import { AlarmClockIcon, ArchiveIcon, DownloadIcon, EllipsisIcon, FileCodeIcon, PrinterIcon, FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -27,6 +27,8 @@ import { useFolders } from "@/lib/queries";
 import { ruleDraftFromSender } from "@/lib/rules";
 import { undoableToast } from "@/lib/undo";
 import { formatWhen } from "@/lib/when";
+import { printMessage } from "@/lib/print";
+import { SourceDialog } from "./SourceDialog";
 import { WhenMenu } from "../when/WhenMenu";
 import { LabelMenuItems } from "../labels/LabelMenu";
 import { useComposer } from "../compose/ComposerContext";
@@ -41,6 +43,7 @@ export function MessageActions({ message, selectMessage }: Props) {
   const composer = useComposer();
   const folders = useFolders(message.accountId).data ?? [];
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const current = folders.find((f) => f.id === message.folderId);
   // Hasta saber en qué carpeta está no se puede borrar: en la Papelera el
   // borrado es definitivo y tiene que pedir confirmación.
@@ -104,6 +107,14 @@ export function MessageActions({ message, selectMessage }: Props) {
   const archive = () => moveAway(() => svc.ArchiveMessages([message.id]), "Archivado");
   // En la Papelera es definitivo: no hay nada que avisar ni deshacer.
   const remove = () => moveAway(() => svc.DeleteMessages([message.id]), inTrash ? null : "Movido a la Papelera");
+
+  const saveEml = async () => {
+    try {
+      if (await svc.SaveMessageSource(message.id)) toast.success("Guardado.");
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
 
   const keepEditing = async () => {
     try {
@@ -201,6 +212,25 @@ export function MessageActions({ message, selectMessage }: Props) {
           Borrar
         </Button>
       )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" aria-label="Más acciones" title="Más acciones">
+            <EllipsisIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => printMessage(message, message.remoteImagesTrusted)}>
+            <PrinterIcon /> Imprimir o guardar como PDF…
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setSourceOpen(true)}>
+            <FileCodeIcon /> Ver código fuente
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void saveEml()}>
+            <DownloadIcon /> Guardar como .eml
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {sourceOpen && <SourceDialog messageId={message.id} onClose={() => setSourceOpen(false)} />}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
