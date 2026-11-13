@@ -178,3 +178,25 @@ func (c *Conn) FetchPart(uid uint32, part []int) (mimeHeader []byte, body []byte
 	}
 	return mimeHeader, body, nil
 }
+
+// FetchHeaderFields baja solo esos encabezados del mensaje, sin marcarlo leído
+// (BODY.PEEK[HEADER.FIELDS (...)]). Devuelve el bloque de encabezados tal
+// como viene, vacío si el mensaje no tiene ninguno.
+func (c *Conn) FetchHeaderFields(uid uint32, fields ...string) ([]byte, error) {
+	sec := &imap.FetchItemBodySection{Specifier: imap.PartSpecifierHeader, HeaderFields: fields, Peek: true}
+	msgs, err := c.c.Fetch(toUIDs([]uint32{uid}), &imap.FetchOptions{
+		UID: true, BodySection: []*imap.FetchItemBodySection{sec},
+	}).Collect()
+	if err != nil {
+		return nil, opErr("UID FETCH encabezados", err)
+	}
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("%w: UID %d", ErrNoMessage, uid)
+	}
+	for _, s := range msgs[0].BodySection {
+		if s.Section.Specifier == imap.PartSpecifierHeader {
+			return s.Bytes, nil
+		}
+	}
+	return []byte{}, nil
+}

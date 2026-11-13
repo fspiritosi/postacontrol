@@ -18,6 +18,7 @@ import type { ShellState } from "../layout/MailShell";
 import { AttachmentList } from "./AttachmentList";
 import { MessageActions } from "./MessageActions";
 import { SafeHtmlFrame } from "./SafeHtmlFrame";
+import { UnsubscribeButton } from "./UnsubscribeButton";
 import { ReaderBackdrop } from "./ReaderBackdrop";
 
 export type ComposeMode = "reply" | "replyAll" | "forward";
@@ -199,7 +200,12 @@ function Body({
               </p>
             </div>
             {/* En un borrador o un enviado el remitente es uno mismo. */}
-            {!inDrafts && role !== "sent" && <SenderContactButton from={message.from} openContact={openContact} />}
+            {!inDrafts && role !== "sent" && (
+              <div className="flex shrink-0 items-center gap-1">
+                <UnsubscribeButton messageId={message.id} sender={message.from.email} />
+                <SenderContactButton from={message.from} openContact={openContact} />
+              </div>
+            )}
           </div>
           <MessageLabels message={message} />
         </div>

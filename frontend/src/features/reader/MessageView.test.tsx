@@ -11,6 +11,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListLabels: vi.fn(),
   SetLabel: vi.fn(() => Promise.resolve()),
   TrustImageSender: vi.fn(() => Promise.resolve()),
+  UnsubscribeInfo: vi.fn(() => Promise.resolve({ available: false, oneClick: false, url: "", mailto: "" })),
 }));
 vi.mock("../compose/ComposerContext", () => ({ useComposer: () => ({ openFrom: vi.fn() }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));

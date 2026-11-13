@@ -595,6 +595,20 @@ export function UndoMove(undoID: number): $CancellablePromise<void> {
 }
 
 /**
+ * Unsubscribe da de baja la dirección del remitente del correo.
+ */
+export function Unsubscribe(messageID: number): $CancellablePromise<model$0.UnsubscribeResult> {
+    return $Call.ByID(330358864, messageID);
+}
+
+/**
+ * UnsubscribeInfo dice si el correo trae cómo desuscribirse y de qué forma.
+ */
+export function UnsubscribeInfo(messageID: number): $CancellablePromise<model$0.Unsubscribe> {
+    return $Call.ByID(3354774796, messageID);
+}
+
+/**
  * UntrustImageSender vuelve a bloquear las imágenes remotas de ese remitente.
  */
 export function UntrustImageSender(email: string): $CancellablePromise<void> {

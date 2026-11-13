@@ -573,3 +573,25 @@ export enum UnifiedView {
     UnifiedDrafts = "drafts",
     UnifiedTrash = "trash",
 };
+
+/**
+ * Unsubscribe es cómo desuscribirse de un correo, según sus encabezados
+ * List-Unsubscribe. OneClick: el remitente acepta la baja con un POST a URL
+ * (RFC 8058). URL es la página (https o http) y Mailto la dirección de baja.
+ */
+export interface Unsubscribe {
+    "available": boolean;
+    "oneClick": boolean;
+    "url": string;
+    "mailto": string;
+}
+
+/**
+ * UnsubscribeResult es cómo terminó la baja. Method: "post" (confirmada con un
+ * clic), "mail" (se mandó el correo de baja) o "web" (hay que terminarla en
+ * la página URL, que abre el usuario).
+ */
+export interface UnsubscribeResult {
+    "method": string;
+    "url": string;
+}

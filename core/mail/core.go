@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -37,6 +38,9 @@ type Config struct {
 	Autoconfig autoconfig.Options
 	// SkipInitialSync evita lanzar SyncAccount al agregar una cuenta (solo para tests).
 	SkipInitialSync bool
+	// HTTPClient es el que se usa para desuscribirse con un clic (nil = uno con
+	// timeout propio; los tests inyectan el de su servidor).
+	HTTPClient *http.Client
 	// UndoSendDelay es cuánto espera un correo en la bandeja de salida antes
 	// de salir, para poder deshacer el envío (CancelSend). 0 = sale enseguida.
 	UndoSendDelay time.Duration
