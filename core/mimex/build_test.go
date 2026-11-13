@@ -144,10 +144,14 @@ func TestBuild_BccNotInHeaders(t *testing.T) {
 	o.Bcc = []model.Address{{Name: "Oculto", Email: "oculto@ej.com"}}
 	raw, err := Build(o)
 	require.NoError(t, err)
-	assert.NotContains(t, strings.ToLower(string(raw)), "bcc")
+	assert.NotRegexp(t, bccHeader, string(raw))
 	assert.NotContains(t, string(raw), "oculto@ej.com")
 	assert.Contains(t, Recipients(o), "oculto@ej.com")
 }
+
+// bccHeader es un encabezado Bcc. No se busca "bcc" a secas: el separador
+// MIME es hexadecimal al azar y a veces lo contiene.
+var bccHeader = regexp.MustCompile(`(?im)^bcc:`)
 
 func TestBuild_IncludeBccOnlyForDrafts(t *testing.T) {
 	o := baseOutgoing()
@@ -155,12 +159,12 @@ func TestBuild_IncludeBccOnlyForDrafts(t *testing.T) {
 	o.IncludeBcc = true
 	raw, err := Build(o)
 	require.NoError(t, err)
-	assert.Contains(t, string(raw), "Bcc:")
+	assert.Regexp(t, bccHeader, string(raw), "la expresión reconoce el encabezado")
 	assert.Contains(t, string(raw), "oculto@ej.com")
 	o.IncludeBcc = false
 	raw, err = Build(o)
 	require.NoError(t, err)
-	assert.NotContains(t, strings.ToLower(string(raw)), "bcc")
+	assert.NotRegexp(t, bccHeader, string(raw))
 }
 
 func TestBuild_ReplyHeaders(t *testing.T) {
