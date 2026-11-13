@@ -9,6 +9,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SetFlagged: vi.fn(() => Promise.resolve()),
   MoveMessages: vi.fn(() => Promise.resolve()),
   DeleteMessages: vi.fn(() => Promise.resolve()),
+  ArchiveMessages: vi.fn(() => Promise.resolve()),
   GetThread: vi.fn(),
   ListLabels: vi.fn(() => Promise.resolve([])),
   SetLabel: vi.fn(() => Promise.resolve()),
@@ -65,6 +66,7 @@ const FOLDERS: Record<number, Folder[]> = {
     folder(71, 7, "Clientes"),
     folder(72, 7, "Trash", "trash"),
     folder(73, 7, "Sent", "sent"),
+    folder(74, 7, "Archivo", "archive"),
   ],
   8: [folder(80, 8, "INBOX", "inbox")],
 };
@@ -125,6 +127,22 @@ describe("SelectionBar", () => {
       removed: false,
       unread: false,
     });
+  });
+
+  it("Archivar llama ArchiveMessages por cuenta, avisa y suelta", async () => {
+    const { onDone } = renderBar([t(1, 7, 70), t(2, 7, 70), t(3, 8, 80)]);
+    await userEvent.click(await screen.findByRole("button", { name: "Archivar" }));
+    await waitFor(() => expect(svc.ArchiveMessages).toHaveBeenCalledTimes(2));
+    expect(svc.ArchiveMessages).toHaveBeenCalledWith([1, 2]);
+    expect(svc.ArchiveMessages).toHaveBeenCalledWith([3]);
+    expect(toast.success).toHaveBeenCalledWith("3 archivados");
+    expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ ok: [1, 2, 3], removed: true }));
+  });
+
+  it("si todo ya está en Archivo no se ofrece Archivar", async () => {
+    renderBar([t(1, 7, 74)], { folderId: 74 });
+    await screen.findByRole("button", { name: "Marcar leído" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Archivar" })).toBeNull());
   });
 
   it("Marcar no leído llama SetSeen(ids, false)", async () => {

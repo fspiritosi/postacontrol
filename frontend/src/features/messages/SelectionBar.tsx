@@ -6,6 +6,7 @@ import {
   StarIcon,
   TagIcon,
   Trash2Icon,
+  ArchiveIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -130,6 +131,9 @@ export function SelectionBar({
   const canRemove = ready && foldersKnown;
   const allFlagged = list.length > 0 && list.every((t) => t.flagged);
   const allTrash = list.length > 0 && list.every(inTrash);
+  const allArchived =
+    list.length > 0 &&
+    list.every((t) => folders.find((f) => f.id === t.folderId)?.role === "archive");
   const accountIds = new Set(list.map((t) => t.accountId));
   const destinations: Folder[] =
     accountIds.size === 1
@@ -211,6 +215,13 @@ export function SelectionBar({
       setBusy(false);
     }
   };
+
+  const archive = () =>
+    act((_a, ids) => svc.ArchiveMessages(ids), {
+      removed: true,
+      onOk: (done) =>
+        toast.success(done.length === 1 ? "Archivado" : `${done.length} archivados`),
+    });
 
   const remove = (all: Target[]) =>
     act((_a, ids) => svc.DeleteMessages(ids), {
@@ -306,6 +317,17 @@ export function SelectionBar({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {!allArchived && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!ready}
+          onClick={() => void archive()}
+        >
+          <ArchiveIcon />
+          Archivar
+        </Button>
       )}
       <Button
         variant="outline"

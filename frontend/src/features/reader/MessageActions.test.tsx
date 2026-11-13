@@ -9,6 +9,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   SetFlagged: vi.fn(() => Promise.resolve()),
   MoveMessages: vi.fn(() => Promise.resolve()),
   DeleteMessages: vi.fn(() => Promise.resolve()),
+  ArchiveMessages: vi.fn(() => Promise.resolve()),
   OpenDraftMessage: vi.fn(),
   ListLabels: vi.fn(),
   SetLabel: vi.fn(() => Promise.resolve()),
@@ -31,6 +32,7 @@ const folders = [
   folder(3, "Trash", "trash"),
   folder(4, "Padre", "", false),
   folder(5, "Drafts", "drafts"),
+  folder(6, "Archivo", "archive"),
 ];
 
 function msg(folderId: number, flagged = false): MessageDetail {
@@ -76,6 +78,20 @@ describe("MessageActions", () => {
     await waitFor(() => expect(svc.MoveMessages).toHaveBeenCalledWith([55], 2));
     expect(selectMessage).toHaveBeenCalledWith(null);
     expect(toast.success).toHaveBeenCalledWith("Movido a Trabajo");
+  });
+
+  it("Archivar lo manda a Archivo y cierra el lector", async () => {
+    const { selectMessage, user } = setup(msg(1));
+    await user.click(await screen.findByRole("button", { name: "Archivar" }));
+    await waitFor(() => expect(svc.ArchiveMessages).toHaveBeenCalledWith([55]));
+    expect(selectMessage).toHaveBeenCalledWith(null);
+    expect(toast.success).toHaveBeenCalledWith("Archivado");
+  });
+
+  it("en Archivo no se ofrece Archivar", async () => {
+    setup(msg(6));
+    await screen.findByRole("button", { name: "Mover a…" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Archivar" })).toBeNull());
   });
 
   it("Borrar fuera de Papelera no pide confirmación", async () => {

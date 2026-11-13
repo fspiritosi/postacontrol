@@ -10,6 +10,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useComposer } from "../compose/ComposerContext";
 import { useLabelKeys } from "../labels/useLabelKeys";
+import { ShortcutsDialog } from "./ShortcutsDialog";
+import { useMailKeys } from "./useMailKeys";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -260,6 +262,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   };
 
   useLabelKeys(state);
+  const keys = useMailKeys(state, composeAccount?.id);
 
   // Los dos paneles del grupo interior se arman una vez; solo cambia el orden.
   const listPanel = (
@@ -282,6 +285,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   return (
     <div className="h-screen bg-background text-foreground">
       {extras?.(state)}
+      <ShortcutsDialog open={keys.helpOpen} onOpenChange={keys.setHelpOpen} />
       <ResizablePanelGroup
         orientation="horizontal"
         defaultLayout={layout.outer}

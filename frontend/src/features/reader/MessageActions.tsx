@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
+import { ArchiveIcon, FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -45,6 +45,8 @@ export function MessageActions({ message, selectMessage }: Props) {
   const inTrash = current?.role === "trash";
   // En Borradores no se responde ni se reenvía: se sigue editando.
   const inDrafts = current?.role === "drafts";
+  // Archivar no tiene sentido en Archivo ni en Borradores (ahí se sigue editando).
+  const canArchive = folderKnown && current.role !== "archive" && !inDrafts;
   const targets = folders.filter((f) => f.selectable && f.id !== message.folderId);
 
   const labelTarget = {
@@ -84,6 +86,14 @@ export function MessageActions({ message, selectMessage }: Props) {
       () => {
         selectMessage(null);
         toast.success(`Movido a ${label}`);
+      },
+    );
+  const archive = () =>
+    run(
+      () => svc.ArchiveMessages([message.id]),
+      () => {
+        selectMessage(null);
+        toast.success("Archivado");
       },
     );
   const remove = () =>
@@ -161,6 +171,12 @@ export function MessageActions({ message, selectMessage }: Props) {
           Crear regla…
         </Button>
       ) : null}
+      {canArchive && (
+        <Button variant="outline" size="sm" onClick={() => void archive()}>
+          <ArchiveIcon />
+          Archivar
+        </Button>
+      )}
       {inTrash ? (
         <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)}>
           <Trash2Icon />
