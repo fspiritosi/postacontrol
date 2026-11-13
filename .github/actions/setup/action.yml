@@ -1,0 +1,32 @@
+# Lo que hace falta para compilar PostaControl en Linux: Go, Node, las
+# librerías de GTK4 y WebKitGTK 6, Task y la CLI de Wails (la misma versión
+# que go.mod).
+name: setup
+description: Prepara Go, Node, GTK4/WebKitGTK, Task y Wails
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Librerías del sistema
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+
+    - name: Task y Wails
+      shell: bash
+      run: |
+        WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+        go install github.com/go-task/task/v3/cmd/task@v3.54.0
+        go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}"
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"

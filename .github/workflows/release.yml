@@ -1,0 +1,77 @@
+# Al subir un tag vX.Y.Z: verifica, arma el .deb y el .rpm y los publica como
+# release de GitHub, con SHA256SUMS. Las notas salen de docs/releases/vX.Y.Z.md
+# si existe; si no, GitHub las genera con los PRs desde el release anterior.
+# Si el release ya existe (por ejemplo, un borrador con las notas escritas a
+# mano), le sube los paquetes, conserva sus notas y lo publica.
+#
+# También se puede correr a mano (Actions → release → Run workflow) con un tag
+# que ya existe, para rearmar los paquetes de ese release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag a publicar (por ejemplo v0.4.0)
+        required: true
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          # La versión del paquete sale de git describe: hacen falta los tags.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: ./.github/actions/setup
+
+      - name: task check
+        run: task check
+
+      - name: Paquetes
+        run: task package
+
+      - name: Nombres con versión y SHA256SUMS
+        run: |
+          VERSION="${TAG#v}"
+          got=$(dpkg-deb -f bin/postacontrol.deb Version)
+          if [ "$got" != "${VERSION}-1" ]; then
+            echo "El .deb salió con la versión $got y el tag es $TAG" >&2
+            exit 1
+          fi
+          mkdir dist
+          cp bin/postacontrol.deb "dist/postacontrol_${VERSION}_amd64.deb"
+          cp bin/postacontrol.rpm "dist/postacontrol-${VERSION}-1.x86_64.rpm"
+          (cd dist && sha256sum ./*.deb ./*.rpm | sed 's#  \./#  #' > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Publicar
+        run: |
+          VERSION="${TAG#v}"
+          # Los borradores no se encuentran por tag: se buscan en la lista.
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+            -q ".[] | select(.tag_name == \"${TAG}\") | .id")
+          if [ -n "$id" ]; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --draft=false --latest
+          else
+            notes="docs/releases/${TAG}.md"
+            if [ -f "$notes" ]; then
+              gh release create "$TAG" dist/* --verify-tag --title "PostaControl ${VERSION}" --notes-file "$notes"
+            else
+              gh release create "$TAG" dist/* --verify-tag --title "PostaControl ${VERSION}" --generate-notes
+            fi
+          fi
