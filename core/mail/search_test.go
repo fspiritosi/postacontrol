@@ -121,3 +121,28 @@ func TestSearchWithLabel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, res.Messages, 2)
 }
+
+func TestSearchServer_Filters(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", rawMail("Ana <ana@ej.com>", "de ana"))
+	imap.Deliver(t, "INBOX", rawMail("Beto <beto@ej.com>", "de beto, nombra a ana"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+	ctx := context.Background()
+
+	ms, err := c.SearchServer(ctx, inboxID, "de:ana")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"de ana"}, subjects(ms), "de: mira solo el remitente")
+
+	ms, err = c.SearchServer(ctx, inboxID, "asunto:beto es:no-leído")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"de beto, nombra a ana"}, subjects(ms))
+
+	// Solo un filtro, sin palabras, también vale.
+	ms, err = c.SearchServer(ctx, inboxID, "es:no-leído")
+	require.NoError(t, err)
+	assert.Len(t, ms, 2)
+
+	_, err = c.SearchServer(ctx, inboxID, "   ")
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+}

@@ -6,6 +6,7 @@ import (
 
 	"postacontrol/core/imapx"
 	"postacontrol/core/model"
+	"postacontrol/core/store"
 )
 
 // serverSearchMax es el tope de resultados de una búsqueda en el servidor.
@@ -35,10 +36,16 @@ func (c *Core) Search(ctx context.Context, q model.SearchQuery) (model.SearchRes
 // sincroniza la carpeta una vez. Devuelve hasta 200 mensajes por fecha
 // descendente.
 func (c *Core) SearchServer(ctx context.Context, folderID int64, text string) ([]model.MessageSummary, error) {
-	words := strings.Fields(text)
-	if len(words) == 0 {
+	terms := store.ParseSearch(text)
+	var words []string
+	for _, w := range terms.Words {
+		words = append(words, strings.Fields(w)...)
+	}
+	if len(words) == 0 && !terms.HasFilters() {
 		return nil, &UserError{Code: "invalid", Msg: "Escribí qué buscar."}
 	}
+	filter := imapx.SearchFilter{Text: words, From: terms.From, To: terms.To, Subject: terms.Subject,
+		Unseen: terms.Unread, Flagged: terms.Flagged, Since: terms.Since, Before: terms.Before}
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
 	f, last, err := c.store.GetFolder(ctx, folderID)
@@ -51,7 +58,7 @@ func (c *Core) SearchServer(ctx context.Context, folderID int64, text string) ([
 			return err
 		}
 		var err error
-		uids, err = conn.SearchText(words...)
+		uids, err = conn.Search(filter)
 		return err
 	})
 	if err != nil {
@@ -69,7 +76,17 @@ func (c *Core) SearchServer(ctx context.Context, folderID int64, text string) ([
 			return nil, c.ctxOrUserError(ctx, err)
 		}
 	}
-	if len(ms) > serverSearchMax {
+	// IMAP no busca por "tiene adjunto": se filtra acá.
+	if terms.HasAttachment {
+		kept := ms[:0]
+		for _, m := range ms {
+			if m.HasAttachments {
+				kept = append(kept, m)
+			}
+		}
+		ms = kept
+	}
+		if len(ms) > serverSearchMax {
 		ms = ms[:serverSearchMax]
 	}
 	return ms, nil

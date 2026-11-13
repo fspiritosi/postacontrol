@@ -89,9 +89,9 @@ func TestSearch_SpecialCharactersAreLiteral(t *testing.T) {
 	assert.Empty(t, search(t, s, "", 0))
 	assert.Empty(t, search(t, s, "   ", 0))
 	assert.NotNil(t, search(t, s, "", 0))
-	assert.Equal(t, `"a""b"* AND "c"*`, ftsQuery(`a"b c`))
-	assert.Equal(t, "", ftsQuery("  "))
-	assert.Equal(t, "", ftsQuery("- & —"))
+	assert.Equal(t, `"a""b"* AND "c"*`, ftsTerm(`a"b c`))
+	assert.Equal(t, "", ftsTerm("  "))
+	assert.Equal(t, "", ftsTerm("- & —"))
 	assert.Len(t, search(t, s, "hola - mundo", 0), 1)
 	assert.Empty(t, search(t, s, "-", 0))
 }
