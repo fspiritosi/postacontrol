@@ -32,6 +32,7 @@ import { isAllowedLink, toLinkHref } from "@/lib/links";
 import { EditorImage, moveSelectedNode, selectedImage, type ImageAlign } from "./editorImage";
 import { IMAGE_TYPES, imageError, readAsDataURL } from "./editorImages";
 import { createSlashCommand } from "./SlashMenu";
+import type { Template } from "../../../bindings/postacontrol/core/model/models";
 
 // StarterKit v3 ya incluye Link; se restringe a http, https y mailto.
 const baseExtensions = [
@@ -168,6 +169,10 @@ type Props = {
   onSlashMenuChange?: (close: (() => void) | null) => void;
   // Pone el foco al principio del cuerpo al crearse.
   autoFocus?: boolean;
+  // Plantillas que ofrece el menú "/"; onApplyTemplate avisa cuál se insertó
+  // (para completar el asunto).
+  templates?: Template[];
+  onApplyTemplate?: (t: Template) => void;
 };
 
 // La barra de formato sale con texto seleccionado, no con una imagen ni con celdas de tabla.
@@ -182,27 +187,47 @@ const showImageBubble = ({ state }: { state: Editor["state"] }) => {
   return sel instanceof NodeSelection && sel.node.type.name === "image";
 };
 
-export function RichEditor({ content, onChange, onPickImage, onError, onSlashMenuChange, autoFocus = false }: Props) {
+export function RichEditor({
+  content,
+  onChange,
+  onPickImage,
+  onError,
+  onSlashMenuChange,
+  autoFocus = false,
+  templates,
+  onApplyTemplate,
+}: Props) {
   const [linkOpen, setLinkOpen] = useState(false);
   // El menú "/" se arma una sola vez: lee lo último de `latest`.
+  type Latest = {
+    pickImage?: (editor: Editor) => void;
+    error?: (msg: string) => void;
+    slashMenuChange?: (close: (() => void) | null) => void;
+    templates?: Template[];
+    applyTemplate?: (t: Template) => void;
+  };
   const [latest] = useState(() => {
-    let pickImage: ((editor: Editor) => void) | undefined;
-    let error: ((msg: string) => void) | undefined;
-    let slashMenuChange: ((close: (() => void) | null) => void) | undefined;
+    let cur: Latest = {};
     return {
-      getPickImage: () => pickImage,
-      getError: () => error,
-      getSlashMenuChange: () => slashMenuChange,
-      set: (pick?: (editor: Editor) => void, slash?: (close: (() => void) | null) => void, err?: (msg: string) => void) => {
-        pickImage = pick;
-        error = err;
-        slashMenuChange = slash;
+      getPickImage: () => cur.pickImage,
+      getError: () => cur.error,
+      getSlashMenuChange: () => cur.slashMenuChange,
+      getTemplates: () => cur.templates ?? [],
+      getApplyTemplate: () => cur.applyTemplate,
+      set: (next: Latest) => {
+        cur = next;
       },
     };
   });
   useEffect(() => {
-    latest.set(onPickImage, onSlashMenuChange, onError);
-  }, [latest, onPickImage, onSlashMenuChange, onError]);
+    latest.set({
+      pickImage: onPickImage,
+      slashMenuChange: onSlashMenuChange,
+      error: onError,
+      templates,
+      applyTemplate: onApplyTemplate,
+    });
+  }, [latest, onPickImage, onSlashMenuChange, onError, templates, onApplyTemplate]);
   const [extensions] = useState(() => [
     ...baseExtensions,
     FileHandler.configure({
@@ -223,7 +248,12 @@ export function RichEditor({ content, onChange, onPickImage, onError, onSlashMen
       },
     }),
     createSlashCommand(
-      () => ({ pickImage: (editor) => latest.getPickImage()?.(editor), openLink: () => setLinkOpen(true) }),
+      () => ({
+        pickImage: (editor) => latest.getPickImage()?.(editor),
+        openLink: () => setLinkOpen(true),
+        templates: latest.getTemplates,
+        applyTemplate: (t) => latest.getApplyTemplate()?.(t),
+      }),
       (item) => item.id !== "image" || latest.getPickImage() != null,
       (close) => latest.getSlashMenuChange()?.(close),
     ),

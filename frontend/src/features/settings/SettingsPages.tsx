@@ -17,6 +17,7 @@ import { useBackground, useImageSenders, useSettings } from "@/lib/queries";
 import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
 import type { Settings } from "../../../bindings/postacontrol/core/model/models";
 import { SignaturesSection } from "./SignaturesSection";
+import { TemplatesSection } from "./TemplatesSection";
 
 // Encabezado de una página de Configuración.
 export function PageHeader({ id, title, description, children }: {
@@ -268,6 +269,7 @@ export function ComposePage() {
         </div>
       </div>
       <SignaturesSection />
+      <TemplatesSection />
     </section>
   );
 }

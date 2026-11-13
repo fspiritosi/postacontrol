@@ -529,6 +529,21 @@ func (s *MailService) QueueSend(ctx context.Context, req model.SendRequest) (int
 	return s.core.QueueSend(ctx, req)
 }
 
+// ListTemplates devuelve las plantillas del redactor.
+func (s *MailService) ListTemplates(ctx context.Context) ([]model.Template, error) {
+	return s.core.ListTemplates(ctx)
+}
+
+// SaveTemplate crea (ID 0) o actualiza una plantilla.
+func (s *MailService) SaveTemplate(ctx context.Context, t model.Template) (model.Template, error) {
+	return s.core.SaveTemplate(ctx, t)
+}
+
+// DeleteTemplate borra una plantilla.
+func (s *MailService) DeleteTemplate(ctx context.Context, id int64) error {
+	return s.core.DeleteTemplate(ctx, id)
+}
+
 // SendScheduledNow manda ya un correo programado.
 func (s *MailService) SendScheduledNow(ctx context.Context, draftID int64) error {
 	return s.core.SendScheduledNow(ctx, draftID)

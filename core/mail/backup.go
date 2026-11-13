@@ -54,6 +54,14 @@ type backupFile struct {
 	// ImageSenders son los remitentes con imágenes remotas permitidas (falta
 	// en los respaldos de antes de que existiera la lista).
 	ImageSenders []string `json:"imageSenders"`
+	// Templates son las plantillas del redactor (faltan en los respaldos viejos).
+	Templates []backupTemplate `json:"templates"`
+}
+
+type backupTemplate struct {
+	Name    string `json:"name"`
+	Subject string `json:"subject"`
+	HTML    string `json:"html"`
 }
 
 type backupContact struct {
@@ -128,6 +136,15 @@ func (c *Core) buildBackup(ctx context.Context) (backupFile, error) {
 		return b, err
 	}
 	b.ImageSenders = senders
+
+	templates, err := c.store.ListTemplates(ctx)
+	if err != nil {
+		return b, err
+	}
+	b.Templates = []backupTemplate{}
+	for _, t := range templates {
+		b.Templates = append(b.Templates, backupTemplate{Name: t.Name, Subject: t.Subject, HTML: t.HTML})
+	}
 
 	contacts, err := c.store.ListContacts(ctx)
 	if err != nil {
@@ -229,6 +246,9 @@ func (c *Core) ImportBackup(ctx context.Context, src string) (model.BackupImport
 	if res.ImageSendersAdded > 0 {
 		c.emit(EventImageSendersChanged, nil)
 	}
+	if res.TemplatesAdded > 0 {
+		c.emit(EventTemplatesChanged, nil)
+	}
 	if err != nil {
 		return res, c.ctxOrUserError(ctx, err)
 	}
@@ -293,6 +313,9 @@ func (c *Core) applyBackup(ctx context.Context, b backupFile, res *model.BackupI
 		c.emit(EventAccountsChanged, nil)
 	}
 	if err := c.importImageSenders(ctx, b.ImageSenders, res); err != nil {
+		return err
+	}
+	if err := c.importTemplates(ctx, b.Templates, res); err != nil {
 		return err
 	}
 	// Las etiquetas restauradas vuelven a juntar sus correos desde el servidor.
@@ -550,6 +573,36 @@ func (c *Core) importImageSenders(ctx context.Context, list []string, res *model
 			return err
 		}
 		res.ImageSendersAdded++
+	}
+	return nil
+}
+
+// importTemplates suma las plantillas que no están (por nombre).
+func (c *Core) importTemplates(ctx context.Context, list []backupTemplate, res *model.BackupImport) error {
+	existing, err := c.store.ListTemplates(ctx)
+	if err != nil {
+		return err
+	}
+	names := map[string]bool{}
+	for _, t := range existing {
+		names[fold(t.Name)] = true
+	}
+	for _, bt := range list {
+		key := fold(strings.TrimSpace(bt.Name))
+		if names[key] {
+			res.TemplatesSkipped++
+			continue
+		}
+		if _, err := c.SaveTemplate(ctx, model.Template{Name: bt.Name, Subject: bt.Subject, HTML: bt.HTML}); err != nil {
+			var ue *UserError
+			if errors.As(err, &ue) {
+				res.TemplatesSkipped++
+				continue
+			}
+			return err
+		}
+		names[key] = true
+		res.TemplatesAdded++
 	}
 	return nil
 }

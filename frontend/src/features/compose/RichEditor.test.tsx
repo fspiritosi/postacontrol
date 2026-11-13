@@ -67,7 +67,7 @@ describe("RichEditor: enlaces", () => {
 });
 
 // Escribe en el redactor vacío, sin seleccionar nada (setup() selecciona todo).
-async function setupEmpty(props: { onPickImage?: () => void } = {}) {
+async function setupEmpty(props: Partial<React.ComponentProps<typeof RichEditor>> = {}) {
   const user = userEvent.setup();
   const onChange = vi.fn();
   render(<RichEditor content="" onChange={onChange} {...props} />);
@@ -352,5 +352,25 @@ describe("RichEditor: tamaño del texto", () => {
     const { onChange } = await setup('<p><span style="font-size: 12px">hola</span></p>');
     await waitFor(() => expect(toolbar().getByRole("combobox", { name: "Tamaño del texto" })).toHaveTextContent("Chico"));
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("RichEditor: plantillas", () => {
+  const tpl = { id: 3, name: "Presupuesto", subject: "Tu presupuesto", html: "<p>Te paso el presupuesto pedido.</p>" };
+
+  it("/plant ofrece la plantilla y Enter la inserta y avisa", async () => {
+    const onApplyTemplate = vi.fn();
+    const { user, onChange } = await setupEmpty({ templates: [tpl], onApplyTemplate });
+    await user.keyboard("/plant");
+    await screen.findByRole("option", { name: "Plantilla: Presupuesto" });
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(lastHTML(onChange)).toContain("Te paso el presupuesto pedido."));
+    expect(onApplyTemplate).toHaveBeenCalledWith(tpl);
+  });
+
+  it("también se encuentra por su nombre", async () => {
+    const { user } = await setupEmpty({ templates: [tpl] });
+    await user.keyboard("/presup");
+    expect(await screen.findByRole("option", { name: "Plantilla: Presupuesto" })).toBeInTheDocument();
   });
 });

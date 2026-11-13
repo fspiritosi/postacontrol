@@ -26,6 +26,14 @@ export function useSignatures() {
   });
 }
 
+// Plantillas del redactor.
+export function useTemplates() {
+  return useQuery({
+    queryKey: ["templates"],
+    queryFn: async () => (await svc.ListTemplates()) ?? [],
+  });
+}
+
 // Remitentes a los que se les muestran siempre las imágenes remotas.
 export function useImageSenders() {
   return useQuery({
