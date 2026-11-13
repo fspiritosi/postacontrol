@@ -76,6 +76,7 @@ function ThreadRow({
     >
     <li
       className={cn("group relative", marked && "bg-primary/10")}
+      data-row-root={t.threadRoot}
       data-unread={unread || undefined}
       data-density={compact ? "compact" : "comfortable"}
       draggable

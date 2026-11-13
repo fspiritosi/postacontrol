@@ -74,6 +74,7 @@ export function MessageRow({
     >
     <li
       className={cn("group relative", marked && "bg-primary/10")}
+      data-row-id={m.id}
       data-unread={!m.seen || undefined}
       data-density={compact ? "compact" : "comfortable"}
       draggable={dragOf != null}

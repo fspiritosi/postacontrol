@@ -629,6 +629,12 @@ func (s *MailService) DeleteMessages(ctx context.Context, ids []int64) error {
 	return s.core.DeleteMessages(ctx, ids)
 }
 
+// ArchiveMessages mueve los mensajes a la carpeta Archivo de su cuenta (la
+// crea si no hay).
+func (s *MailService) ArchiveMessages(ctx context.Context, ids []int64) error {
+	return s.core.ArchiveMessages(ctx, ids)
+}
+
 // EmptyTrash borra definitivamente todos los correos de la Papelera y
 // devuelve cuántos borró.
 func (s *MailService) EmptyTrash(ctx context.Context, folderID int64) (int, error) {

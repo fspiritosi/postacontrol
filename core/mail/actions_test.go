@@ -444,3 +444,45 @@ func TestMoveMessages_ServerRefusalIsSpanishUserError(t *testing.T) {
 	assert.NotContains(t, ue.Msg, "imap: NO")
 	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "INBOX"))
 }
+
+func TestArchiveMessages_MovesToArchiveFolder(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	deliverN(t, imap, 2, "m")
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	archivoID := folderID(t, c, acc.ID, "Archivo")
+	m1 := bySubject(t, listAll(t, c, inboxID), "m-1")
+
+	require.NoError(t, c.ArchiveMessages(context.Background(), []int64{m1.ID}))
+	assert.Equal(t, []string{"m-2"}, serverSubjects(t, c, imap, testUser, "INBOX"))
+	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "Archivo"))
+	assert.Equal(t, []string{"m-2"}, subjects(listAll(t, c, inboxID)))
+	assert.Contains(t, n.matching(EventFolderUpdated), map[string]any{"folderId": archivoID})
+}
+
+func TestArchiveMessages_CreatesArchiveWhenMissing(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	deliverN(t, imap, 1, "m")
+	acc, inboxID := setupSynced(t, imap, smtp, c)
+	m := listAll(t, c, inboxID)[0]
+
+	require.NoError(t, c.ArchiveMessages(context.Background(), []int64{m.ID}))
+	assert.Equal(t, []string{"m-1"}, serverSubjects(t, c, imap, testUser, "Archivo"))
+	assert.Empty(t, serverSubjects(t, c, imap, testUser, "INBOX"))
+	f := folderByID(t, c, acc.ID, folderID(t, c, acc.ID, "Archivo"))
+	assert.Equal(t, model.FolderRole("archive"), f.Role)
+}
+
+func TestArchiveMessages_AlreadyArchivedIsNoop(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	imap.Deliver(t, "Archivo", rawMail("Bea <bea@ej.com>", "viejo"))
+	acc, _ := setupSynced(t, imap, smtp, c)
+	archivoID := folderID(t, c, acc.ID, "Archivo")
+	require.NoError(t, c.SyncFolder(context.Background(), archivoID))
+	m := listAll(t, c, archivoID)[0]
+
+	require.NoError(t, c.ArchiveMessages(context.Background(), []int64{m.ID}))
+	assert.Equal(t, []string{"viejo"}, serverSubjects(t, c, imap, testUser, "Archivo"))
+	assert.NoError(t, c.ArchiveMessages(context.Background(), nil))
+}

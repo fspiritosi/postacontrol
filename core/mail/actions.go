@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 
@@ -173,6 +174,64 @@ func (c *Core) DeleteMessages(ctx context.Context, ids []int64) error {
 		return err
 	}
 	return c.runMoves(ctx, accountID, batches)
+}
+
+// archiveFolderName es la carpeta que se crea para archivar cuando la cuenta
+// no tiene una (el nombre la marca como Archivo, ver imapx.roleByName).
+const archiveFolderName = "Archivo"
+
+// ArchiveMessages mueve los mensajes a la carpeta Archivo de la cuenta. Si la
+// cuenta no tiene, la crea (como Thunderbird). Los que ya están en Archivo
+// quedan como están.
+func (c *Core) ArchiveMessages(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	accountID, byFolder, err := c.refsByFolder(ctx, ids)
+	if err != nil {
+		return err
+	}
+	archive, err := c.archiveFolder(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	batches, err := c.planMoves(ctx, byFolder, func(src model.Folder) (*model.Folder, bool) {
+		return &archive, src.ID != archive.ID
+	})
+	if err != nil {
+		return err
+	}
+	return c.runMoves(ctx, accountID, batches)
+}
+
+// archiveFolder devuelve la carpeta Archivo de la cuenta y, si no tiene, la crea.
+func (c *Core) archiveFolder(ctx context.Context, accountID int64) (model.Folder, error) {
+	find := func() (model.Folder, bool, error) {
+		folders, err := c.store.ListFolders(ctx, accountID)
+		if err != nil {
+			return model.Folder{}, false, c.ctxOrUserError(ctx, err)
+		}
+		for _, f := range folders {
+			if f.Role == "archive" && f.Selectable {
+				return f, true, nil
+			}
+		}
+		return model.Folder{}, false, nil
+	}
+	if f, ok, err := find(); err != nil || ok {
+		return f, err
+	}
+	created, err := c.CreateFolder(ctx, accountID, 0, archiveFolderName)
+	var ue *UserError
+	if errors.As(err, &ue) && ue.Code == "duplicate" {
+		// Otra acción la creó recién (o existe con otro rol): se usa esa.
+		if f, ok, ferr := find(); ferr != nil || ok {
+			return f, ferr
+		}
+	}
+	return created, err
 }
 
 const msgNotTrash = "Solo se puede vaciar la Papelera."

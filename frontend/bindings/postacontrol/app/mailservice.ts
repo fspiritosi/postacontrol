@@ -31,6 +31,14 @@ export function AddSenderToContacts(addr: model$0.Address): $CancellablePromise<
 }
 
 /**
+ * ArchiveMessages mueve los mensajes a la carpeta Archivo de su cuenta (la
+ * crea si no hay).
+ */
+export function ArchiveMessages(ids: number[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3024840463, ids);
+}
+
+/**
  * AttachmentData devuelve los bytes del adjunto para el visor (tope de 50 MB).
  */
 export function AttachmentData(messageID: number, index: number): $CancellablePromise<model$0.AttachmentData> {
