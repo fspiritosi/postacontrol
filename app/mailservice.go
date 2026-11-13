@@ -621,18 +621,27 @@ func (s *MailService) RunRules(ctx context.Context, folderID int64) (model.RuleR
 	return s.core.RunRules(ctx, folderID)
 }
 
-func (s *MailService) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) error {
-	return s.core.MoveMessages(ctx, ids, destFolderID)
+// MoveMessages mueve los mensajes a otra carpeta y devuelve con qué
+// deshacerlo (UndoMove; 0 = nada que deshacer).
+func (s *MailService) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) (int64, error) {
+	return s.core.MoveMessagesUndoable(ctx, ids, destFolderID)
 }
 
-func (s *MailService) DeleteMessages(ctx context.Context, ids []int64) error {
-	return s.core.DeleteMessages(ctx, ids)
+// DeleteMessages manda los mensajes a la Papelera (los que ya estaban ahí se
+// borran definitivamente) y devuelve con qué deshacer lo que fue a la Papelera.
+func (s *MailService) DeleteMessages(ctx context.Context, ids []int64) (int64, error) {
+	return s.core.DeleteMessagesUndoable(ctx, ids)
 }
 
 // ArchiveMessages mueve los mensajes a la carpeta Archivo de su cuenta (la
-// crea si no hay).
-func (s *MailService) ArchiveMessages(ctx context.Context, ids []int64) error {
-	return s.core.ArchiveMessages(ctx, ids)
+// crea si no hay) y devuelve con qué deshacerlo.
+func (s *MailService) ArchiveMessages(ctx context.Context, ids []int64) (int64, error) {
+	return s.core.ArchiveMessagesUndoable(ctx, ids)
+}
+
+// UndoMove devuelve a su carpeta lo que movió una de las acciones de arriba.
+func (s *MailService) UndoMove(ctx context.Context, undoID int64) error {
+	return s.core.UndoMove(ctx, undoID)
 }
 
 // EmptyTrash borra definitivamente todos los correos de la Papelera y

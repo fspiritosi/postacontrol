@@ -25,6 +25,7 @@ import { requestNewRule } from "@/lib/events";
 import { folderLabel } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
 import { ruleDraftFromSender } from "@/lib/rules";
+import { undoableToast } from "@/lib/undo";
 import { LabelMenuItems } from "../labels/LabelMenu";
 import { useComposer } from "../compose/ComposerContext";
 
@@ -59,7 +60,7 @@ export function MessageActions({ message, selectMessage }: Props) {
   };
 
   const refresh = () => invalidateMailQueries(queryClient);
-  const run = async (fn: () => Promise<void>, after?: () => void) => {
+  const run = async (fn: () => Promise<unknown>, after?: () => void) => {
     try {
       await fn();
       after?.();
@@ -80,30 +81,23 @@ export function MessageActions({ message, selectMessage }: Props) {
       () => svc.SetSeen([message.id], false),
       () => selectMessage(null),
     );
-  const moveTo = (id: number, label: string) =>
-    run(
-      () => svc.MoveMessages([message.id], id),
+  // Mover, archivar y borrar cierran el lector y avisan con Deshacer.
+  const moveAway = (fn: () => Promise<number>, message: string | null) => {
+    let undo = 0;
+    return run(
+      async () => {
+        undo = await fn();
+      },
       () => {
         selectMessage(null);
-        toast.success(`Movido a ${label}`);
+        if (message) undoableToast(queryClient, message, [undo]);
       },
     );
-  const archive = () =>
-    run(
-      () => svc.ArchiveMessages([message.id]),
-      () => {
-        selectMessage(null);
-        toast.success("Archivado");
-      },
-    );
-  const remove = () =>
-    run(
-      () => svc.DeleteMessages([message.id]),
-      () => {
-        selectMessage(null);
-        if (!inTrash) toast.success("Movido a la Papelera");
-      },
-    );
+  };
+  const moveTo = (id: number, label: string) => moveAway(() => svc.MoveMessages([message.id], id), `Movido a ${label}`);
+  const archive = () => moveAway(() => svc.ArchiveMessages([message.id]), "Archivado");
+  // En la Papelera es definitivo: no hay nada que avisar ni deshacer.
+  const remove = () => moveAway(() => svc.DeleteMessages([message.id]), inTrash ? null : "Movido a la Papelera");
 
   const keepEditing = async () => {
     try {

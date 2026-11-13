@@ -113,46 +113,68 @@ type moveBatch struct {
 // MoveMessages mueve los mensajes a otra carpeta de la misma cuenta. Los que
 // ya están en el destino quedan como están.
 func (c *Core) MoveMessages(ctx context.Context, ids []int64, destFolderID int64) error {
+	_, err := c.moveMessages(ctx, ids, destFolderID, false)
+	return err
+}
+
+// MoveMessagesUndoable es MoveMessages y además devuelve con qué deshacerlo
+// (ver UndoMove; 0 = no hay nada que deshacer).
+func (c *Core) MoveMessagesUndoable(ctx context.Context, ids []int64, destFolderID int64) (int64, error) {
+	return c.moveMessages(ctx, ids, destFolderID, true)
+}
+
+func (c *Core) moveMessages(ctx context.Context, ids []int64, destFolderID int64, undoable bool) (int64, error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
 	accountID, byFolder, err := c.refsByFolder(ctx, ids)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	dest, _, err := c.store.GetFolder(ctx, destFolderID)
 	if err != nil {
-		return c.ctxOrUserError(ctx, err)
+		return 0, c.ctxOrUserError(ctx, err)
 	}
 	if dest.AccountID != accountID || !dest.Selectable {
-		return &UserError{Code: "invalid", Msg: msgBadDest}
+		return 0, &UserError{Code: "invalid", Msg: msgBadDest}
 	}
 	batches, err := c.planMoves(ctx, byFolder, func(src model.Folder) (*model.Folder, bool) {
 		return &dest, src.ID != dest.ID
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return c.runMoves(ctx, accountID, batches)
+	return c.runMoves(ctx, accountID, batches, undoable)
 }
 
 // DeleteMessages manda los mensajes a la Papelera de la cuenta; los que ya
 // están en la Papelera se borran definitivamente.
 func (c *Core) DeleteMessages(ctx context.Context, ids []int64) error {
+	_, err := c.deleteMessages(ctx, ids, false)
+	return err
+}
+
+// DeleteMessagesUndoable es DeleteMessages y además devuelve con qué deshacer
+// lo que fue a la Papelera (lo borrado definitivamente no se puede).
+func (c *Core) DeleteMessagesUndoable(ctx context.Context, ids []int64) (int64, error) {
+	return c.deleteMessages(ctx, ids, true)
+}
+
+func (c *Core) deleteMessages(ctx context.Context, ids []int64, undoable bool) (int64, error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
 	accountID, byFolder, err := c.refsByFolder(ctx, ids)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	folders, err := c.store.ListFolders(ctx, accountID)
 	if err != nil {
-		return c.ctxOrUserError(ctx, err)
+		return 0, c.ctxOrUserError(ctx, err)
 	}
 	var trash *model.Folder
 	for i := range folders {
@@ -162,7 +184,7 @@ func (c *Core) DeleteMessages(ctx context.Context, ids []int64) error {
 		}
 	}
 	if trash == nil {
-		return &UserError{Code: "no_trash", Msg: msgNoTrash}
+		return 0, &UserError{Code: "no_trash", Msg: msgNoTrash}
 	}
 	batches, err := c.planMoves(ctx, byFolder, func(src model.Folder) (*model.Folder, bool) {
 		if src.ID == trash.ID {
@@ -171,9 +193,9 @@ func (c *Core) DeleteMessages(ctx context.Context, ids []int64) error {
 		return trash, true
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return c.runMoves(ctx, accountID, batches)
+	return c.runMoves(ctx, accountID, batches, undoable)
 }
 
 // archiveFolderName es la carpeta que se crea para archivar cuando la cuenta
@@ -184,26 +206,37 @@ const archiveFolderName = "Archivo"
 // cuenta no tiene, la crea (como Thunderbird). Los que ya están en Archivo
 // quedan como están.
 func (c *Core) ArchiveMessages(ctx context.Context, ids []int64) error {
+	_, err := c.archiveMessages(ctx, ids, false)
+	return err
+}
+
+// ArchiveMessagesUndoable es ArchiveMessages y además devuelve con qué
+// deshacerlo.
+func (c *Core) ArchiveMessagesUndoable(ctx context.Context, ids []int64) (int64, error) {
+	return c.archiveMessages(ctx, ids, true)
+}
+
+func (c *Core) archiveMessages(ctx context.Context, ids []int64, undoable bool) (int64, error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	ctx, cancel := c.lifeCtx(ctx)
 	defer cancel()
 	accountID, byFolder, err := c.refsByFolder(ctx, ids)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	archive, err := c.archiveFolder(ctx, accountID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	batches, err := c.planMoves(ctx, byFolder, func(src model.Folder) (*model.Folder, bool) {
 		return &archive, src.ID != archive.ID
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return c.runMoves(ctx, accountID, batches)
+	return c.runMoves(ctx, accountID, batches, undoable)
 }
 
 // archiveFolder devuelve la carpeta Archivo de la cuenta y, si no tiene, la crea.
@@ -332,8 +365,9 @@ func (c *Core) planMoves(ctx context.Context, byFolder map[int64][]store.Message
 
 // runMoves aplica los lotes en orden y corta en el primer error. Las carpetas
 // destino que recibieron correos se avisan y se sincronizan en segundo plano,
-// aunque un lote posterior haya fallado.
-func (c *Core) runMoves(ctx context.Context, accountID int64, batches []moveBatch) error {
+// aunque un lote posterior haya fallado. Con undoable anota cómo deshacer lo
+// movido (no lo borrado definitivamente) y devuelve su id, o 0 si no hay nada.
+func (c *Core) runMoves(ctx context.Context, accountID int64, batches []moveBatch, undoable bool) (int64, error) {
 	var received []int64
 	defer func() {
 		for _, id := range received {
@@ -341,15 +375,31 @@ func (c *Core) runMoves(ctx context.Context, accountID int64, batches []moveBatc
 			c.spawn(func(ctx context.Context) { _ = c.SyncFolder(ctx, id) })
 		}
 	}()
+	var undo []undoBatch
 	for _, b := range batches {
-		if err := c.applyMove(ctx, accountID, b); err != nil {
-			return err
+		res, err := c.applyMove(ctx, accountID, b)
+		if err != nil {
+			return 0, err
 		}
-		if b.dest != nil && !slices.Contains(received, b.dest.ID) {
+		if b.dest == nil {
+			continue
+		}
+		if !slices.Contains(received, b.dest.ID) {
 			received = append(received, b.dest.ID)
 		}
+		msgIDs := make([]string, 0, len(b.refs))
+		for _, r := range b.refs {
+			if r.MessageID != "" {
+				msgIDs = append(msgIDs, r.MessageID)
+			}
+		}
+		undo = append(undo, undoBatch{srcID: b.src.ID, destID: b.dest.ID,
+			uidValidity: res.UIDValidity, destUIDs: res.Dest, messageIDs: msgIDs})
 	}
-	return nil
+	if !undoable || len(undo) == 0 {
+		return 0, nil
+	}
+	return c.recordUndo(accountID, undo), nil
 }
 
 // saveLabelCarry, en las cuentas que guardan las etiquetas solo acá, anota las
@@ -375,7 +425,7 @@ func (c *Core) saveLabelCarry(ctx context.Context, accountID int64, refs []store
 // applyMove mueve o borra un lote en el servidor y recién después lo saca de
 // la caché. Si el servidor falla, la caché queda como estaba: la próxima
 // sincronización la pone al día con lo que sí haya pasado.
-func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) error {
+func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) (imapx.MoveResult, error) {
 	uids := make([]uint32, len(b.refs))
 	ids := make([]int64, len(b.refs))
 	for i, r := range b.refs {
@@ -386,8 +436,9 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 	if err := c.withConn(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
 		return conn.Noop()
 	}); err != nil {
-		return err
+		return imapx.MoveResult{}, err
 	}
+	var res imapx.MoveResult
 	err := c.withConnNoRetry(ctx, accountID, func(_ context.Context, conn *imapx.Conn) error {
 		if err := selectChecked(conn, b.src, b.last, true); err != nil {
 			return err
@@ -395,10 +446,12 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 		if b.dest == nil {
 			return conn.ExpungeUIDs(uids)
 		}
-		return conn.Move(uids, b.dest.Name)
+		var err error
+		res, err = conn.MoveUIDs(uids, b.dest.Name)
+		return err
 	})
 	if err != nil {
-		return err
+		return imapx.MoveResult{}, err
 	}
 	if b.dest != nil {
 		// El MOVE ya pasó: si no se pudo anotar el carry, las etiquetas locales
@@ -408,10 +461,10 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 		}
 	}
 	if err := c.store.DeleteMessages(ctx, ids); err != nil {
-		return c.ctxOrUserError(ctx, err)
+		return res, c.ctxOrUserError(ctx, err)
 	}
 	if err := c.store.RecountFolder(ctx, b.src.ID); err != nil {
-		return c.ctxOrUserError(ctx, err)
+		return res, c.ctxOrUserError(ctx, err)
 	}
 	c.emit(EventFolderUpdated, map[string]any{"folderId": b.src.ID})
 	if b.src.Role == "drafts" {
@@ -421,5 +474,5 @@ func (c *Core) applyMove(ctx context.Context, accountID int64, b moveBatch) erro
 		}
 		c.forgetLocalDrafts(ctx, b.src.AccountID, msgIDs)
 	}
-	return nil
+	return res, nil
 }

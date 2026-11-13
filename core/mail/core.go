@@ -69,6 +69,11 @@ type Core struct {
 	// después del LIST y antes de guardar la lista en la caché.
 	afterFolderList func(accountID int64)
 
+	// undos recuerda cómo deshacer los últimos movimientos (ver undo.go).
+	undoMu  sync.Mutex
+	undoSeq int64
+	undos   map[int64]undoEntry
+
 	poolMu sync.Mutex
 	pool   map[int64]*pooledConn // una conexión IMAP por cuenta
 

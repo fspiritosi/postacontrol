@@ -45,33 +45,75 @@ func (c *Conn) AddFlags(uid uint32, flags ...imap.Flag) error {
 // ninguna de las dos devuelve ErrUnsupported sin mandar nada: nunca se usa un
 // EXPUNGE sin UID. Requiere SelectRW.
 func (c *Conn) Move(uids []uint32, dest string) error {
+	_, err := c.MoveUIDs(uids, dest)
+	return err
+}
+
+// MoveResult es lo que informó el servidor sobre un MOVE (COPYUID, con
+// UIDPLUS): la UIDVALIDITY del destino y los UID nuevos ahí. Dest queda vacío
+// si el servidor no lo dijo.
+type MoveResult struct {
+	UIDValidity uint32
+	Dest        []uint32
+}
+
+// MoveUIDs es Move pero además devuelve los UID que quedaron en el destino.
+func (c *Conn) MoveUIDs(uids []uint32, dest string) (MoveResult, error) {
 	if !c.rw {
-		return ErrReadOnly
+		return MoveResult{}, ErrReadOnly
 	}
 	if len(uids) == 0 {
-		return nil
+		return MoveResult{}, nil
 	}
 	caps := c.c.Caps()
 	set := toUIDs(uids)
 	switch {
 	case caps.Has(imap.CapMove):
-		if _, err := c.c.Move(set, dest).Wait(); err != nil {
-			return opErr(fmt.Sprintf("UID MOVE %q", dest), err)
+		data, err := c.c.Move(set, dest).Wait()
+		if err != nil {
+			return MoveResult{}, opErr(fmt.Sprintf("UID MOVE %q", dest), err)
 		}
-		return nil
+		var res MoveResult
+		if data != nil {
+			dst, _ := data.DestUIDs.(imap.UIDSet)
+			res = MoveResult{UIDValidity: data.UIDValidity, Dest: fromUIDSet(dst)}
+		}
+		return res, nil
 	case caps.Has(imap.CapUIDPlus):
-		if _, err := c.c.Copy(set, dest).Wait(); err != nil {
-			return opErr(fmt.Sprintf("UID COPY %q", dest), err)
+		data, err := c.c.Copy(set, dest).Wait()
+		if err != nil {
+			return MoveResult{}, opErr(fmt.Sprintf("UID COPY %q", dest), err)
 		}
 		if err := c.StoreFlags(uids, true, imap.FlagDeleted); err != nil {
-			return err
+			return MoveResult{}, err
 		}
 		if err := c.c.UIDExpunge(set).Close(); err != nil {
-			return opErr("UID EXPUNGE", err)
+			return MoveResult{}, opErr("UID EXPUNGE", err)
 		}
+		var res MoveResult
+		if data != nil {
+			res = MoveResult{UIDValidity: data.UIDValidity, Dest: fromUIDSet(data.DestUIDs)}
+		}
+		return res, nil
+	}
+	return MoveResult{}, ErrUnsupported
+}
+
+// fromUIDSet pasa un conjunto de UID a una lista. Un conjunto dinámico (con
+// "*") o vacío da nil.
+func fromUIDSet(s imap.UIDSet) []uint32 {
+	if len(s) == 0 {
 		return nil
 	}
-	return ErrUnsupported
+	nums, ok := s.Nums()
+	if !ok {
+		return nil
+	}
+	out := make([]uint32, len(nums))
+	for i, n := range nums {
+		out[i] = uint32(n)
+	}
+	return out
 }
 
 // ExpungeUIDs marca \Deleted y borra solo esos UIDs (UID EXPUNGE). Exige

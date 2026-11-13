@@ -41,6 +41,7 @@ import {
 import { errorMessage } from "@/lib/errors";
 import { folderLabel } from "@/lib/folders";
 import { useAllFolders } from "@/lib/queries";
+import { undoableToast } from "@/lib/undo";
 import { LabelMenuItems } from "../labels/LabelMenu";
 
 // Cómo terminó una acción: qué ids salieron bien, cuáles fallaron y si los
@@ -153,7 +154,7 @@ export function SelectionBar({
   // Corre la acción sobre lo marcado de ahora (no de cuando se pintó la barra),
   // avisa lo que falló por cuenta y deja marcado solo eso.
   const act = async (
-    fn: (accountId: number, ids: number[]) => Promise<void>,
+    fn: (accountId: number, ids: number[]) => Promise<unknown>,
     opts: {
       removed: boolean;
       unread?: boolean;
@@ -216,22 +217,41 @@ export function SelectionBar({
     }
   };
 
-  const archive = () =>
-    act((_a, ids) => svc.ArchiveMessages(ids), {
-      removed: true,
-      onOk: (done) =>
-        toast.success(done.length === 1 ? "Archivado" : `${done.length} archivados`),
-    });
-
-  const remove = (all: Target[]) =>
-    act((_a, ids) => svc.DeleteMessages(ids), {
-      removed: true,
-      fixed: all,
-      onOk: (done) => {
-        const toTrash = done.filter((t) => !inTrash(t)).length;
-        if (toTrash > 0) toast.success(`${toTrash} movidos a la Papelera`);
+  const archive = () => {
+    const undos: number[] = [];
+    return act(
+      async (_a, ids) => {
+        undos.push(await svc.ArchiveMessages(ids));
       },
-    });
+      {
+        removed: true,
+        onOk: (done) =>
+          undoableToast(
+            queryClient,
+            done.length === 1 ? "Archivado" : `${done.length} archivados`,
+            undos,
+          ),
+      },
+    );
+  };
+
+  const remove = (all: Target[]) => {
+    const undos: number[] = [];
+    return act(
+      async (_a, ids) => {
+        undos.push(await svc.DeleteMessages(ids));
+      },
+      {
+        removed: true,
+        fixed: all,
+        onOk: (done) => {
+          const toTrash = done.filter((t) => !inTrash(t)).length;
+          if (toTrash > 0)
+            undoableToast(queryClient, `${toTrash} movidos a la Papelera`, undos);
+        },
+      },
+    );
+  };
 
   // En la Papelera el borrado es definitivo: si hay algo ahí, se confirma.
   const askRemove = async () => {

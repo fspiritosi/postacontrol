@@ -6,6 +6,7 @@ import type { Folder } from "../../../bindings/postacontrol/core/model/models";
 import { invalidateMailQueries, runPerAccount, type Target } from "@/lib/bulk";
 import { errorMessage } from "@/lib/errors";
 import { keyTargets, latestOfThread, shortcutKey } from "@/lib/keys";
+import { undoLast, undoableToast } from "@/lib/undo";
 import { useComposer } from "../compose/ComposerContext";
 import type { ShellState } from "./MailShell";
 
@@ -51,6 +52,7 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : `${n} 
 //   Supr / #    a la Papelera
 //   s           destacar o quitar destacado
 //   u           marcar como no leído
+//   z           deshacer lo último que se movió
 //   n           redactar
 //   /           buscar
 //   ?           esta ayuda
@@ -80,11 +82,11 @@ export function useMailKeys(state: ShellState, composeAccountId: number | undefi
     // sacaron de la lista, abre el siguiente (o suelta lo marcado).
     const act = async (
       s: ShellState,
-      fn: (ids: number[]) => Promise<void>,
+      fn: (ids: number[]) => Promise<unknown>,
       opts: {
         removes: boolean;
         check?: (targets: Target[]) => Promise<boolean>;
-        done?: (n: number) => void;
+        done?: (n: number, results: unknown[]) => void;
         after?: (fromOpen: boolean) => void;
       },
     ) => {
@@ -93,11 +95,11 @@ export function useMailKeys(state: ShellState, composeAccountId: number | undefi
         if (targets.length === 0) return;
         if (opts.check && !(await opts.check(targets))) return;
         const next = opts.removes && fromOpen ? rowAfterRemoving(s) : undefined;
-        const { failed } = await runPerAccount(targets, (_a, ids) => fn(ids));
+        const { failed, results } = await runPerAccount(targets, (_a, ids) => fn(ids));
         for (const f of failed) toast.error(errorMessage(f.error));
         const ok = targets.length - failed.reduce((n, f) => n + f.ids.length, 0);
         invalidateMailQueries(queryClient);
-        if (ok > 0) opts.done?.(ok);
+        if (ok > 0) opts.done?.(ok, results);
         if (opts.removes) {
           if (!fromOpen) s.clearMarks();
           else if (ok > 0) {
@@ -129,6 +131,10 @@ export function useMailKeys(state: ShellState, composeAccountId: number | undefi
           e.preventDefault();
           search.focus();
         }
+        return;
+      }
+      if (key === "z" && !e.shiftKey && !e.repeat) {
+        if (undoLast(queryClient)) e.preventDefault();
         return;
       }
       if (key === "n" && !e.shiftKey) {
@@ -168,7 +174,7 @@ export function useMailKeys(state: ShellState, composeAccountId: number | undefi
         e.preventDefault();
         void act(s, (ids) => svc.ArchiveMessages(ids), {
           removes: true,
-          done: (n) => toast.success(plural(n, "Archivado", "archivados")),
+          done: (n, undos) => undoableToast(queryClient, plural(n, "Archivado", "archivados"), undos as number[]),
         });
       } else if (key === "Delete" || key === "#") {
         e.preventDefault();
@@ -181,7 +187,8 @@ export function useMailKeys(state: ShellState, composeAccountId: number | undefi
             toast.warning("En la Papelera se elimina definitivamente: usá el botón Eliminar, que pide confirmación.");
             return false;
           },
-          done: (n) => toast.success(plural(n, "Movido a la Papelera", "movidos a la Papelera")),
+          done: (n, undos) =>
+            undoableToast(queryClient, plural(n, "Movido a la Papelera", "movidos a la Papelera"), undos as number[]),
         });
       } else if (key === "s" && !e.shiftKey) {
         e.preventDefault();

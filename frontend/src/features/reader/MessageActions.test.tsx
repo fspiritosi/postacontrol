@@ -10,6 +10,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   MoveMessages: vi.fn(() => Promise.resolve()),
   DeleteMessages: vi.fn(() => Promise.resolve()),
   ArchiveMessages: vi.fn(() => Promise.resolve()),
+  UndoMove: vi.fn(() => Promise.resolve()),
   OpenDraftMessage: vi.fn(),
   ListLabels: vi.fn(),
   SetLabel: vi.fn(() => Promise.resolve()),
@@ -86,6 +87,22 @@ describe("MessageActions", () => {
     await waitFor(() => expect(svc.ArchiveMessages).toHaveBeenCalledWith([55]));
     expect(selectMessage).toHaveBeenCalledWith(null);
     expect(toast.success).toHaveBeenCalledWith("Archivado");
+  });
+
+  it("mover ofrece Deshacer, que devuelve el correo", async () => {
+    vi.mocked(svc.MoveMessages).mockResolvedValueOnce(9 as never);
+    const { user } = setup(msg(1));
+    await user.click(await screen.findByRole("button", { name: "Mover a…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Trabajo" }));
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        "Movido a Trabajo",
+        expect.objectContaining({ action: expect.objectContaining({ label: "Deshacer" }) }),
+      ),
+    );
+    const opts = vi.mocked(toast.success).mock.calls[0][1] as unknown as { action: { onClick: () => void } };
+    opts.action.onClick();
+    await waitFor(() => expect(svc.UndoMove).toHaveBeenCalledWith(9));
   });
 
   it("en Archivo no se ofrece Archivar", async () => {
