@@ -391,7 +391,7 @@ describe("RecipientInput: arrastrar chips", () => {
       </QueryClientProvider>,
     );
   const dataTransfer = (types: string[]) => ({ types, setData: vi.fn(), effectAllowed: "all", dropEffect: "none" });
-  const makeDrag = (accepting: boolean): RecipientDrag => ({ accepting, start: vi.fn(), end: vi.fn(), drop: vi.fn() });
+  const makeDrag = (accepting: boolean): RecipientDrag => ({ accepting, start: vi.fn(), end: vi.fn(), drop: vi.fn(), targets: [] });
 
   it("sin drag los chips no se arrastran", () => {
     renderWith();

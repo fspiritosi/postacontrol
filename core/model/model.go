@@ -332,6 +332,9 @@ type Settings struct {
 	// DisableUndoSend manda los correos enseguida, sin los segundos para
 	// deshacer el envío (cero = se puede deshacer).
 	DisableUndoSend bool `json:"disableUndoSend"`
+	// AutoBackupDir es la carpeta del respaldo automático semanal; vacía =
+	// apagado. Se cambia solo con SetAutoBackupDir.
+	AutoBackupDir string `json:"autoBackupDir"`
 }
 
 // Rule es una regla de una cuenta, como los filtros de Thunderbird: si un
@@ -391,4 +394,14 @@ type BackupImport struct {
 	RulesAdded        int `json:"rulesAdded"`
 	RulesSkipped      int `json:"rulesSkipped"`
 	RulesFailed       int `json:"rulesFailed"`
+	// Remitentes con imágenes remotas permitidas.
+	ImageSendersAdded   int `json:"imageSendersAdded"`
+	ImageSendersSkipped int `json:"imageSendersSkipped"`
+}
+
+// AutoBackupInfo es el estado del respaldo automático: la carpeta elegida
+// (vacía = apagado) y la fecha (AAAA-MM-DD) de la última copia que hay ahí.
+type AutoBackupInfo struct {
+	Dir      string `json:"dir"`
+	LastDate string `json:"lastDate"`
 }

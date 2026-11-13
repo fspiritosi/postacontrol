@@ -22,6 +22,9 @@ import (
 
 const syncEvery = 5 * time.Minute
 
+// autoBackupCheckEvery es cada cuánto se revisa si toca el respaldo automático.
+const autoBackupCheckEvery = 6 * time.Hour
+
 // undoSendDelay es cuánto espera un correo antes de salir, para poder deshacer
 // el envío.
 const undoSendDelay = 10 * time.Second
@@ -82,6 +85,9 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 	core.StartBackgroundSync(ctx, syncEvery)
 	core.StartWatching(ctx)
 	core.StartIndexing(ctx)
+	// La copia es semanal; revisar cada pocas horas alcanza para no saltearla
+	// si la PC se usa poco.
+	core.StartAutoBackup(ctx, autoBackupCheckEvery)
 	return nil
 }
 
@@ -369,6 +375,48 @@ func (s *MailService) ImportBackup(ctx context.Context) (*model.BackupImport, er
 		return nil, err
 	}
 	return &res, nil
+}
+
+// PickAutoBackupDir pregunta en qué carpeta guardar el respaldo automático
+// semanal, la guarda y hace la primera copia si hace falta. Devuelve false
+// (sin error) si se cancela.
+func (s *MailService) PickAutoBackupDir(ctx context.Context) (bool, error) {
+	dlg := s.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).
+		CanCreateDirectories(true).SetTitle("Carpeta para el respaldo automático")
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	dir, err := dlg.PromptForSingleSelection()
+	if err != nil {
+		return false, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if dir == "" {
+		return false, nil
+	}
+	if err := s.core.SetAutoBackupDir(ctx, dir); err != nil {
+		return false, err
+	}
+	if _, err := s.core.RunAutoBackup(ctx, false); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// ClearAutoBackupDir apaga el respaldo automático (las copias quedan).
+func (s *MailService) ClearAutoBackupDir(ctx context.Context) error {
+	return s.core.SetAutoBackupDir(ctx, "")
+}
+
+// AutoBackupInfo devuelve la carpeta del respaldo automático y la fecha de la
+// última copia.
+func (s *MailService) AutoBackupInfo(ctx context.Context) (model.AutoBackupInfo, error) {
+	return s.core.AutoBackupInfo(ctx)
+}
+
+// RunAutoBackupNow guarda ya una copia en la carpeta del respaldo automático.
+func (s *MailService) RunAutoBackupNow(ctx context.Context) error {
+	_, err := s.core.RunAutoBackup(ctx, true)
+	return err
 }
 
 // ClearBackground quita la imagen de fondo.

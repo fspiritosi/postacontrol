@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	netmail "net/mail"
 	"os"
 	"regexp"
 	"strings"
@@ -50,6 +51,9 @@ type backupFile struct {
 	Labels     []backupLabel     `json:"labels"`
 	Rules      []backupRule      `json:"rules"`
 	Accounts   []backupAccount   `json:"accounts"`
+	// ImageSenders son los remitentes con imágenes remotas permitidas (falta
+	// en los respaldos de antes de que existiera la lista).
+	ImageSenders []string `json:"imageSenders"`
 }
 
 type backupContact struct {
@@ -118,6 +122,12 @@ func (c *Core) buildBackup(ctx context.Context) (backupFile, error) {
 	b := backupFile{App: backupApp, Kind: backupKind, Version: backupVersion, CreatedAt: time.Now().UTC(),
 		Contacts: []backupContact{}, Signatures: []backupSignature{}, Labels: []backupLabel{},
 		Rules: []backupRule{}, Accounts: []backupAccount{}}
+
+	senders, err := c.store.ListImageSenders(ctx)
+	if err != nil {
+		return b, err
+	}
+	b.ImageSenders = senders
 
 	contacts, err := c.store.ListContacts(ctx)
 	if err != nil {
@@ -216,6 +226,9 @@ func (c *Core) ImportBackup(ctx context.Context, src string) (model.BackupImport
 	if res.LabelsAdded > 0 {
 		c.emit(EventLabelsChanged, nil)
 	}
+	if res.ImageSendersAdded > 0 {
+		c.emit(EventImageSendersChanged, nil)
+	}
 	if err != nil {
 		return res, c.ctxOrUserError(ctx, err)
 	}
@@ -278,6 +291,9 @@ func (c *Core) applyBackup(ctx context.Context, b backupFile, res *model.BackupI
 			return err
 		}
 		c.emit(EventAccountsChanged, nil)
+	}
+	if err := c.importImageSenders(ctx, b.ImageSenders, res); err != nil {
+		return err
 	}
 	// Las etiquetas restauradas vuelven a juntar sus correos desde el servidor.
 	for _, id := range newLabels {
@@ -514,4 +530,26 @@ func nonNil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+func (c *Core) importImageSenders(ctx context.Context, list []string, res *model.BackupImport) error {
+	for _, email := range list {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if a, err := netmail.ParseAddress(email); err != nil || a.Address != email {
+			continue // una dirección rota no corta el resto
+		}
+		trusted, err := c.store.ImageSenderTrusted(ctx, email)
+		if err != nil {
+			return err
+		}
+		if trusted {
+			res.ImageSendersSkipped++
+			continue
+		}
+		if err := c.store.TrustImageSender(ctx, email); err != nil {
+			return err
+		}
+		res.ImageSendersAdded++
+	}
+	return nil
 }

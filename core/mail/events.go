@@ -16,6 +16,8 @@ const (
 	EventContactsChanged = "mail:contacts-changed" // data: nil
 	// EventLabelsChanged: hubo un alta, un cambio, un reordenamiento o una baja de etiquetas.
 	EventLabelsChanged = "mail:labels-changed" // data: nil
+	// EventAutoBackupFailed: no se pudo guardar el respaldo automático.
+	EventAutoBackupFailed = "mail:auto-backup-failed" // data: {"message": string}
 	// EventImageSendersChanged: cambió la lista de remitentes con imágenes permitidas.
 	EventImageSendersChanged = "mail:image-senders-changed" // data: nil
 	// EventLabelsLocalOnly: el servidor de la cuenta no guarda keywords; sus etiquetas quedan solo en esta PC.

@@ -60,6 +60,15 @@ export interface AttachmentData {
 }
 
 /**
+ * AutoBackupInfo es el estado del respaldo automático: la carpeta elegida
+ * (vacía = apagado) y la fecha (AAAA-MM-DD) de la última copia que hay ahí.
+ */
+export interface AutoBackupInfo {
+    "dir": string;
+    "lastDate": string;
+}
+
+/**
  * BackupImport es el resumen de importar un respaldo. Lo que ya estaba se
  * saltea (Skipped) y no se pisa; Failed es lo que no se pudo restaurar porque
  * falta algo de lo que depende (la cuenta, la carpeta o la etiqueta) o porque
@@ -76,6 +85,12 @@ export interface BackupImport {
     "rulesAdded": number;
     "rulesSkipped": number;
     "rulesFailed": number;
+
+    /**
+     * Remitentes con imágenes remotas permitidas.
+     */
+    "imageSendersAdded": number;
+    "imageSendersSkipped": number;
 }
 
 export interface ComposeDraft {
@@ -476,6 +491,12 @@ export interface Settings {
      * deshacer el envío (cero = se puede deshacer).
      */
     "disableUndoSend": boolean;
+
+    /**
+     * AutoBackupDir es la carpeta del respaldo automático semanal; vacía =
+     * apagado. Se cambia solo con SetAutoBackupDir.
+     */
+    "autoBackupDir": string;
 }
 
 /**

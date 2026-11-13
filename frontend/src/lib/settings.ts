@@ -30,6 +30,7 @@ export async function saveSettings(
     readingPane: "",
     background: "",
     disableUndoSend: false,
+    autoBackupDir: "",
     ...current,
     ...patch,
   });

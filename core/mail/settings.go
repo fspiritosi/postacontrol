@@ -39,6 +39,7 @@ func (c *Core) setSettingsLocked(ctx context.Context, st model.Settings) error {
 		return c.ctxOrUserError(ctx, err)
 	}
 	st.Background = cur.Background
+	st.AutoBackupDir = cur.AutoBackupDir
 	if err := c.store.SaveSettings(ctx, st); err != nil {
 		return c.ctxOrUserError(ctx, err)
 	}

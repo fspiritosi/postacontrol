@@ -75,6 +75,8 @@ function isBlankHtml(html: string): boolean {
 type Props = { init: ComposerInit; onClose: () => void; windowId?: number };
 
 type RecipientField = "to" | "cc" | "bcc";
+const RECIPIENT_FIELDS: RecipientField[] = ["to", "cc", "bcc"];
+const FIELD_LABEL: Record<RecipientField, string> = { to: "Para", cc: "CC", bcc: "CCO" };
 
 export function Composer({ init, onClose, windowId }: Props) {
   const accounts = useAccounts();
@@ -203,6 +205,18 @@ export function Composer({ init, onClose, windowId }: Props) {
 
   // Un chip se puede soltar en cualquiera de los otros dos campos. Al empezar
   // a arrastrar se muestran CC y CCO, para que haya dónde soltarlo.
+  // Pasa el destinatario index de un campo a otro (arrastrando o con "Mover a…").
+  const moveBetween = (from: RecipientField, index: number, token: string, to: RecipientField) => {
+    const [fromValue, setFrom] = recipients[from];
+    const [targetValue, setTarget] = recipients[to];
+    const moved = moveRecipient(fromValue, index, token, targetValue);
+    if (!moved) return;
+    touch();
+    setFrom(moved.from);
+    setTarget(moved.to);
+    if (to !== "to") setShowCc(true);
+  };
+
   const dragFor = (field: RecipientField): RecipientDrag => ({
     accepting: dragged !== null && dragged.field !== field,
     start: (index, token) => {
@@ -213,14 +227,12 @@ export function Composer({ init, onClose, windowId }: Props) {
     drop: () => {
       setDragged(null);
       if (!dragged || dragged.field === field) return;
-      const [fromValue, setFrom] = recipients[dragged.field];
-      const [targetValue, setTarget] = recipients[field];
-      const moved = moveRecipient(fromValue, dragged.index, dragged.token, targetValue);
-      if (!moved) return;
-      touch();
-      setFrom(moved.from);
-      setTarget(moved.to);
+      moveBetween(dragged.field, dragged.index, dragged.token, field);
     },
+    targets: RECIPIENT_FIELDS.filter((f) => f !== field).map((f) => ({
+      label: FIELD_LABEL[f],
+      move: (index: number, token: string) => moveBetween(field, index, token, f),
+    })),
   });
 
   // El envío en curso: la salida de la app lo espera antes de responder.
