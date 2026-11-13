@@ -1,6 +1,7 @@
 import { SearchIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { SearchFiltersButton } from "./SearchFiltersButton";
 
 export const SEARCH_DELAY_MS = 300;
 
@@ -61,18 +62,27 @@ export function SearchBox({ active, onSearch }: Props) {
             if (t !== "") onSearch(t);
           }
         }}
-        className="h-8 pl-8 pr-8 [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-8 pl-8 pr-14 [&::-webkit-search-cancel-button]:appearance-none"
       />
-      {text !== "" && (
-        <button
-          type="button"
-          aria-label="Limpiar búsqueda"
-          onClick={clear}
-          className="absolute right-1.5 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-        >
-          <XIcon className="size-3.5" />
-        </button>
-      )}
+      <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+        <SearchFiltersButton
+          text={text}
+          onApply={(t) => {
+            setText(t);
+            onSearch(t === "" ? null : t);
+          }}
+        />
+        {text !== "" && (
+          <button
+            type="button"
+            aria-label="Limpiar búsqueda"
+            onClick={clear}
+            className="inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
