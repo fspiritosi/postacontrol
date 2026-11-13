@@ -13,6 +13,7 @@ const KINDS = [
   ["signatures", "firma", "firmas"],
   ["labels", "etiqueta", "etiquetas"],
   ["rules", "regla", "reglas"],
+  ["templates", "plantilla", "plantillas"],
   ["imageSenders", "remitente con imágenes permitidas", "remitentes con imágenes permitidas"],
 ] as const;
 
@@ -79,7 +80,7 @@ export function BackupSection() {
       <PageHeader
         id="page-backup"
         title="Respaldo"
-        description="Tus contactos, firmas, etiquetas y reglas viven solo en esta PC. Guardá una copia para no perderlos si cambiás de computadora."
+        description="Tus contactos, firmas, plantillas, etiquetas y reglas viven solo en esta PC. Guardá una copia para no perderlos si cambiás de computadora."
       />
       <p className="text-sm text-muted-foreground">
         El correo no va en el respaldo porque está en el servidor, y las contraseñas tampoco. Al importar, se suma lo

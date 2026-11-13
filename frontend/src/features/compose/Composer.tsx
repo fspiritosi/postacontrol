@@ -25,7 +25,7 @@ import {
 import { errorMessage, isNotFoundError } from "@/lib/errors";
 import { onFilesStaged, type FilesStaged } from "@/lib/events";
 import { formatSize } from "@/lib/format";
-import { useAccounts, useSignatures } from "@/lib/queries";
+import { useAccounts, useSignatures, useTemplates } from "@/lib/queries";
 import { formatRecipients, moveRecipient, parseRecipients } from "@/lib/recipients";
 import { formatWhen } from "@/lib/when";
 import { WhenMenu } from "../when/WhenMenu";
@@ -104,6 +104,7 @@ export function Composer({ init, onClose, windowId }: Props) {
   const [skipped, setSkipped] = useState<number[]>(init.skipOriginalAttachments);
   const [picked, setPicked] = useState<number | null>(null); // firma elegida a mano
   const signatures = useSignatures();
+  const templates = useTemplates();
   const bodyRef = useRef<() => string>(() => init.bodyHtml);
 
   const accountList = accounts.data ?? [];
@@ -536,6 +537,11 @@ export function Composer({ init, onClose, windowId }: Props) {
           <RichEditor
             content={init.bodyHtml}
             autoFocus={focusBody}
+            templates={templates.data}
+            onApplyTemplate={(t) => {
+              // El asunto de la plantilla, solo si todavía no hay uno.
+              if (t.subject && subject.trim() === "") edit(setSubject)(t.subject);
+            }}
             onError={setError}
             onPickImage={(editor) => {
               void svc

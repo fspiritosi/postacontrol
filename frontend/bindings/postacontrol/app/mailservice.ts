@@ -189,6 +189,13 @@ export function DeleteSignature(id: number): $CancellablePromise<void> {
     return $Call.ByID(2139536110, id);
 }
 
+/**
+ * DeleteTemplate borra una plantilla.
+ */
+export function DeleteTemplate(id: number): $CancellablePromise<void> {
+    return $Call.ByID(1440118910, id);
+}
+
 export function DetectSettings(email: string): $CancellablePromise<autoconfig$0.Settings> {
     return $Call.ByID(1057426541, email);
 }
@@ -298,6 +305,13 @@ export function ListRules(accountID: number): $CancellablePromise<model$0.Rule[]
 
 export function ListSignatures(): $CancellablePromise<model$0.Signature[] | null> {
     return $Call.ByID(2055430592);
+}
+
+/**
+ * ListTemplates devuelve las plantillas del redactor.
+ */
+export function ListTemplates(): $CancellablePromise<model$0.Template[] | null> {
+    return $Call.ByID(1525857274);
 }
 
 export function ListThreads(folderID: number, q: model$0.ListQuery): $CancellablePromise<model$0.ThreadSummary[] | null> {
@@ -479,6 +493,13 @@ export function SaveRule(r: model$0.Rule): $CancellablePromise<model$0.Rule> {
 
 export function SaveSignature(sig: model$0.Signature): $CancellablePromise<model$0.Signature> {
     return $Call.ByID(2198563032, sig);
+}
+
+/**
+ * SaveTemplate crea (ID 0) o actualiza una plantilla.
+ */
+export function SaveTemplate(t: model$0.Template): $CancellablePromise<model$0.Template> {
+    return $Call.ByID(3715236884, t);
 }
 
 export function Search(q: model$0.SearchQuery): $CancellablePromise<model$0.SearchResult> {

@@ -16,6 +16,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ListLabels: vi.fn(() => Promise.resolve([])),
   CreateLabel: vi.fn(() => Promise.resolve()),
   ListImageSenders: vi.fn(() => Promise.resolve([])),
+  ListTemplates: vi.fn(() => Promise.resolve([{ id: 1, name: "Turno", subject: "Turno", html: "<p>x</p>" }])),
+  DeleteTemplate: vi.fn(() => Promise.resolve()),
   UntrustImageSender: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -206,6 +208,15 @@ describe("SettingsDialog", () => {
     expect(within(list).getByText("avisos@banco.com")).toBeInTheDocument();
     await user.click(within(list).getByRole("button", { name: "Bloquear de nuevo las imágenes de avisos@banco.com" }));
     expect(svc.UntrustImageSender).toHaveBeenCalledWith("avisos@banco.com");
+  });
+
+  it("Redacción lista las plantillas y deja eliminarlas", async () => {
+    const user = userEvent.setup();
+    renderDialog("compose");
+    await user.click(await screen.findByRole("button", { name: "Eliminar Turno" }));
+    expect(await screen.findByText("¿Eliminar la plantilla «Turno»?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Eliminar" }));
+    expect(svc.DeleteTemplate).toHaveBeenCalledWith(1);
   });
 
   it("Redacción permite apagar deshacer envío", async () => {

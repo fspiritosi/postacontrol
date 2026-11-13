@@ -4,7 +4,7 @@ import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { cn } from "@/lib/utils";
-import { filterSlashItems, type SlashContext, type SlashItem } from "./slashCommands";
+import { filterSlashItems, templateItems, type SlashContext, type SlashItem } from "./slashCommands";
 
 type ListHandle = { onKeyDown: (e: KeyboardEvent) => boolean };
 type ListProps = { items: SlashItem[]; command: (item: SlashItem) => void };
@@ -78,7 +78,8 @@ export function createSlashCommand(
   onOpenChange: (close: (() => void) | null) => void = () => {},
 ) {
   const pluginKey = new PluginKey("slashCommand");
-  const search = (query: string) => filterSlashItems(query).filter(isAvailable);
+  const search = (query: string) =>
+    filterSlashItems(query, templateItems(getCtx().templates())).filter(isAvailable);
 
   return Extension.create({
     name: "slashCommand",

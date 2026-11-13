@@ -29,6 +29,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   ComposeSendStarted: vi.fn(),
   ComposeNotice: vi.fn(),
   SetComposeKey: vi.fn(),
+  ListTemplates: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock("sonner", () => ({
   toast: { loading: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },

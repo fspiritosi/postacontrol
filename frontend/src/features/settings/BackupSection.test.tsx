@@ -20,7 +20,7 @@ import { BackupSection, describeImport } from "./BackupSection";
 const none = {
   contactsAdded: 0, contactsSkipped: 0, signaturesAdded: 0, signaturesSkipped: 0,
   labelsAdded: 0, labelsSkipped: 0, labelsFailed: 0, rulesAdded: 0, rulesSkipped: 0, rulesFailed: 0,
-  imageSendersAdded: 0, imageSendersSkipped: 0,
+  imageSendersAdded: 0, imageSendersSkipped: 0, templatesAdded: 0, templatesSkipped: 0,
 };
 
 function setup(info = { dir: "", lastDate: "" }) {

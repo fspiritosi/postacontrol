@@ -91,6 +91,12 @@ export interface BackupImport {
      */
     "imageSendersAdded": number;
     "imageSendersSkipped": number;
+
+    /**
+     * Plantillas del redactor (las de mismo nombre se saltean).
+     */
+    "templatesAdded": number;
+    "templatesSkipped": number;
 }
 
 export interface ComposeDraft {
@@ -557,6 +563,17 @@ export interface Suggestion {
      * 0 = no es contacto
      */
     "contactId": number;
+}
+
+/**
+ * Template es una plantilla (o respuesta rápida) del redactor. Subject, si no
+ * está vacío, completa el asunto cuando el correo todavía no tiene.
+ */
+export interface Template {
+    "id": number;
+    "name": string;
+    "subject": string;
+    "html": string;
 }
 
 /**

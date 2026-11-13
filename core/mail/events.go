@@ -16,6 +16,8 @@ const (
 	EventContactsChanged = "mail:contacts-changed" // data: nil
 	// EventLabelsChanged: hubo un alta, un cambio, un reordenamiento o una baja de etiquetas.
 	EventLabelsChanged = "mail:labels-changed" // data: nil
+	// EventTemplatesChanged: hubo un alta, un cambio o una baja de plantillas.
+	EventTemplatesChanged = "mail:templates-changed" // data: nil
 	// EventSnoozesChanged: se pospuso un correo o volvió uno pospuesto.
 	EventSnoozesChanged = "mail:snoozes-changed" // data: nil
 	// EventSnoozeReturned: volvió un correo pospuesto a su carpeta.

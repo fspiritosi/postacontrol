@@ -299,6 +299,9 @@ export function useMailEvents(queryClient: QueryClient): void {
           { id: `labels-local-only-${accountId}`, duration: 10000 },
         );
       }),
+      Events.On("mail:templates-changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["templates"] });
+      }),
       Events.On("mail:snoozes-changed", () => {
         void queryClient.invalidateQueries({ queryKey: ["snooze"] });
       }),

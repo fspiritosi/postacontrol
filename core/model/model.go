@@ -401,6 +401,9 @@ type BackupImport struct {
 	// Remitentes con imágenes remotas permitidas.
 	ImageSendersAdded   int `json:"imageSendersAdded"`
 	ImageSendersSkipped int `json:"imageSendersSkipped"`
+	// Plantillas del redactor (las de mismo nombre se saltean).
+	TemplatesAdded   int `json:"templatesAdded"`
+	TemplatesSkipped int `json:"templatesSkipped"`
 }
 
 // AutoBackupInfo es el estado del respaldo automático: la carpeta elegida
@@ -436,4 +439,13 @@ type Snooze struct {
 	MessageID    string `json:"messageId"`
 	ReturnFolder string `json:"returnFolder"`
 	Until        int64  `json:"until"`
+}
+
+// Template es una plantilla (o respuesta rápida) del redactor. Subject, si no
+// está vacío, completa el asunto cuando el correo todavía no tiene.
+type Template struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Subject string `json:"subject"`
+	HTML    string `json:"html"`
 }

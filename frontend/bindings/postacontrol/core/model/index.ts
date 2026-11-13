@@ -42,6 +42,7 @@ export type {
     StagedAttachment,
     SubfolderCount,
     Suggestion,
+    Template,
     ThreadSummary,
     Unsubscribe,
     UnsubscribeResult

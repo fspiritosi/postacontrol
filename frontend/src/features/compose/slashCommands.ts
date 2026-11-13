@@ -1,7 +1,14 @@
 import type { Editor } from "@tiptap/react";
+import type { Template } from "../../../bindings/postacontrol/core/model/models";
 
-// Lo que el menú "/" necesita de afuera: abrir el selector de imagen y el popover de enlace.
-export type SlashContext = { pickImage: (editor: Editor) => void; openLink: () => void };
+// Lo que el menú "/" necesita de afuera: abrir el selector de imagen y el
+// popover de enlace, las plantillas y qué más hacer al elegir una (el asunto).
+export type SlashContext = {
+  pickImage: (editor: Editor) => void;
+  openLink: () => void;
+  templates: () => Template[];
+  applyTemplate: (t: Template) => void;
+};
 
 export type SlashItem = {
   id: string;
@@ -52,8 +59,22 @@ const normalize = (s: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
-export function filterSlashItems(query: string): SlashItem[] {
+// Un ítem por plantilla: inserta su cuerpo donde está el cursor.
+export function templateItems(templates: Template[]): SlashItem[] {
+  return templates.map((t) => ({
+    id: `template-${t.id}`,
+    title: `Plantilla: ${t.name}`,
+    keywords: ["plantilla", "respuesta", t.name],
+    run: (editor, ctx) => {
+      editor.chain().focus().insertContent(t.html).run();
+      ctx.applyTemplate(t);
+    },
+  }));
+}
+
+export function filterSlashItems(query: string, extra: SlashItem[] = []): SlashItem[] {
+  const all = [...SLASH_ITEMS, ...extra];
   const q = normalize(query.trim());
-  if (q === "") return SLASH_ITEMS;
-  return SLASH_ITEMS.filter((item) => [item.title, ...item.keywords].some((t) => normalize(t).includes(q)));
+  if (q === "") return all;
+  return all.filter((item) => [item.title, ...item.keywords].some((t) => normalize(t).includes(q)));
 }
