@@ -26,7 +26,7 @@ import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { requestOpenMessage, resetSyncStateForTests } from "@/lib/events";
 import type { View } from "@/lib/view";
-import { MailShell, type ShellState } from "./MailShell";
+import { MailShell, saveOuterLayout, type ShellState } from "./MailShell";
 
 function account(id: number): Account {
   return {
@@ -47,7 +47,7 @@ const FOLDERS: Record<number, Folder[]> = {
   5: [folder(51, 5, "inbox")],
 };
 
-function setup(saved: View | null, unifiedInbox: boolean, readingPane = "") {
+function setup(saved: View | null, unifiedInbox: boolean, readingPane = "", withSidebar = false) {
   if (saved) localStorage.setItem("pc:view", JSON.stringify(saved));
   vi.mocked(svc.ListFolders).mockImplementation((id: number) => Promise.resolve(FOLDERS[id]) as never);
   vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "", threadedList: false, readingPane, background: "" });
@@ -61,6 +61,9 @@ function setup(saved: View | null, unifiedInbox: boolean, readingPane = "") {
           return <p data-testid="view">{JSON.stringify(s.view)}</p>;
         }}
         reader={() => <p>lector</p>}
+        sidebar={
+          withSidebar ? (_s, mode) => <p data-testid="sidebar-mode">{String(mode.collapsed)}</p> : undefined
+        }
       />
     </QueryClientProvider>,
   );
@@ -291,5 +294,51 @@ describe("MailShell selección múltiple", () => {
     expect(state().marked).toEqual(none);
     act(() => state().selectView({ kind: "folder", folderId: 22 }));
     expect(state().labelFilter).toBeNull();
+  });
+});
+
+describe("MailShell sidebar plegable", () => {
+  afterEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  const mode = () => screen.getByTestId("sidebar-mode").textContent;
+
+  it("el botón Plegar sidebar pasa collapsed=true al slot y lo recuerda", async () => {
+    const user = userEvent.setup();
+    setup(null, false, "", true);
+    expect(mode()).toBe("false");
+    await user.click(screen.getByRole("button", { name: "Plegar sidebar" }));
+    expect(mode()).toBe("true");
+    expect(localStorage.getItem("pc:sidebar-collapsed")).toBe("1");
+  });
+
+  it("arranca plegado si estaba guardado y Expandir sidebar lo despliega", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("pc:sidebar-collapsed", "1");
+    setup(null, false, "", true);
+    expect(mode()).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Expandir sidebar" }));
+    expect(mode()).toBe("false");
+    expect(localStorage.getItem("pc:sidebar-collapsed")).toBe("0");
+  });
+
+  it("plegado, Redactar es un botón de ícono que abre el redactor", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("pc:sidebar-collapsed", "1");
+    setup(null, false, "", true);
+    const btn = screen.getByRole("button", { name: "Redactar" });
+    expect(btn).not.toHaveTextContent("Redactar");
+    await user.click(btn);
+    expect(openNew).toHaveBeenCalledWith(2);
+  });
+
+  it("mientras está plegado no guarda el layout exterior", () => {
+    localStorage.setItem("pc:layout:bottom", JSON.stringify({ outer: { sidebar: 25, main: 75 }, inner: { list: 40, reader: 60 } }));
+    saveOuterLayout("bottom", { sidebar: 4, main: 96 }, true);
+    expect(JSON.parse(localStorage.getItem("pc:layout:bottom")!).outer).toEqual({ sidebar: 25, main: 75 });
+    saveOuterLayout("bottom", { sidebar: 30, main: 70 }, false);
+    expect(JSON.parse(localStorage.getItem("pc:layout:bottom")!).outer).toEqual({ sidebar: 30, main: 70 });
   });
 });
