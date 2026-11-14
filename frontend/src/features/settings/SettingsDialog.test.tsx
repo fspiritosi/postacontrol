@@ -146,6 +146,28 @@ describe("SettingsDialog", () => {
     );
   });
 
+  it("en General, elegir Oscuro guarda theme dark y conserva el resto", async () => {
+    const user = userEvent.setup();
+    vi.mocked(svc.GetSettings).mockResolvedValueOnce({
+      unifiedInbox: true,
+      background: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "",
+      threadedList: false,
+      readingPane: "top",
+    });
+    renderDialog();
+    const trigger = await screen.findByRole("combobox", { name: "Tema" });
+    await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+    expect(trigger).toHaveTextContent("Sistema");
+    await user.click(trigger);
+    await user.click(await screen.findByRole("option", { name: "Oscuro" }));
+    await waitFor(() =>
+      expect(svc.SetSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ theme: "dark", unifiedInbox: true, readingPane: "top" }),
+      ),
+    );
+  });
+
   it("Elegir imagen… llama a PickBackground", async () => {
     const user = userEvent.setup();
     renderDialog("reading");
