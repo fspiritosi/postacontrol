@@ -32,6 +32,11 @@ func (c *Core) setSettingsLocked(ctx context.Context, st model.Settings) error {
 	default:
 		return &UserError{Code: "invalid", Msg: "Posición del panel de lectura desconocida."}
 	}
+	switch st.Theme {
+	case "", "light", "dark", "system":
+	default:
+		return &UserError{Code: "invalid", Msg: "Tema desconocido."}
+	}
 	// El fondo se cambia solo con SetBackground/ClearBackground: lo que llega
 	// acá se ignora, así guardar otra opción no lo pisa.
 	cur, err := c.store.GetSettings(ctx)

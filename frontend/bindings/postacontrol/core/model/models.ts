@@ -518,6 +518,12 @@ export interface Settings {
      * apagado. Se cambia solo con SetAutoBackupDir.
      */
     "autoBackupDir": string;
+
+    /**
+     * Theme es el tema de la UI: "light", "dark" o "system". Vacío
+     * (configuración vieja) se lee como "system".
+     */
+    "theme": string;
 }
 
 /**

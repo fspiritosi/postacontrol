@@ -339,6 +339,9 @@ type Settings struct {
 	// AutoBackupDir es la carpeta del respaldo automático semanal; vacía =
 	// apagado. Se cambia solo con SetAutoBackupDir.
 	AutoBackupDir string `json:"autoBackupDir"`
+	// Theme es el tema de la UI: "light", "dark" o "system". Vacío
+	// (configuración vieja) se lee como "system".
+	Theme string `json:"theme"`
 }
 
 // Rule es una regla de una cuenta, como los filtros de Thunderbird: si un
