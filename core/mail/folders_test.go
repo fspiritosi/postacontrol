@@ -731,3 +731,33 @@ func TestDeleteFolder_NoselectThatBecameSelectableIsEmptied(t *testing.T) {
 	assert.Equal(t, 2, e.serverTotal(t, "Trash"), "el correo nuevo del padre va a la Papelera")
 	assert.NotContains(t, e.serverList(t, false), "Padre")
 }
+
+func TestSetFolderColor_SavesAndClears(t *testing.T) {
+	e := newFolderEnv(t, "Clientes")
+	ctx := context.Background()
+	id := e.id(t, "Clientes")
+	require.NoError(t, e.c.SetFolderColor(ctx, id, "#16a34a"))
+	got, _ := e.find(t, "Clientes")
+	assert.Equal(t, "#16a34a", got.Color)
+	assert.NotEmpty(t, e.n.matching(EventFoldersUpdated))
+	require.NoError(t, e.c.SetFolderColor(ctx, id, ""))
+	got, _ = e.find(t, "Clientes")
+	assert.Equal(t, "", got.Color)
+}
+
+func TestSetFolderColor_Invalid(t *testing.T) {
+	e := newFolderEnv(t, "Clientes")
+	ctx := context.Background()
+	id := e.id(t, "Clientes")
+	require.NoError(t, e.c.SetFolderColor(ctx, id, "#2563eb"))
+	for _, bad := range []string{"red", "#FFF", "#2563EB", "2563eb", "#2563eb;x"} {
+		wantUserError(t, e.c.SetFolderColor(ctx, id, bad), "invalid", "Color inválido.")
+	}
+	got, _ := e.find(t, "Clientes")
+	assert.Equal(t, "#2563eb", got.Color)
+}
+
+func TestSetFolderColor_UnknownFolder(t *testing.T) {
+	e := newFolderEnv(t)
+	require.Error(t, e.c.SetFolderColor(context.Background(), 9999, "#2563eb"))
+}

@@ -175,6 +175,11 @@ export interface Folder {
      * Position es el orden manual entre hermanos; 0 = sin posición.
      */
     "position": number;
+
+    /**
+     * Color es el color elegido para la carpeta (#rrggbb); vacío = sin color. Es solo local.
+     */
+    "color": string;
 }
 
 /**

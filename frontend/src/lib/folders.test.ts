@@ -20,7 +20,7 @@ const f = (name: string, role = ""): Folder => ({
   role,
   unread: 0,
   total: 0,
-  selectable: true, position: 0,
+  selectable: true, position: 0, color: "",
 });
 
 describe("buildFolderTree", () => {
@@ -163,7 +163,7 @@ describe("isFirstLevel", () => {
 describe("subtreeUnread", () => {
   it("suma los no leídos del nodo y de todo lo que cuelga de él", () => {
     const f = (id: number, name: string, unread: number) =>
-      ({ id, accountId: 1, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0 }) as Folder;
+      ({ id, accountId: 1, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0, color: "" }) as Folder;
     const [a] = buildFolderTree([f(1, "A", 1), f(2, "A/B", 2), f(3, "A/B/C", 4)]);
     expect(subtreeUnread(a)).toBe(7);
     expect(subtreeUnread(a.children[0].children[0])).toBe(4);

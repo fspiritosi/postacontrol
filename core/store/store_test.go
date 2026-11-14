@@ -744,3 +744,51 @@ func TestMigrateV10_AccountPositionFromID(t *testing.T) {
 	}
 	assert.Equal(t, [][2]int64{{1, 1}, {2, 2}}, got)
 }
+
+func TestSetFolderColor_SurvivesReplaceFolders(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, err := s.InsertAccount(ctx, hostinger())
+	require.NoError(t, err)
+	list := []model.Folder{{Name: "INBOX", Delimiter: "/", Selectable: true}, {Name: "Work", Delimiter: "/", Selectable: true}}
+	require.NoError(t, s.ReplaceFolders(ctx, accID, list))
+	before, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	var work model.Folder
+	for _, f := range before {
+		if f.Name == "Work" {
+			work = f
+		}
+	}
+	require.NotZero(t, work.ID)
+	assert.Equal(t, "", work.Color)
+	require.NoError(t, s.SetFolderColor(ctx, work.ID, "#2563eb"))
+
+	require.NoError(t, s.ReplaceFolders(ctx, accID, list))
+	after, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	for _, f := range after {
+		if f.Name == "Work" {
+			assert.Equal(t, work.ID, f.ID)
+			assert.Equal(t, "#2563eb", f.Color)
+		} else {
+			assert.Equal(t, "", f.Color)
+		}
+	}
+}
+
+func TestSetFolderColor_SurvivesRename(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	accID, err := s.InsertAccount(ctx, hostinger())
+	require.NoError(t, err)
+	require.NoError(t, s.ReplaceFolders(ctx, accID, []model.Folder{{Name: "Work", Delimiter: "/", Selectable: true}}))
+	fs, err := s.ListFolders(ctx, accID)
+	require.NoError(t, err)
+	require.NoError(t, s.SetFolderColor(ctx, fs[0].ID, "#16a34a"))
+	require.NoError(t, s.RenameFolderTree(ctx, accID, "Work", "Trabajo", "/"))
+	got, _, err := s.GetFolder(ctx, fs[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Trabajo", got.Name)
+	assert.Equal(t, "#16a34a", got.Color)
+}

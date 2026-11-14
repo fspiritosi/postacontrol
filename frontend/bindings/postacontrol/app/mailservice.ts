@@ -552,6 +552,13 @@ export function SetFlagged(ids: number[] | null, flagged: boolean): $Cancellable
 }
 
 /**
+ * SetFolderColor guarda el color local de la carpeta ("" = sin color).
+ */
+export function SetFolderColor(folderID: number, color: string): $CancellablePromise<void> {
+    return $Call.ByID(372248904, folderID, color);
+}
+
+/**
  * SetFolderOrder guarda el orden manual de las carpetas de la cuenta.
  */
 export function SetFolderOrder(accountID: number, folderIDs: number[] | null): $CancellablePromise<void> {

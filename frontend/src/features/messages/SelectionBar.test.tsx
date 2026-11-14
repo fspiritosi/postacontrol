@@ -58,7 +58,7 @@ function folder(
     unread: 0,
     total: 0,
     selectable,
-    position: 0,
+    position: 0, color: "",
   };
 }
 const FOLDERS: Record<number, Folder[]> = {

@@ -23,7 +23,7 @@ import type { ShellState } from "./MailShell";
 import { useMailKeys } from "./useMailKeys";
 
 function folder(id: number, role = ""): Folder {
-  return { id, accountId: 7, name: `f${id}`, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0 };
+  return { id, accountId: 7, name: `f${id}`, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0, color: "" };
 }
 
 function summary(id: number, folderId = 1, flagged = false): MessageSummary {

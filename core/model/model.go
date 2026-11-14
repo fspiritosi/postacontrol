@@ -89,6 +89,8 @@ type Folder struct {
 	Selectable bool       `json:"selectable"`
 	// Position es el orden manual entre hermanos; 0 = sin posición.
 	Position int `json:"position"`
+	// Color es el color elegido para la carpeta (#rrggbb); vacío = sin color. Es solo local.
+	Color string `json:"color"`
 }
 
 // FolderDeleteInfo es lo que se avisa antes de eliminar una carpeta, contado

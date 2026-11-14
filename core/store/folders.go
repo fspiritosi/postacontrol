@@ -12,7 +12,7 @@ import (
 // FolderSync es el estado de sincronización IMAP de una carpeta. Cero = nunca sincronizada.
 type FolderSync struct{ UIDValidity, UIDNext uint32 }
 
-const folderCols = `id, account_id, name, delimiter, role, unread, total, selectable, uid_validity, uid_next, position`
+const folderCols = `id, account_id, name, delimiter, role, unread, total, selectable, uid_validity, uid_next, position, color`
 
 func scanFolder(sc interface{ Scan(...any) error }) (model.Folder, FolderSync, error) {
 	var f model.Folder
@@ -20,7 +20,7 @@ func scanFolder(sc interface{ Scan(...any) error }) (model.Folder, FolderSync, e
 	var role string
 	var sel int
 	err := sc.Scan(&f.ID, &f.AccountID, &f.Name, &f.Delimiter, &role, &f.Unread, &f.Total, &sel,
-		&fs.UIDValidity, &fs.UIDNext, &f.Position)
+		&fs.UIDValidity, &fs.UIDNext, &f.Position, &f.Color)
 	f.Role = model.FolderRole(role)
 	f.Selectable = sel != 0
 	return f, fs, err
@@ -219,6 +219,11 @@ func (s *Store) SetFolderPosition(ctx context.Context, folderID int64, pos int) 
 }
 
 // DeleteFolderRow borra la fila de la carpeta; sus mensajes de la caché caen en cascada.
+// SetFolderColor guarda el color local de la carpeta ("" = sin color).
+func (s *Store) SetFolderColor(ctx context.Context, folderID int64, color string) error {
+	return s.execFolder(ctx, folderID, `UPDATE folders SET color = ? WHERE id = ?`, color)
+}
+
 func (s *Store) DeleteFolderRow(ctx context.Context, folderID int64) error {
 	return s.execFolder(ctx, folderID, `DELETE FROM folders WHERE id = ?`)
 }

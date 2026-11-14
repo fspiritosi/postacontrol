@@ -65,7 +65,7 @@ export function buildFolderTree(folders: Folder[]): FolderNode[] {
         role: "",
         unread: 0,
         total: 0,
-        selectable: false, position: 0,
+        selectable: false, position: 0, color: "",
         label: psegs[psegs.length - 1],
         children: [],
       };

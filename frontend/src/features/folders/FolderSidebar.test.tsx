@@ -59,10 +59,10 @@ const baseState: ShellState = {
 
 const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X", color: "#0f0" };
 const inbox = (id: number, accountId: number, unread: number) =>
-  ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true, position: 0 }) as const;
+  ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true, position: 0, color: "" }) as const;
 
 // Carpeta sin rol: no choca con la fila "Entrada" de Todas las cuentas.
-const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0 } as const;
+const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0, color: "" } as const;
 
 function renderSidebar(accounts: Account[], state: ShellState = baseState, client = new QueryClient()) {
   return render(
@@ -190,8 +190,8 @@ describe("FolderSidebar", () => {
 
   it("al elegir una carpeta abre su vista y marca la activa", async () => {
     vi.mocked(svc.ListFolders).mockResolvedValueOnce([
-      { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true, position: 0 },
-      { id: 4, accountId: 7, name: "Sent", delimiter: "/", role: "sent", unread: 0, total: 0, selectable: true, position: 0 },
+      { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true, position: 0, color: "" },
+      { id: 4, accountId: 7, name: "Sent", delimiter: "/", role: "sent", unread: 0, total: 0, selectable: true, position: 0, color: "" },
     ]);
     const user = userEvent.setup();
     const selectView = vi.fn();
@@ -314,7 +314,7 @@ describe("FolderSidebar", () => {
 
   describe("arrastrar carpetas", () => {
     const folder = (id: number, name: string, position = 0) =>
-      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position }) as const;
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position, color: "" }) as const;
     const TOP = 2, MID = 20, BOT = 38;
 
     beforeEach(() => {
@@ -541,7 +541,7 @@ describe("FolderSidebar", () => {
 
   describe("gestión de carpetas", () => {
     const folder = (id: number, name: string, position = 0) =>
-      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position }) as const;
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position, color: "" }) as const;
 
     beforeAll(() => {
       // Radix pide estas APIs y jsdom no las trae.
@@ -708,7 +708,7 @@ describe("FolderSidebar", () => {
 
   describe("plegar subcarpetas", () => {
     const folder = (id: number, name: string, unread = 0) =>
-      ({ id, accountId: 7, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0 }) as const;
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0, color: "" }) as const;
 
     beforeEach(() => {
       vi.mocked(svc.ListFolders).mockResolvedValue([
