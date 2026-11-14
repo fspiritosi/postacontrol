@@ -60,6 +60,13 @@ describe("buildFolderTree", () => {
     expect(a.selectable).toBe(false);
     expect(a.children[0].label).toBe("B");
   });
+
+  it("copia el color de cada carpeta; los padres sintetizados van sin color", () => {
+    const tree = buildFolderTree([f("INBOX", "inbox"), { ...f("INBOX.A.B"), color: "#2563eb" }]);
+    const a = tree[0].children[0];
+    expect(a.color).toBe("");
+    expect(a.children[0].color).toBe("#2563eb");
+  });
 });
 
 describe("folderLabel", () => {

@@ -10,6 +10,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   RenameFolder: vi.fn(() => Promise.resolve({})),
   MoveFolder: vi.fn(() => Promise.resolve({})),
   SetFolderOrder: vi.fn(() => Promise.resolve()),
+  SetFolderColor: vi.fn(() => Promise.resolve()),
   DeleteFolderPreview: vi.fn(() => Promise.resolve({ total: 0, subfolders: [] })),
   DeleteFolder: vi.fn(() => Promise.resolve(0)),
   MoveMessages: vi.fn(() => Promise.resolve()),
@@ -586,6 +587,37 @@ describe("FolderSidebar", () => {
       await user.type(screen.getByLabelText("Nombre"), "Beta");
       await user.click(screen.getByRole("button", { name: "Crear" }));
       await waitFor(() => expect(svc.CreateFolder).toHaveBeenCalledWith(7, 10, "Beta"));
+    });
+
+    it("el ícono de una carpeta con color usa ese color", async () => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        inbox(3, 7, 0),
+        { ...folder(12, "Zeta"), color: "#2563eb" },
+      ] as never);
+      renderSidebar([account]);
+      const row = await screen.findByRole("button", { name: "Zeta" });
+      const icon = row.querySelector<HTMLElement>("[data-slot=folder-icon]")!;
+      expect(icon.style.color).toBe("rgb(37, 99, 235)");
+      const inboxIcon = screen
+        .getByRole("button", { name: "Entrada" })
+        .querySelector<HTMLElement>("[data-slot=folder-icon]")!;
+      expect(inboxIcon.style.color).toBe("");
+    });
+
+    it("Color en el menú contextual guarda el color elegido o lo saca", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Zeta");
+      await user.click(screen.getByRole("menuitem", { name: "Color" }));
+      // En jsdom el submenú se cierra al mover el puntero hacia él: se elige con el teclado.
+      (await screen.findByRole("menuitem", { name: "#16a34a" })).focus();
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(svc.SetFolderColor).toHaveBeenCalledWith(12, "#16a34a"));
+      await menuOf("Zeta");
+      await user.click(screen.getByRole("menuitem", { name: "Color" }));
+      (await screen.findByRole("menuitem", { name: "Sin color" })).focus();
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(svc.SetFolderColor).toHaveBeenCalledWith(12, ""));
     });
 
     it("Renombrar… viene con el nombre actual", async () => {

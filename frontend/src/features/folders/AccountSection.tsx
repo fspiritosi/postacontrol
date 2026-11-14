@@ -21,6 +21,9 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
@@ -66,6 +69,7 @@ import {
   type FolderNode,
 } from "@/lib/folders";
 import { useFolders } from "@/lib/queries";
+import { LABEL_COLORS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { ShellState } from "../layout/MailShell";
 import { dropMessages } from "../messages/dropMessages";
@@ -92,6 +96,8 @@ type FolderActions = {
   onDelete: (node: FolderNode) => void;
   onEmptyTrash: (node: FolderNode) => void;
   onShift: (node: FolderNode, dir: -1 | 1) => void;
+  // Color local de la carpeta ("" = sin color).
+  onColor: (node: FolderNode, color: string) => void;
   // Carpeta que se está arrastrando: en `dragover` el navegador no deja leer
   // los datos, así que se guarda acá desde `dragstart`.
   dragging: () => number | null;
@@ -284,7 +290,11 @@ function FolderRow({
           )}
         >
           {indicator}
-          <span className="text-muted-foreground [&>svg]:size-4">
+          <span
+            data-slot="folder-icon"
+            className="text-muted-foreground [&>svg]:size-4"
+            style={{ color: node.color || undefined }}
+          >
             {ROLE_ICON[node.role] ?? <FolderIcon />}
           </span>
           <span className="min-w-0 flex-1 truncate">{node.label}</span>
@@ -304,7 +314,9 @@ function FolderRow({
           )}
         >
           {indicator}
-          <FolderIcon className="size-4" />
+          <span data-slot="folder-icon" className="[&>svg]:size-4" style={{ color: node.color || undefined }}>
+            <FolderIcon />
+          </span>
           <span className="min-w-0 flex-1 truncate">{node.label}</span>
           {unread > 0 && <span className="text-xs font-medium tabular-nums">{unread}</span>}
         </div>
@@ -347,6 +359,29 @@ function FolderRow({
               <ContextMenuItem disabled={!modifiable} onSelect={() => actions.onMove(node)}>
                 Mover a…
               </ContextMenuItem>
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>Color</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  <div className="grid grid-cols-6 gap-1 p-1">
+                    {LABEL_COLORS.map((c) => (
+                      <ContextMenuItem
+                        key={c}
+                        aria-label={c}
+                        aria-checked={c === node.color}
+                        className={cn(
+                          "size-6 justify-center rounded-full p-0 ring-offset-2 ring-offset-popover focus:ring-2 focus:ring-ring",
+                          c === node.color && "ring-2 ring-ring",
+                        )}
+                        style={{ backgroundColor: c }}
+                        onSelect={() => actions.onColor(node, c)}
+                      />
+                    ))}
+                  </div>
+                  <ContextMenuItem onSelect={() => actions.onColor(node, "")}>
+                    Sin color
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
               <ContextMenuSeparator />
               <ContextMenuItem disabled={idx <= 0} onSelect={() => actions.onShift(node, -1)}>
                 Subir
@@ -447,6 +482,16 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     }
   };
 
+  const setColor = async (node: FolderNode, color: string) => {
+    try {
+      await svc.SetFolderColor(node.id, color);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      void queryClient.invalidateQueries({ queryKey: ["folders", account.id] });
+    }
+  };
+
   const dragging = useRef<number | null>(null);
 
   // Suelta una carpeta: adentro de otra, o antes/después de una hermana (si
@@ -497,6 +542,7 @@ export function AccountSection({ account, state, open, onOpenChange, onChangePas
     onDelete: setDeleting,
     onEmptyTrash: setEmptying,
     onShift: (node, dir) => void shift(node, dir),
+    onColor: (node, color) => void setColor(node, color),
     isCollapsed: (node) => collapsed.has(node.name),
     setCollapsed: (node, value) => setCollapsed(node.name, value),
   };
