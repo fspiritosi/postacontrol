@@ -59,7 +59,7 @@ export default function App() {
       <MailShell
         accounts={all}
         extras={(s) => <DraftsNotice onOpen={() => s.selectView({ kind: "outbox" })} />}
-        sidebar={(s) => <FolderSidebar accounts={all} state={s} />}
+        sidebar={(s, mode) => <FolderSidebar accounts={all} state={s} collapsed={mode.collapsed} />}
         list={(s) =>
           s.view?.kind === "outbox" ? (
             <OutboxList />

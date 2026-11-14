@@ -31,6 +31,7 @@ import type { ShellState } from "../layout/MailShell";
 import { setFolderDrag, setMessageDrag } from "@/lib/dnd";
 import { FakeDataTransfer } from "../../test/dataTransfer";
 import { toast } from "sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { FolderSidebar } from "./FolderSidebar";
 
 const account: Account = {
@@ -65,13 +66,31 @@ const inbox = (id: number, accountId: number, unread: number) =>
 // Carpeta sin rol: no choca con la fila "Entrada" de Todas las cuentas.
 const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0, color: "" } as const;
 
-function renderSidebar(accounts: Account[], state: ShellState = baseState, client = new QueryClient()) {
+function renderSidebar(accounts: Account[], state: ShellState = baseState, client = new QueryClient(), collapsed = false) {
   return render(
     <QueryClientProvider client={client}>
-      <FolderSidebar accounts={accounts} state={state} />
+      <TooltipProvider>
+        <FolderSidebar accounts={accounts} state={state} collapsed={collapsed} />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
+
+describe("FolderSidebar plegado", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" });
+    vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0)]);
+  });
+
+  it("con collapsed no muestra Agregar cuenta y sí la columna de íconos", async () => {
+    renderSidebar([account], baseState, new QueryClient(), true);
+    expect(screen.getByRole("button", { name: "A · a@b.c" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Todas las cuentas · Entrada" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Agregar cuenta/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Configuración" })).toBeTruthy();
+  });
+});
 
 describe("FolderSidebar", () => {
   beforeEach(() => {

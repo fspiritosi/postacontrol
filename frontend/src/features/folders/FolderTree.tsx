@@ -88,7 +88,7 @@ type FolderActions = {
 };
 
 // Cuánto hay que quedarse arrastrando sobre una carpeta cerrada para que se abra.
-const EXPAND_DELAY_MS = 600;
+export const EXPAND_DELAY_MS = 600;
 
 type FolderZone = "before" | "into" | "after";
 

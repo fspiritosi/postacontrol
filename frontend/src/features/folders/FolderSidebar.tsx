@@ -17,6 +17,7 @@ import { PasswordDialog } from "../accounts/PasswordDialog";
 import type { ShellState } from "../layout/MailShell";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { AccountSection, ROLE_ICON } from "./AccountSection";
+import { SidebarRail } from "./SidebarRail";
 
 const COLLAPSED_KEY = "pc:collapsed";
 const EXPANDED_KEY = "pc:expanded";
@@ -102,9 +103,12 @@ function ContactsRow({ state }: { state: ShellState }) {
 export function FolderSidebar({
   accounts,
   state,
+  collapsed = false,
 }: {
   accounts: Account[];
   state: ShellState;
+  // Plegado: la columna de íconos en lugar de la lista completa.
+  collapsed?: boolean;
 }) {
   const { folders } = useAllFolders(accounts);
   const settings = useSettings();
@@ -158,6 +162,44 @@ export function FolderSidebar({
   const unifiedIcon = (r: UnifiedRole): ReactNode =>
     r === "flagged" ? <StarIcon /> : (ROLE_ICON[r] ?? <InboxIcon />);
 
+  const openSettings = () => {
+    setSettingsSection(undefined);
+    setRuleDraft(null);
+    setSettingsOpen(true);
+  };
+
+  const dialogs = (
+    <>
+      <AccountSetupDialog open={addOpen} onOpenChange={setAddOpen} />
+      <PasswordDialog
+        key={passwordAccountId ?? "none"}
+        account={passwordAccount}
+        open={passwordAccount !== null}
+        onOpenChange={(o) => !o && setPasswordAccountId(null)}
+      />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        focusSection={settingsSection}
+        ruleDraft={ruleDraft}
+      />
+    </>
+  );
+
+  if (collapsed) {
+    return (
+      <>
+        <SidebarRail
+          accounts={accounts}
+          state={state}
+          unifiedRows={unified ? unifiedRows : []}
+          onOpenSettings={openSettings}
+        />
+        {dialogs}
+      </>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Carpetas">
@@ -206,31 +248,11 @@ export function FolderSidebar({
         <Button variant="ghost" className="w-full justify-start" onClick={() => setAddOpen(true)}>
           <PlusIcon /> Agregar cuenta
         </Button>
-        <Button
-          variant="ghost"
-          className="w-full justify-start"
-          onClick={() => {
-            setSettingsSection(undefined);
-            setRuleDraft(null);
-            setSettingsOpen(true);
-          }}
-        >
+        <Button variant="ghost" className="w-full justify-start" onClick={openSettings}>
           <SettingsIcon /> Configuración
         </Button>
       </div>
-      <AccountSetupDialog open={addOpen} onOpenChange={setAddOpen} />
-      <PasswordDialog
-        key={passwordAccountId ?? "none"}
-        account={passwordAccount}
-        open={passwordAccount !== null}
-        onOpenChange={(o) => !o && setPasswordAccountId(null)}
-      />
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        focusSection={settingsSection}
-        ruleDraft={ruleDraft}
-      />
+      {dialogs}
     </div>
   );
 }
