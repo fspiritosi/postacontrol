@@ -26,7 +26,7 @@ import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { requestOpenMessage, resetSyncStateForTests } from "@/lib/events";
 import type { View } from "@/lib/view";
-import { MailShell, saveOuterLayout, type ShellState } from "./MailShell";
+import { MailShell, expandedSidebarSize, saveOuterLayout, sidebarResizeAction, type ShellState } from "./MailShell";
 
 function account(id: number): Account {
   return {
@@ -340,5 +340,29 @@ describe("MailShell sidebar plegable", () => {
     expect(JSON.parse(localStorage.getItem("pc:layout:bottom")!).outer).toEqual({ sidebar: 25, main: 75 });
     saveOuterLayout("bottom", { sidebar: 30, main: 70 }, false);
     expect(JSON.parse(localStorage.getItem("pc:layout:bottom")!).outer).toEqual({ sidebar: 30, main: 70 });
+  });
+});
+
+describe("sincronización del sidebar plegado con el panel", () => {
+  afterEach(() => localStorage.clear());
+
+  it("la primera medición real (sin tamaño previo o desde 0 px) vuelve a aplicar lo guardado", () => {
+    // Arranque oculto: al mostrarse, el panel se rearma desplegado; manda el flag.
+    expect(sidebarResizeAction(undefined, false, true)).toBe("reapply");
+    expect(sidebarResizeAction(0, false, true)).toBe("reapply");
+    expect(sidebarResizeAction(undefined, true, true)).toBe("none");
+    expect(sidebarResizeAction(0, true, false)).toBe("reapply");
+  });
+
+  it("después, el panel manda: arrastrar o el teclado cambian el modo", () => {
+    expect(sidebarResizeAction(240, true, false)).toBe("adopt");
+    expect(sidebarResizeAction(52, false, true)).toBe("adopt");
+    expect(sidebarResizeAction(240, false, false)).toBe("none");
+  });
+
+  it("al desplegar vuelve al último ancho guardado, no al mínimo", () => {
+    localStorage.setItem("pc:layout:right", JSON.stringify({ outer: { sidebar: 23, main: 77 }, inner: { list: 36, reader: 64 } }));
+    expect(expandedSidebarSize("right")).toBe("23%");
+    expect(expandedSidebarSize("bottom")).toBe("18%");
   });
 });

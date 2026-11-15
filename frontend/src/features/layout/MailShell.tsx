@@ -69,6 +69,25 @@ export function saveOuterLayout(pane: ReadingPane, sizes: Sizes, collapsed: bool
   if (!collapsed) saveLayout(pane, "outer", sizes);
 }
 
+// Qué hacer cuando el panel del sidebar cambia de tamaño. La primera medición
+// real (sin tamaño previo o desde 0 px, como al mostrar una ventana que arrancó
+// oculta) puede venir de un layout rearmado desplegado: ahí manda lo guardado y
+// se vuelve a aplicar. Después manda el panel (arrastrar el borde, teclado).
+export function sidebarResizeAction(
+  prevPixels: number | undefined,
+  panelCollapsed: boolean,
+  wantedCollapsed: boolean,
+): "reapply" | "adopt" | "none" {
+  if (panelCollapsed === wantedCollapsed) return "none";
+  return prevPixels == null || prevPixels === 0 ? "reapply" : "adopt";
+}
+
+// Ancho al desplegar: el último guardado (nunca se guarda plegado), no el
+// mínimo ni el que recuerde el panel.
+export function expandedSidebarSize(pane: ReadingPane): string {
+  return `${loadLayouts(pane).outer.sidebar}%`;
+}
+
 const SIDEBAR_COLLAPSED_KEY = "pc:sidebar-collapsed";
 
 function loadSidebarCollapsed(): boolean {
@@ -188,13 +207,19 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   }, []);
   // El panel sigue al estado: al tocar el botón y al montar (si quedó plegado).
   // Si ya está como corresponde (se arrastró el borde) no hace nada.
+  const applyToPanel = useCallback(
+    (c: boolean) => {
+      const panel = sidebarRef.current;
+      if (!panel) return;
+      if (c && !panel.isCollapsed()) panel.collapse();
+      else if (!c && panel.isCollapsed()) panel.resize(expandedSidebarSize(pane));
+    },
+    [sidebarRef, pane],
+  );
   useLayoutEffect(() => {
     collapsedRef.current = collapsed;
-    const panel = sidebarRef.current;
-    if (!panel) return;
-    if (collapsed && !panel.isCollapsed()) panel.collapse();
-    else if (!collapsed && panel.isCollapsed()) panel.expand();
-  }, [collapsed, sidebarRef]);
+    applyToPanel(collapsed);
+  }, [collapsed, applyToPanel]);
   // La última vista elegida que ya se guardó y se mandó a sincronizar.
   const syncedRef = useRef<View | null>(null);
 
@@ -344,7 +369,10 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
         <ResizablePanelGroup
           orientation="horizontal"
           defaultLayout={layout.outer}
-          onLayoutChanged={(sizes) => saveOuterLayout(pane, sizes, collapsedRef.current)}
+          // Se pregunta al panel: al plegar con el teclado este aviso llega antes que onResize.
+          onLayoutChanged={(sizes) =>
+            saveOuterLayout(pane, sizes, sidebarRef.current?.isCollapsed() ?? collapsedRef.current)
+          }
         >
           <ResizablePanel
             id="sidebar"
@@ -354,9 +382,16 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
             collapsedSize="52px"
             panelRef={sidebarRef}
             // Plegarlo o desplegarlo arrastrando el borde también cambia el modo.
-            onResize={() => {
-              const c = sidebarRef.current?.isCollapsed() ?? collapsedRef.current;
-              if (c !== collapsedRef.current) setCollapsed(c);
+            onResize={(_size, _id, prev) => {
+              const panel = sidebarRef.current;
+              if (!panel) return;
+              const c = panel.isCollapsed();
+              const action = sidebarResizeAction(prev?.inPixels, c, collapsedRef.current);
+              if (action === "reapply") applyToPanel(collapsedRef.current);
+              else if (action === "adopt") {
+                collapsedRef.current = c;
+                setCollapsed(c);
+              }
             }}
             className="bg-sidebar"
           >
