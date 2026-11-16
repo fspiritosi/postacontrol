@@ -128,3 +128,24 @@ func TestSetSettings_RejectsBadReminder(t *testing.T) {
 	assert.Equal(t, "Anticipación del aviso inválida.", ue.Msg)
 	require.NoError(t, c.SetSettings(ctx, model.Settings{TaskReminderMinutes: ip(30)}))
 }
+
+func TestFireReminder_EditBetweenSnapshotAndClaim(t *testing.T) {
+	c, _, _, n := newTestCore(t)
+	ctx := context.Background()
+	saved, err := c.SaveLocalTask(ctx, model.LocalTask{Title: "x", DueDate: "2026-11-19", DueTime: "10:00"})
+	require.NoError(t, err)
+	snap, err := c.store.PendingReminders(ctx)
+	require.NoError(t, err)
+	require.Len(t, snap, 1)
+
+	// El usuario cambia la hora justo después de la foto.
+	saved.DueTime = "15:00"
+	_, err = c.SaveLocalTask(ctx, saved)
+	require.NoError(t, err)
+
+	require.NoError(t, c.fireReminder(ctx, snap[0], 15, at("2026-11-19", "09:50")))
+	assert.Equal(t, 0, reminderCount(n), "no avisa con la hora vieja")
+
+	require.NoError(t, c.fireDueReminders(ctx, at("2026-11-19", "14:50")))
+	assert.Equal(t, 1, reminderCount(n), "el aviso rearmado sigue en pie")
+}

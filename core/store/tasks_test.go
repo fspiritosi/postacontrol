@@ -47,7 +47,8 @@ func TestLocalTask_RoundTrip(t *testing.T) {
 	assert.Equal(t, 15, *read.RemindBefore)
 	assert.Nil(t, read.DoneAt)
 
-	require.NoError(t, s.MarkReminded(ctx, got.ID, time.Unix(1000, 0)))
+	_, err = s.MarkReminded(ctx, got, time.Unix(1000, 0))
+	require.NoError(t, err)
 	read.Title = "Llamar a Ana"
 	read.RemindBefore = nil
 	_, err = s.SaveLocalTask(ctx, read, false)
@@ -109,11 +110,15 @@ func TestPendingReminders_OnlyTimedUndone(t *testing.T) {
 	}
 	mk("sin hora", "2026-12-01", "")
 	done := mk("hecha", "2026-12-01", "09:00")
-	reminded := mk("avisada", "2026-12-01", "09:00")
+	remindedID := mk("avisada", "2026-12-01", "09:00")
 	pending := mk("pendiente", "2026-12-01", "09:00")
 	at := time.Unix(10, 0)
 	require.NoError(t, s.SetLocalTaskDone(ctx, done, &at))
-	require.NoError(t, s.MarkReminded(ctx, reminded, at))
+	reminded, err := s.GetLocalTask(ctx, remindedID)
+	require.NoError(t, err)
+	ok, err := s.MarkReminded(ctx, reminded, at)
+	require.NoError(t, err)
+	require.True(t, ok)
 
 	got, err := s.PendingReminders(ctx)
 	require.NoError(t, err)
@@ -225,4 +230,29 @@ func TestTaskappCache(t *testing.T) {
 	assert.False(t, ok)
 	_, err = s.GetTaskLink(ctx, l.ID)
 	assert.NoError(t, err, "los vínculos se conservan")
+}
+
+func TestMarkReminded_FalseWhenChangedSinceSnapshot(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	snap, err := s.SaveLocalTask(ctx, model.LocalTask{Title: "x", DueDate: "2026-12-01", DueTime: "09:00"}, false)
+	require.NoError(t, err)
+	edited := snap
+	edited.DueTime = "15:00"
+	_, err = s.SaveLocalTask(ctx, edited, true)
+	require.NoError(t, err)
+
+	ok, err := s.MarkReminded(ctx, snap, time.Unix(10, 0))
+	require.NoError(t, err)
+	assert.False(t, ok)
+	pending, err := s.PendingReminders(ctx)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+
+	ok, err = s.MarkReminded(ctx, edited, time.Unix(10, 0))
+	require.NoError(t, err)
+	assert.True(t, ok)
+	ok, err = s.MarkReminded(ctx, edited, time.Unix(11, 0))
+	require.NoError(t, err)
+	assert.False(t, ok)
 }

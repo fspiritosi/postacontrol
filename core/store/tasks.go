@@ -119,10 +119,23 @@ func (s *Store) PendingReminders(ctx context.Context) ([]model.LocalTask, error)
 	return s.localTasks(ctx, `WHERE due_time != '' AND done_at IS NULL AND reminded_at IS NULL ORDER BY due_date, due_time, id`)
 }
 
-// MarkReminded anota que ya se avisó de la tarea.
-func (s *Store) MarkReminded(ctx context.Context, id int64, at time.Time) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE local_tasks SET reminded_at = ? WHERE id = ?`, at.Unix(), id)
-	return err
+// MarkReminded anota que ya se avisó de la tarea, solo si sigue como t (la
+// foto con la que se decidió avisar): sin hacer, sin avisar y con la misma
+// fecha, hora y anticipación. Devuelve false si cambió o ya no está, así un
+// aviso rearmado por una edición no se pierde.
+func (s *Store) MarkReminded(ctx context.Context, t model.LocalTask, at time.Time) (bool, error) {
+	var remind any
+	if t.RemindBefore != nil {
+		remind = *t.RemindBefore
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE local_tasks SET reminded_at = ?
+ WHERE id = ? AND reminded_at IS NULL AND done_at IS NULL AND due_date = ? AND due_time = ? AND remind_before IS ?`,
+		at.Unix(), t.ID, t.DueDate, t.DueTime, remind)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 const taskLinkCols = `id, thread_root, task_id, ticket, project_name, title, attach_pending, created_at`
