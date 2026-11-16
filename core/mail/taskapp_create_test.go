@@ -3,9 +3,11 @@ package mail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,8 @@ type createTaskapp struct {
 	uploadCode int  // 0 = 200
 	completed  bool // GET /api/tasks/N devuelve completada
 	commentErr string
+	postGate   chan struct{} // si no es nil, el POST de tarea avisa en postHit y espera
+	postHit    chan struct{}
 }
 
 func (f *createTaskapp) count(method, path string) int {
@@ -70,6 +74,10 @@ func newCreateTaskapp(t *testing.T) *createTaskapp {
 		case r.URL.Path == "/api/projects":
 			_, _ = w.Write([]byte(`[{"id":1,"workspace_id":5,"name":"Alfa","color":"#222","status":"active","approver_emails":["bea@cliente.com"]}]`))
 		case r.URL.Path == "/api/tasks" && r.Method == "POST":
+			if f.postGate != nil {
+				f.postHit <- struct{}{}
+				<-f.postGate
+			}
 			_, _ = w.Write([]byte(`{"id":42,"project_id":1,"title":"x","source":"internal","attachments":["viejo"],"status":{"id":1,"name":"Pendiente","is_completed":false}}`))
 		case r.URL.Path == "/api/tickets":
 			_, _ = w.Write([]byte(`{"id":43,"title":"x","source":"widget","attachments":[],"status":{"id":1,"name":"Abierto","is_completed":false}}`))
@@ -380,3 +388,73 @@ func TestFindMessageByHeader_MissingIsUserError(t *testing.T) {
 	assert.Equal(t, "El correo ya no está en esta PC.", ue.Msg)
 }
 
+func TestCreate_OrphanWhenLinkSaveFails(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	c.addLinkHook = func() error { return errors.New("disco lleno") }
+	_, err := c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp-orphan", ue.Code)
+	assert.Contains(t, ue.Msg, "La tarea #42 se creó en Taskapp")
+	assert.Equal(t, 1, f.count("POST", "/api/tasks"))
+}
+
+func TestCreate_CancelAfterPostStillSavesLink(t *testing.T) {
+	c, f, ms, n := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	n.setHook(func(event string, _ any) {
+		if event == EventTaskappChanged {
+			cancel() // justo después de la respuesta del POST
+		}
+	})
+	link, err := c.CreateTaskappItem(ctx, model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+	require.NoError(t, err)
+	assert.False(t, link.AttachPending)
+	stored, err := c.store.TaskLinksForThread(context.Background(), link.ThreadRoot)
+	require.NoError(t, err)
+	assert.Len(t, stored, 1)
+	assert.Equal(t, 1, f.count("POST", "/api/tasks"))
+}
+
+func TestCreate_ConcurrentSameMessageRejected(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	f.postGate, f.postHit = make(chan struct{}), make(chan struct{}, 1)
+	req := model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"}
+	done := make(chan error, 1)
+	go func() { _, err := c.CreateTaskappItem(context.Background(), req); done <- err }()
+	<-f.postHit
+	_, err := c.CreateTaskappItem(context.Background(), req)
+	assert.EqualError(t, err, "Ya se está creando la tarea de este correo.")
+	close(f.postGate)
+	require.NoError(t, <-done)
+	assert.Equal(t, 1, f.count("POST", "/api/tasks"))
+}
+
+func TestAddMessage_AndRetry_ConcurrentRejected(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Hilo", "a@ej.com", ""))
+	ctx := context.Background()
+	link, err := c.CreateTaskappItem(ctx, model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Hilo"})
+	require.NoError(t, err)
+	r1, err := c.claim("add:1:2", "x")
+	require.NoError(t, err)
+	_, err = c.claim("add:1:2", "otro")
+	assert.EqualError(t, err, "otro")
+	r1()
+	r2, err := c.claim("add:1:2", "x")
+	require.NoError(t, err)
+	r2()
+	// Los guardas reales de AddMessageToTask y Retry usan estas claves.
+	rel, err := c.claim("add:"+itoa(link.ID)+":"+itoa(ms[0].ID), "x")
+	require.NoError(t, err)
+	assert.EqualError(t, c.AddMessageToTask(ctx, link.ID, ms[0].ID), "Ya se está sumando este correo a la tarea.")
+	rel()
+	rel, err = c.claim("retry:"+itoa(link.ID), "x")
+	require.NoError(t, err)
+	_, err = c.RetryTaskLinkAttachment(ctx, link.ID)
+	assert.EqualError(t, err, "Ya se está adjuntando el correo.")
+	rel()
+	assert.Equal(t, 0, f.count("POST", "/api/tasks/42/comments"))
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }

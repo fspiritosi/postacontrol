@@ -161,6 +161,13 @@ type Core struct {
 	taskappProjAt time.Time
 	connectCancel context.CancelFunc
 	connectSeq    int
+
+	// inflight: operaciones de Taskapp en curso (taskapp_create.go), para no
+	// repetir un pedido que ya está andando. addLinkHook es solo para tests:
+	// si devuelve error, el vínculo no se guarda.
+	inflightMu  sync.Mutex
+	inflight    map[string]struct{}
+	addLinkHook func() error
 }
 
 func New(cfg Config) (*Core, error) {

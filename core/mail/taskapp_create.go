@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -30,6 +31,25 @@ const (
 var taskappEmlLimit int64 = taskapp.MaxUpload - 64<<10
 
 var taskPriorities = []string{"none", "low", "medium", "high", "urgent"}
+
+// claim marca la operación key como en curso; si ya lo estaba devuelve un
+// error de usuario con msg. release la libera.
+func (c *Core) claim(key, msg string) (release func(), err error) {
+	c.inflightMu.Lock()
+	defer c.inflightMu.Unlock()
+	if _, busy := c.inflight[key]; busy {
+		return nil, &UserError{Code: "invalid", Msg: msg}
+	}
+	if c.inflight == nil {
+		c.inflight = map[string]struct{}{}
+	}
+	c.inflight[key] = struct{}{}
+	return func() {
+		c.inflightMu.Lock()
+		delete(c.inflight, key)
+		c.inflightMu.Unlock()
+	}, nil
+}
 
 // taskDescriptionHTML arma la descripción (o el comentario): un encabezado con
 // remitente y fecha, y el cuerpo del correo.
@@ -164,6 +184,11 @@ func (c *Core) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (
 		}
 	}
 
+	release, err := c.claim(fmt.Sprintf("create:%d", req.MessageID), "Ya se está creando la tarea de este correo.")
+	if err != nil {
+		return model.TaskLink{}, err
+	}
+	defer release()
 	cl, err := c.taskappClient(ctx)
 	if err != nil {
 		return model.TaskLink{}, err
@@ -214,10 +239,22 @@ func (c *Core) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (
 	}
 	c.emit(EventTaskappChanged, nil)
 
-	link, err := c.store.AddTaskLink(ctx, model.TaskLink{ThreadRoot: root, TaskID: created.ID, Ticket: req.Ticket,
-		ProjectName: proj.Name, Title: req.Title, AttachPending: true}, headerID)
+	// La tarea ya existe en Taskapp: de acá en adelante no se corta si el
+	// usuario cancela, para no dejarla sin vínculo y que se cree dos veces.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	var link model.TaskLink
+	if c.addLinkHook != nil {
+		err = c.addLinkHook()
+	}
+	if err == nil {
+		link, err = c.store.AddTaskLink(ctx, model.TaskLink{ThreadRoot: root, TaskID: created.ID, Ticket: req.Ticket,
+			ProjectName: proj.Name, Title: req.Title, AttachPending: true}, headerID)
+	}
 	if err != nil {
-		return model.TaskLink{}, c.ctxOrUserError(ctx, err)
+		slog.Warn("taskapp: la tarea se creó pero no se guardó el vínculo", "taskId", created.ID, "err", err)
+		return model.TaskLink{}, &UserError{Code: "taskapp-orphan", Err: err,
+			Msg: fmt.Sprintf("La tarea #%d se creó en Taskapp, pero no se pudo guardar el vínculo en esta PC. Abrila desde Taskapp; no la vuelvas a crear.", created.ID)}
 	}
 	link.URL = c.taskURL(link.TaskID, link.Ticket)
 	link.AlreadyAdded, link.StateKnown = true, true
@@ -245,6 +282,11 @@ func (c *Core) attachEml(ctx context.Context, cl *taskapp.Client, taskID int64, 
 // RetryTaskLinkAttachment repite solo la subida del .eml de un vínculo que
 // quedó con AttachPending. Nunca crea otra tarea.
 func (c *Core) RetryTaskLinkAttachment(ctx context.Context, linkID int64) (model.TaskLink, error) {
+	release, err := c.claim(fmt.Sprintf("retry:%d", linkID), "Ya se está adjuntando el correo.")
+	if err != nil {
+		return model.TaskLink{}, err
+	}
+	defer release()
 	link, err := c.store.GetTaskLink(ctx, linkID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.TaskLink{}, &UserError{Code: "not_found", Msg: msgLinkGone, Err: err}
@@ -346,6 +388,11 @@ func (c *Core) TaskLinksForMessage(ctx context.Context, messageID int64) ([]mode
 // AddMessageToTask suma el correo a la tarea como comentario interno, con el
 // .eml adjunto.
 func (c *Core) AddMessageToTask(ctx context.Context, linkID, messageID int64) error {
+	release, err := c.claim(fmt.Sprintf("add:%d:%d", linkID, messageID), "Ya se está sumando este correo a la tarea.")
+	if err != nil {
+		return err
+	}
+	defer release()
 	link, err := c.store.GetTaskLink(ctx, linkID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return &UserError{Code: "not_found", Msg: msgLinkGone, Err: err}
