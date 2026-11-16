@@ -38,6 +38,9 @@ func (c *Core) StartScheduler(ctx context.Context, every time.Duration) {
 			if err := c.returnDueSnoozes(ctx, now); err != nil && ctx.Err() == nil {
 				slog.Warn("no se pudieron devolver los correos pospuestos", "err", err)
 			}
+			if err := c.fireDueReminders(ctx, now); err != nil && ctx.Err() == nil {
+				slog.Warn("no se pudieron revisar los avisos de tareas", "err", err)
+			}
 			select {
 			case <-ctx.Done():
 				return

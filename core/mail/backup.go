@@ -56,6 +56,19 @@ type backupFile struct {
 	ImageSenders []string `json:"imageSenders"`
 	// Templates son las plantillas del redactor (faltan en los respaldos viejos).
 	Templates []backupTemplate `json:"templates"`
+	// Tasks son las tareas locales (faltan en los respaldos viejos).
+	Tasks []backupTask `json:"tasks"`
+}
+
+type backupTask struct {
+	Title           string     `json:"title"`
+	Notes           string     `json:"notes"`
+	DueDate         string     `json:"dueDate"`
+	DueTime         string     `json:"dueTime"`
+	RemindBefore    *int       `json:"remindBefore"`
+	SourceMessageID string     `json:"sourceMessageId"`
+	SourceSubject   string     `json:"sourceSubject"`
+	DoneAt          *time.Time `json:"doneAt"`
 }
 
 type backupTemplate struct {
@@ -144,6 +157,16 @@ func (c *Core) buildBackup(ctx context.Context) (backupFile, error) {
 	b.Templates = []backupTemplate{}
 	for _, t := range templates {
 		b.Templates = append(b.Templates, backupTemplate{Name: t.Name, Subject: t.Subject, HTML: t.HTML})
+	}
+
+	tasks, err := c.store.ListLocalTasks(ctx, true)
+	if err != nil {
+		return b, err
+	}
+	b.Tasks = []backupTask{}
+	for _, t := range tasks {
+		b.Tasks = append(b.Tasks, backupTask{Title: t.Title, Notes: t.Notes, DueDate: t.DueDate, DueTime: t.DueTime,
+			RemindBefore: t.RemindBefore, SourceMessageID: t.SourceMessageID, SourceSubject: t.SourceSubject, DoneAt: t.DoneAt})
 	}
 
 	contacts, err := c.store.ListContacts(ctx)
@@ -249,6 +272,9 @@ func (c *Core) ImportBackup(ctx context.Context, src string) (model.BackupImport
 	if res.TemplatesAdded > 0 {
 		c.emit(EventTemplatesChanged, nil)
 	}
+	if res.TasksAdded > 0 {
+		c.emit(EventTasksChanged, nil)
+	}
 	if err != nil {
 		return res, c.ctxOrUserError(ctx, err)
 	}
@@ -316,6 +342,9 @@ func (c *Core) applyBackup(ctx context.Context, b backupFile, res *model.BackupI
 		return err
 	}
 	if err := c.importTemplates(ctx, b.Templates, res); err != nil {
+		return err
+	}
+	if err := c.importTasks(ctx, b.Tasks, res); err != nil {
 		return err
 	}
 	// Las etiquetas restauradas vuelven a juntar sus correos desde el servidor.
@@ -603,6 +632,47 @@ func (c *Core) importTemplates(ctx context.Context, list []backupTemplate, res *
 		}
 		names[key] = true
 		res.TemplatesAdded++
+	}
+	return nil
+}
+
+// importTasks suma las tareas que no están (mismo título, fecha y hora). Las
+// importadas conservan notas, anticipación, origen y fecha de hecha.
+func (c *Core) importTasks(ctx context.Context, list []backupTask, res *model.BackupImport) error {
+	existing, err := c.store.ListLocalTasks(ctx, true)
+	if err != nil {
+		return err
+	}
+	key := func(title, date, tm string) string {
+		return fold(strings.TrimSpace(title)) + "\x00" + date + "\x00" + tm
+	}
+	seen := map[string]bool{}
+	for _, t := range existing {
+		seen[key(t.Title, t.DueDate, t.DueTime)] = true
+	}
+	for _, bt := range list {
+		k := key(bt.Title, bt.DueDate, bt.DueTime)
+		if seen[k] {
+			res.TasksSkipped++
+			continue
+		}
+		saved, err := c.saveLocalTask(ctx, model.LocalTask{Title: bt.Title, Notes: bt.Notes, DueDate: bt.DueDate, DueTime: bt.DueTime,
+			RemindBefore: bt.RemindBefore, SourceMessageID: bt.SourceMessageID, SourceSubject: bt.SourceSubject}, false)
+		if err != nil {
+			var ue *UserError
+			if errors.As(err, &ue) {
+				res.TasksSkipped++
+				continue
+			}
+			return err
+		}
+		if bt.DoneAt != nil {
+			if err := c.store.SetLocalTaskDone(ctx, saved.ID, bt.DoneAt); err != nil {
+				return err
+			}
+		}
+		seen[k] = true
+		res.TasksAdded++
 	}
 	return nil
 }

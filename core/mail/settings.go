@@ -37,6 +37,9 @@ func (c *Core) setSettingsLocked(ctx context.Context, st model.Settings) error {
 	default:
 		return &UserError{Code: "invalid", Msg: "Tema desconocido."}
 	}
+	if st.TaskReminderMinutes != nil && !validRemindMinutes(*st.TaskReminderMinutes) {
+		return &UserError{Code: "invalid", Msg: msgBadReminder}
+	}
 	// El fondo se cambia solo con SetBackground/ClearBackground: lo que llega
 	// acá se ignora, así guardar otra opción no lo pisa.
 	cur, err := c.store.GetSettings(ctx)

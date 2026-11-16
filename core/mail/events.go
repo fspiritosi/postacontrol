@@ -32,6 +32,10 @@ const (
 	EventRulesChanged = "mail:rules-changed" // data: {"accountId": int64}
 	// EventDraftsChanged: se guardó, subió o borró un borrador del redactor.
 	EventDraftsChanged = "mail:drafts-changed" // data: nil
+	// EventTasksChanged: hubo un alta, un cambio o una baja de tareas locales.
+	EventTasksChanged = "mail:tasks-changed" // data: nil
+	// EventTaskReminder: llegó la hora de avisar de una tarea.
+	EventTaskReminder = "mail:task-reminder" // data: model.TaskReminder
 	// EventSendFinished: terminó un envío. message es el motivo si falló y
 	// warning un aviso si salió (p. ej. sin copia en Enviados).
 	EventSendFinished = "mail:send-finished" // data: {"draftId": int64, "ok": bool, "message": string, "warning": string}

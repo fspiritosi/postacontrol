@@ -344,6 +344,9 @@ type Settings struct {
 	// Theme es el tema de la UI: "light", "dark" o "system". Vacío
 	// (configuración vieja) se lee como "system".
 	Theme string `json:"theme"`
+	// TaskReminderMinutes es la anticipación por defecto del aviso de una
+	// tarea con hora; nil = 15.
+	TaskReminderMinutes *int `json:"taskReminderMinutes"`
 }
 
 // Rule es una regla de una cuenta, como los filtros de Thunderbird: si un
@@ -409,6 +412,17 @@ type BackupImport struct {
 	// Plantillas del redactor (las de mismo nombre se saltean).
 	TemplatesAdded   int `json:"templatesAdded"`
 	TemplatesSkipped int `json:"templatesSkipped"`
+	// Tareas locales (las de mismo título, fecha y hora se saltean).
+	TasksAdded   int `json:"tasksAdded"`
+	TasksSkipped int `json:"tasksSkipped"`
+}
+
+// TaskReminder es el aviso de una tarea próxima; At es su fecha y hora, no el
+// momento del aviso.
+type TaskReminder struct {
+	TaskID int64     `json:"taskId"`
+	Title  string    `json:"title"`
+	At     time.Time `json:"at"`
 }
 
 // AutoBackupInfo es el estado del respaldo automático: la carpeta elegida

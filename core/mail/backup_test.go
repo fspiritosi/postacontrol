@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -222,4 +223,46 @@ func TestBackup_ExportHasNoPasswords(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &b))
 	assert.Equal(t, "postacontrol", b["app"])
 	assert.Equal(t, "respaldo", b["kind"])
+}
+
+func TestBackup_IncludesLocalTasks(t *testing.T) {
+	src, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	done := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	t1, err := src.SaveLocalTask(ctx, model.LocalTask{Title: "Pagar", Notes: "luz", DueDate: "2026-11-19", DueTime: "10:00", RemindBefore: ip(60),
+		SourceMessageID: "<a@x>", SourceSubject: "Factura"})
+	require.NoError(t, err)
+	_, err = src.SaveLocalTask(ctx, model.LocalTask{Title: "Sin fecha"})
+	require.NoError(t, err)
+	require.NoError(t, src.store.SetLocalTaskDone(ctx, t1.ID, &done))
+	path := exportTo(t, src)
+
+	dst, _, _, _ := newTestCore(t)
+	res, err := dst.ImportBackup(ctx, path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.TasksAdded)
+	list, err := dst.ListLocalTasks(ctx, true)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	var got model.LocalTask
+	for _, l := range list {
+		if l.Title == "Pagar" {
+			got = l
+		}
+	}
+	assert.Equal(t, "luz", got.Notes)
+	assert.Equal(t, "2026-11-19", got.DueDate)
+	assert.Equal(t, "10:00", got.DueTime)
+	require.NotNil(t, got.RemindBefore)
+	assert.Equal(t, 60, *got.RemindBefore)
+	assert.Equal(t, "<a@x>", got.SourceMessageID)
+	require.NotNil(t, got.DoneAt)
+	assert.Equal(t, done.Unix(), got.DoneAt.Unix())
+
+	res, err = dst.ImportBackup(ctx, path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.TasksAdded)
+	assert.Equal(t, 2, res.TasksSkipped)
+	list, _ = dst.ListLocalTasks(ctx, true)
+	assert.Len(t, list, 2)
 }
