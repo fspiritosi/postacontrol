@@ -347,6 +347,49 @@ type Settings struct {
 	// TaskReminderMinutes es la anticipación por defecto del aviso de una
 	// tarea con hora; nil = 15.
 	TaskReminderMinutes *int `json:"taskReminderMinutes"`
+	// TaskappAPIURL y TaskappWebURL son las direcciones de Taskapp; vacías =
+	// las de producción.
+	TaskappAPIURL string `json:"taskappApiUrl"`
+	TaskappWebURL string `json:"taskappWebUrl"`
+}
+
+// TaskappStatus dice si hay una cuenta de Taskapp conectada y de quién.
+type TaskappStatus struct {
+	Connected bool   `json:"connected"`
+	UserName  string `json:"userName"`
+	UserEmail string `json:"userEmail"`
+}
+
+// TaskappProject es un proyecto activo de Taskapp.
+type TaskappProject struct {
+	ID          int64  `json:"id"`
+	WorkspaceID int64  `json:"workspaceId"`
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+}
+
+// TaskappTask es una tarea o ticket pendiente asignado al usuario.
+type TaskappTask struct {
+	ID           int64  `json:"id"`
+	Ticket       bool   `json:"ticket"`
+	Title        string `json:"title"`
+	Priority     string `json:"priority"`
+	DueDate      string `json:"dueDate"`
+	StatusName   string `json:"statusName"`
+	ProjectID    int64  `json:"projectId"`
+	ProjectName  string `json:"projectName"`
+	ProjectColor string `json:"projectColor"`
+	URL          string `json:"url"`
+	Description  string `json:"description"`
+}
+
+// TaskappList es la lista de pendientes; Stale indica que viene de la caché
+// porque Taskapp no respondió (Error dice por qué). Tasks nunca es nil.
+type TaskappList struct {
+	Tasks     []TaskappTask `json:"tasks"`
+	FetchedAt time.Time     `json:"fetchedAt"`
+	Stale     bool          `json:"stale"`
+	Error     string        `json:"error"`
 }
 
 // Rule es una regla de una cuenta, como los filtros de Thunderbird: si un

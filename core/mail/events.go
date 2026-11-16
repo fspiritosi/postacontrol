@@ -36,6 +36,10 @@ const (
 	EventTasksChanged = "mail:tasks-changed" // data: nil
 	// EventTaskReminder: llegó la hora de avisar de una tarea.
 	EventTaskReminder = "mail:task-reminder" // data: model.TaskReminder
+	// EventTaskappChanged: se conectó o desconectó Taskapp, o hay una lista nueva.
+	EventTaskappChanged = "mail:taskapp-changed" // data: nil
+	// EventTaskappAuth: Taskapp rechazó el token; hay que reconectar.
+	EventTaskappAuth = "mail:taskapp-auth" // data: nil
 	// EventSendFinished: terminó un envío. message es el motivo si falló y
 	// warning un aviso si salió (p. ej. sin copia en Enviados).
 	EventSendFinished = "mail:send-finished" // data: {"draftId": int64, "ok": bool, "message": string, "warning": string}

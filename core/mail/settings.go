@@ -40,6 +40,9 @@ func (c *Core) setSettingsLocked(ctx context.Context, st model.Settings) error {
 	if st.TaskReminderMinutes != nil && !validRemindMinutes(*st.TaskReminderMinutes) {
 		return &UserError{Code: "invalid", Msg: msgBadReminder}
 	}
+	if !validTaskappURL(st.TaskappAPIURL) || !validTaskappURL(st.TaskappWebURL) {
+		return &UserError{Code: "invalid", Msg: msgBadTaskappURL}
+	}
 	// El fondo se cambia solo con SetBackground/ClearBackground: lo que llega
 	// acá se ignora, así guardar otra opción no lo pisa.
 	cur, err := c.store.GetSettings(ctx)

@@ -17,6 +17,7 @@ import (
 	"postacontrol/core/model"
 	"postacontrol/core/secrets"
 	"postacontrol/core/store"
+	"postacontrol/core/taskapp"
 )
 
 // Notifier recibe los eventos del núcleo (la cáscara los traduce a eventos de Wails).
@@ -44,6 +45,8 @@ type Config struct {
 	// UndoSendDelay es cuánto espera un correo en la bandeja de salida antes
 	// de salir, para poder deshacer el envío (CancelSend). 0 = sale enseguida.
 	UndoSendDelay time.Duration
+	// TaskappHTTP es el cliente de la API de Taskapp (nil = uno con timeout de 20 s).
+	TaskappHTTP *http.Client
 }
 
 type Core struct {
@@ -149,6 +152,15 @@ type Core struct {
 	indexHook    func(messageID int64, err error)
 	indexStarted bool
 	indexRunning int
+
+	// Taskapp (taskapp.go): taskappMu protege la caché en memoria del usuario
+	// y los proyectos, y connectCancel (la conexión en curso, si hay).
+	taskappMu     sync.Mutex
+	taskappMe     *taskapp.User
+	taskappProjs  []taskapp.Project
+	taskappProjAt time.Time
+	connectCancel context.CancelFunc
+	connectSeq    int
 }
 
 func New(cfg Config) (*Core, error) {
