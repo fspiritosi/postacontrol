@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
-  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "", threadedList: false })),
+  GetSettings: vi.fn(() => Promise.resolve({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "", threadedList: false })),
   SetSettings: vi.fn(() => Promise.resolve()),
   GetStartAtLogin: vi.fn(() => Promise.resolve(false)),
   SetStartAtLogin: vi.fn(() => Promise.resolve()),
@@ -74,7 +74,7 @@ describe("SettingsDialog", () => {
     const sw = await screen.findByRole("switch", { name: "Bandeja unificada" });
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     await user.click(sw);
-    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" }));
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "" }));
   });
 
   it("el interruptor de notificaciones guarda disableNotifications", async () => {
@@ -85,7 +85,7 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: true, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "" }),
     );
   });
 
@@ -97,7 +97,7 @@ describe("SettingsDialog", () => {
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await user.click(sw);
     await waitFor(() =>
-      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: true, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" }),
+      expect(svc.SetSettings).toHaveBeenCalledWith({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: true, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "" }),
     );
   });
 
@@ -126,7 +126,7 @@ describe("SettingsDialog", () => {
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: true,
       background: "",
-      disableNotifications: true, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "",
+      disableNotifications: true, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: true,
       readingPane: "",
     });
@@ -139,7 +139,7 @@ describe("SettingsDialog", () => {
       expect(svc.SetSettings).toHaveBeenCalledWith({
         unifiedInbox: true,
         background: "",
-        disableNotifications: true, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "",
+        disableNotifications: true, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
         threadedList: true,
         readingPane: "right",
       }),
@@ -151,7 +151,7 @@ describe("SettingsDialog", () => {
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: true,
       background: "",
-      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: false,
       readingPane: "top",
     });
@@ -186,7 +186,7 @@ describe("SettingsDialog", () => {
   it("con fondo muestra la miniatura y Quitar", async () => {
     vi.mocked(svc.GetSettings).mockResolvedValueOnce({
       unifiedInbox: false,
-      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: false,
       readingPane: "",
       background: "background-1.png",
@@ -248,6 +248,6 @@ describe("SettingsDialog", () => {
     await waitFor(() => expect(sw).toBeEnabled());
     expect(sw).toBeChecked();
     await user.click(sw);
-    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith(expect.objectContaining({ disableUndoSend: true, autoBackupDir: "", theme: "" })));
+    await waitFor(() => expect(svc.SetSettings).toHaveBeenCalledWith(expect.objectContaining({ disableUndoSend: true, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "" })));
   });
 });
