@@ -42,3 +42,26 @@ func TestDialogParent(t *testing.T) {
 		t.Fatalf("sin ninguna ventana: got %v", got)
 	}
 }
+
+func TestOpenTaskInTaskapp_RejectsOtherHosts(t *testing.T) {
+	web := "https://taskapp.codecontrol.com.ar"
+	ok := []string{web + "/tasks/5", web}
+	bad := []string{
+		"https://evil.example.com/tasks/5",
+		"http://taskapp.codecontrol.com.ar/tasks/5",
+		"https://taskapp.codecontrol.com.ar.evil.com/tasks/5",
+		"https://taskapp.codecontrol.com.ar@evil.com/",
+		"javascript:alert(1)",
+		"",
+	}
+	for _, l := range ok {
+		if err := checkTaskappURL(l, web); err != nil {
+			t.Errorf("%q debería pasar: %v", l, err)
+		}
+	}
+	for _, l := range bad {
+		if err := checkTaskappURL(l, web); err == nil || err.Error() != "Ese enlace no es de Taskapp." {
+			t.Errorf("%q debería rechazarse, err=%v", l, err)
+		}
+	}
+}

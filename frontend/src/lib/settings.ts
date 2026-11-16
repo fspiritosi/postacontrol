@@ -32,6 +32,9 @@ export async function saveSettings(
     disableUndoSend: false,
     autoBackupDir: "",
     theme: "",
+    taskReminderMinutes: null,
+    taskappApiUrl: "",
+    taskappWebUrl: "",
     ...current,
     ...patch,
   });

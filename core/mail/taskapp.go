@@ -63,6 +63,16 @@ func (c *Core) taskappURLs(ctx context.Context) (api, web string, err error) {
 	return api, web, nil
 }
 
+// TaskappWebURL es la dirección de la web de Taskapp configurada (o la de
+// siempre), sin barra final.
+func (c *Core) TaskappWebURL(ctx context.Context) string {
+	_, web, err := c.taskappURLs(ctx)
+	if err != nil {
+		return defaultTaskappWeb
+	}
+	return web
+}
+
 func (c *Core) taskappHTTP() *http.Client {
 	if c.cfg.TaskappHTTP != nil {
 		return c.cfg.TaskappHTTP

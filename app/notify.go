@@ -19,6 +19,10 @@ import (
 // una notificación. data: {folderId, messageId}; messageId 0 = solo la carpeta.
 const EventOpenMessage = "app:open-message"
 
+// EventOpenTask lo emite la app al frontend cuando el usuario hace clic en el
+// aviso de una tarea. data: {taskId}.
+const EventOpenTask = "app:open-task"
+
 // La notificación de un solo correo nuevo trae botones para no tener que
 // abrir la app (en Linux los muestra el servidor de notificaciones).
 const (
@@ -110,10 +114,34 @@ func SendFailedNotification(data any, mainVisible bool) (notifications.Notificat
 	}, true
 }
 
+// notifKindTaskReminder marca en Data el aviso de una tarea.
+const notifKindTaskReminder = "task-reminder"
+
+var diasCortos = [...]string{"Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"}
+
+// TaskReminderNotification arma el aviso de una tarea. El cuerpo dice "Hoy a
+// las HH:MM" si el vencimiento es hoy (según now, en loc) y, si no, el día.
+func TaskReminderNotification(r model.TaskReminder, now time.Time, loc *time.Location) notifications.NotificationOptions {
+	at, now := r.At.In(loc), now.In(loc)
+	var body string
+	if at.Format("2006-01-02") == now.Format("2006-01-02") {
+		body = "Hoy a las " + at.Format("15:04")
+	} else {
+		body = fmt.Sprintf("%s %s a las %s", diasCortos[at.Weekday()], at.Format("02/01"), at.Format("15:04"))
+	}
+	return notifications.NotificationOptions{
+		ID:    fmt.Sprintf("task-reminder-%d", r.TaskID),
+		Title: "Recordatorio: " + r.Title,
+		Body:  escapeBody(body),
+		Data:  map[string]interface{}{"kind": notifKindTaskReminder, "taskId": r.TaskID},
+	}
+}
+
 // notificationOpensMessage dice si tocar la notificación abre un mensaje (la
-// de correo nuevo) o solo muestra la ventana (la de un envío que falló).
+// de correo nuevo) o solo muestra la ventana (la de un envío que falló o la
+// de una tarea, que abre la tarea por su cuenta).
 func notificationOpensMessage(data map[string]interface{}) bool {
-	return data["kind"] != notifKindSendFailed
+	return data["kind"] != notifKindSendFailed && data["kind"] != notifKindTaskReminder
 }
 
 // bodyEscaper escapa lo que el cuerpo de una notificación de freedesktop
@@ -195,6 +223,15 @@ func (h *notifyHub) sendFinished(data any) {
 	}
 }
 
+func (h *notifyHub) taskReminder(r model.TaskReminder) {
+	if h == nil {
+		return
+	}
+	if d := h.p.Load(); d != nil {
+		go d.handleTaskReminder(r)
+	}
+}
+
 // SetupNotifications conecta las notificaciones de escritorio: correo nuevo
 // con la ventana escondida o sin foco, y clic que abre el mensaje; un envío
 // que falló con la ventana escondida, y clic que la muestra.
@@ -215,6 +252,10 @@ func SetupNotifications(app *application.App, svc *MailService, d *Desktop, noti
 			return
 		}
 		n.desktop.ShowWindow()
+		if r.Response.UserInfo["kind"] == notifKindTaskReminder {
+			n.app.Event.Emit(EventOpenTask, map[string]any{"taskId": toInt64(r.Response.UserInfo["taskId"])})
+			return
+		}
 		if notificationOpensMessage(r.Response.UserInfo) {
 			n.app.Event.Emit(EventOpenMessage, OpenMessagePayload(r.Response.UserInfo))
 		}
@@ -290,5 +331,15 @@ func (n *desktopNotifier) handleSendFinished(data any) {
 	}
 	if err := n.notif.SendNotification(opts); err != nil {
 		slog.Warn("no se pudo mostrar la notificación", "err", err)
+	}
+}
+
+// handleTaskReminder avisa que llegó la hora de una tarea. Se muestra siempre,
+// con la ventana a la vista o no y con DisableNotifications o sin él: ese
+// ajuste es del correo nuevo, y un aviso que el usuario pidió no puede perderse.
+func (n *desktopNotifier) handleTaskReminder(r model.TaskReminder) {
+	opts := TaskReminderNotification(r, time.Now(), time.Local)
+	if err := n.notif.SendNotification(opts); err != nil {
+		slog.Warn("no se pudo mostrar el aviso de la tarea", "err", err)
 	}
 }
