@@ -458,3 +458,14 @@ func TestAddMessage_AndRetry_ConcurrentRejected(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestCreate_DescriptionIsSanitizedBeforePost(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	_, err := c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura",
+		DescriptionHTML: `<style>p{color:red}</style><p style="x:y">hola</p><img src="https://e.com/t.png"><script>x()</script>`})
+	require.NoError(t, err)
+	post, _ := f.last("POST", "/api/tasks")
+	var body struct{ Description string }
+	require.NoError(t, json.Unmarshal([]byte(post.Body), &body))
+	assert.Equal(t, "<p>hola</p>", body.Description)
+}

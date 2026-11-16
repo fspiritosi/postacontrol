@@ -186,3 +186,21 @@ func TestSanitize_KeepsImageSizeAlignAndFontSize(t *testing.T) {
 	assert.Contains(t, clean, `align="left"`)
 	assert.Contains(t, clean, `font-size: 18px`)
 }
+
+func TestSanitizeForExport(t *testing.T) {
+	got := SanitizeForExport(`<style>p{color:red}</style><p style="x:y" onclick="a()">hola <b>mundo</b></p>` +
+		`<img src="https://e.com/a.png"><img src="data:image/png;base64,QUJD" alt="x">` +
+		`<a href="javascript:alert(1)">mal</a> <a href="https://e.com">bien</a><script>x()</script>`)
+	assert.NotContains(t, got, "<style")
+	assert.NotContains(t, got, "color:red")
+	assert.NotContains(t, got, "style=")
+	assert.NotContains(t, got, "onclick")
+	assert.NotContains(t, got, "e.com/a.png")
+	assert.Contains(t, got, `<img src="data:image/png;base64,QUJD"`)
+	assert.NotContains(t, got, "javascript:")
+	assert.NotContains(t, got, "<script")
+	assert.Contains(t, got, `href="https://e.com"`)
+	assert.Contains(t, got, "noopener")
+	assert.Contains(t, got, "<b>mundo</b>")
+	assert.NotContains(t, SanitizeForExport(`<img src="https://e.com/a.png">`), "<img")
+}

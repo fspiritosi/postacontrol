@@ -65,7 +65,8 @@ func taskDescriptionHTML(d model.MessageDetail, loc *time.Location) string {
 	sb.WriteString("<p><strong>De:</strong> " + from + " · <strong>Fecha:</strong> " +
 		html.EscapeString(d.Date.In(loc).Format("02/01/2006 15:04")) + "</p>")
 	if d.HTML != "" {
-		sb.WriteString(htmlx.RestoreRemoteImages(d.HTML))
+		// Taskapp lo muestra sin sandbox: política estricta, no la del iframe.
+		sb.WriteString(htmlx.SanitizeForExport(d.HTML))
 		return sb.String()
 	}
 	text := strings.ReplaceAll(strings.ReplaceAll(d.Text, "\r\n", "\n"), "\r", "\n")
@@ -219,7 +220,7 @@ func (c *Core) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (
 			proj = p
 		}
 	}
-	desc := req.DescriptionHTML + droppedHTML(dropped)
+	desc := htmlx.SanitizeForExport(req.DescriptionHTML) + droppedHTML(dropped)
 
 	var created taskapp.Task
 	if req.Ticket {
@@ -438,7 +439,7 @@ func (c *Core) AddMessageToTask(ctx context.Context, linkID, messageID int64) er
 	if err != nil {
 		return c.taskappErrCtx(ctx, err)
 	}
-	body := taskDescriptionHTML(d, time.Local) + droppedHTML(dropped)
+	body := htmlx.SanitizeForExport(taskDescriptionHTML(d, time.Local)) + droppedHTML(dropped)
 	if err := cl.AddComment(ctx, link.TaskID, body, []string{key}, true); err != nil {
 		var api *taskapp.APIError
 		if errors.As(err, &api) && api.Status == 400 && strings.Contains(strings.ToLower(api.Msg), "completed") {
