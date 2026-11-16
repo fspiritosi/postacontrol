@@ -461,3 +461,34 @@ type MessageSource struct {
 	Text      string `json:"text"`
 	Truncated bool   `json:"truncated"`
 }
+
+// LocalTask es una tarea propia de Postacontrol (no vive en Taskapp).
+type LocalTask struct {
+	ID              int64      `json:"id"`
+	Title           string     `json:"title"`
+	Notes           string     `json:"notes"`
+	DueDate         string     `json:"dueDate"`         // "AAAA-MM-DD" o ""
+	DueTime         string     `json:"dueTime"`         // "HH:MM" o ""; solo con DueDate
+	RemindBefore    *int       `json:"remindBefore"`    // minutos; nil = el de Configuración
+	SourceMessageID string     `json:"sourceMessageId"` // Message-ID del correo de origen o ""
+	SourceSubject   string     `json:"sourceSubject"`
+	DoneAt          *time.Time `json:"doneAt"`
+	CreatedAt       time.Time  `json:"createdAt"`
+}
+
+// TaskLink vincula un hilo de correo con una tarea o ticket de Taskapp.
+type TaskLink struct {
+	ID            int64     `json:"id"`
+	ThreadRoot    string    `json:"threadRoot"`
+	TaskID        int64     `json:"taskId"`
+	Ticket        bool      `json:"ticket"`
+	ProjectName   string    `json:"projectName"`
+	Title         string    `json:"title"`
+	AttachPending bool      `json:"attachPending"` // la tarea existe pero el .eml no se adjuntó
+	CreatedAt     time.Time `json:"createdAt"`
+	// Los completa core/mail, no el store:
+	URL          string `json:"url"`
+	AlreadyAdded bool   `json:"alreadyAdded"` // el correo consultado ya se sumó
+	Completed    bool   `json:"completed"`
+	StateKnown   bool   `json:"stateKnown"` // false = no se pudo preguntar a Taskapp
+}
