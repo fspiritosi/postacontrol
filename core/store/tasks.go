@@ -271,3 +271,27 @@ func (s *Store) ClearTaskappData(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM taskapp_cache`)
 	return err
 }
+
+// TaskLinkSource devuelve el Message-ID del correo que originó el vínculo
+// (vacío si no se guardó); sql.ErrNoRows si el vínculo no existe.
+func (s *Store) TaskLinkSource(ctx context.Context, linkID int64) (string, error) {
+	var src string
+	err := s.db.QueryRowContext(ctx, `SELECT source_message_id FROM task_links WHERE id = ?`, linkID).Scan(&src)
+	return src, err
+}
+
+// MessageSummaryByHeader devuelve el correo más nuevo con ese Message-ID;
+// sql.ErrNoRows si no está.
+func (s *Store) MessageSummaryByHeader(ctx context.Context, headerID string) (model.MessageSummary, error) {
+	if headerID == "" {
+		return model.MessageSummary{}, sql.ErrNoRows
+	}
+	ms, err := s.listWhere(ctx, `m.message_id = ?`, []any{headerID}, model.ListQuery{Limit: 1})
+	if err != nil {
+		return model.MessageSummary{}, err
+	}
+	if len(ms) == 0 {
+		return model.MessageSummary{}, sql.ErrNoRows
+	}
+	return ms[0], nil
+}

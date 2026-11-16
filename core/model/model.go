@@ -549,3 +549,23 @@ type TaskLink struct {
 	Completed    bool   `json:"completed"`
 	StateKnown   bool   `json:"stateKnown"` // false = no se pudo preguntar a Taskapp
 }
+
+// TaskappDraft es lo que se propone al crear una tarea o ticket desde un correo.
+type TaskappDraft struct {
+	MessageID       int64  `json:"messageId"`
+	Title           string `json:"title"`
+	DescriptionHTML string `json:"descriptionHtml"`
+	ProjectID       int64  `json:"projectId"` // 0 = sin sugerencia
+	Oversize        bool   `json:"oversize"`  // el .eml no entra en MaxUpload: se adjunta sin adjuntos
+}
+
+// TaskappCreate es el pedido de crear una tarea o ticket desde un correo.
+type TaskappCreate struct {
+	MessageID       int64  `json:"messageId"`
+	Ticket          bool   `json:"ticket"`
+	ProjectID       int64  `json:"projectId"`
+	Title           string `json:"title"`
+	DescriptionHTML string `json:"descriptionHtml"`
+	Priority        string `json:"priority"` // none|low|medium|high|urgent
+	DueDate         string `json:"dueDate"`  // solo tarea
+}
