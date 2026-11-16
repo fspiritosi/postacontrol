@@ -36,7 +36,7 @@ const contact: Contact = { id: 7, name: "Ana", emails: ["ana@x.y"], phones: [], 
 
 function setup(role: string, labels: number[] = [], over: Partial<MessageDetail> = {}) {
   const folder: Folder = {
-    id: 3, accountId: 7, name: "F", delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0,
+    id: 3, accountId: 7, name: "F", delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0, color: "",
   };
   const msg: MessageDetail = {
     id: 1, accountId: 7, folderId: 3, uid: 1, from: ana, subject: "Hola", snippet: "",

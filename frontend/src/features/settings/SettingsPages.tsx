@@ -16,6 +16,7 @@ import { errorMessage } from "@/lib/errors";
 import { useBackground, useImageSenders, useSettings } from "@/lib/queries";
 import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
 import type { Settings } from "../../../bindings/postacontrol/core/model/models";
+import { themePref, type ThemePref } from "@/lib/theme";
 import { SignaturesSection } from "./SignaturesSection";
 import { TemplatesSection } from "./TemplatesSection";
 
@@ -93,6 +94,22 @@ export function GeneralPage() {
     <section aria-labelledby="page-general" className="space-y-3">
       <PageHeader id="page-general" title="General" description="Cómo arranca PostaControl y cómo avisa." />
       <div className="divide-y">
+        <SettingRow htmlFor="theme" label="Tema" description="Claro, oscuro o el mismo que el sistema.">
+          <Select
+            value={themePref(settings.data)}
+            disabled={settings.isPending}
+            onValueChange={(v) => void save({ theme: v as ThemePref })}
+          >
+            <SelectTrigger id="theme" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">Sistema</SelectItem>
+              <SelectItem value="light">Claro</SelectItem>
+              <SelectItem value="dark">Oscuro</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
         <SettingRow
           htmlFor="unified-inbox"
           label="Bandeja unificada"

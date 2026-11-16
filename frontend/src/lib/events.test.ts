@@ -26,6 +26,7 @@ import {
   resetSyncStateForTests,
   syncFolder,
   toastSyncError,
+  useComposeDataEvents,
   useFolderSyncing,
   useMailEvents,
   useSyncProgress,
@@ -126,6 +127,7 @@ describe("useMailEvents", () => {
   it("recarga la configuración cuando cambia", () => {
     emit("mail:settings-changed", null);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["autoBackup"] });
     // El fondo va por el nombre guardado en la configuración: no se relee
     // por cualquier cambio.
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["background"] });
@@ -162,6 +164,16 @@ describe("useMailEvents", () => {
     for (const call of vi.mocked(toast.error).mock.calls) {
       expect(call).toEqual(["Sin red", { id: "sync-error-1" }]);
     }
+  });
+});
+
+describe("useComposeDataEvents", () => {
+  it("la ventana del redactor recarga la configuración cuando cambia (tema, corrector)", () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries").mockResolvedValue();
+    renderHook(() => useComposeDataEvents(qc));
+    emit("mail:settings-changed", null);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["settings"] });
   });
 });
 

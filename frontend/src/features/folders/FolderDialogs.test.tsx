@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { DeleteDialog, EmptyTrashDialog, MoveDialog, NameDialog, deleteDescription } from "./FolderDialogs";
 
 const folder = (id: number, name: string, role = ""): Folder => ({
-  id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0,
+  id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0, color: "",
 });
 const clientes: FolderNode = buildFolderTree([folder(10, "Clientes")])[0];
 

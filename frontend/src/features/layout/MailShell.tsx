@@ -1,5 +1,6 @@
-import { MailIcon, PencilIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { MailIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PencilIcon } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { usePanelRef } from "react-resizable-panels";
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
 import { onOpenMessage, syncFolder, syncUnified } from "@/lib/events";
 import { useAllFolders, useSettings } from "@/lib/queries";
@@ -8,6 +9,8 @@ import { useReadingPane, type ReadingPane } from "@/lib/settings";
 import { defaultView, loadView, saveView, viewAccount, viewIsValid, type View } from "@/lib/view";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { RailButton } from "./RailButton";
 import { useComposer } from "../compose/ComposerContext";
 import { useLabelKeys } from "../labels/useLabelKeys";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -60,6 +63,52 @@ function saveLayout(pane: ReadingPane, group: keyof Layouts, sizes: Sizes) {
   }
 }
 
+// Mientras el sidebar está plegado no se guarda el layout exterior: así, al
+// desplegarlo (también después de reiniciar) vuelve al ancho que tenía.
+export function saveOuterLayout(pane: ReadingPane, sizes: Sizes, collapsed: boolean) {
+  if (!collapsed) saveLayout(pane, "outer", sizes);
+}
+
+// Qué hacer cuando el panel del sidebar cambia de tamaño. La primera medición
+// real (sin tamaño previo o desde 0 px, como al mostrar una ventana que arrancó
+// oculta) puede venir de un layout rearmado desplegado: ahí manda lo guardado y
+// se vuelve a aplicar. Después manda el panel (arrastrar el borde, teclado).
+export function sidebarResizeAction(
+  prevPixels: number | undefined,
+  panelCollapsed: boolean,
+  wantedCollapsed: boolean,
+): "reapply" | "adopt" | "none" {
+  if (panelCollapsed === wantedCollapsed) return "none";
+  return prevPixels == null || prevPixels === 0 ? "reapply" : "adopt";
+}
+
+// Ancho al desplegar: el último guardado (nunca se guarda plegado), no el
+// mínimo ni el que recuerde el panel.
+export function expandedSidebarSize(pane: ReadingPane): string {
+  return `${loadLayouts(pane).outer.sidebar}%`;
+}
+
+const SIDEBAR_COLLAPSED_KEY = "pc:sidebar-collapsed";
+
+function loadSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveSidebarCollapsed(collapsed: boolean) {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    // ignorar: recordar el sidebar plegado es opcional
+  }
+}
+
+// Si el sidebar está plegado a la columna de íconos y cómo cambiarlo.
+export type SidebarMode = { collapsed: boolean; toggle: () => void };
+
 export type SearchScope = "all" | "folder";
 export type SearchState = { text: string; scope: SearchScope };
 
@@ -99,7 +148,7 @@ export type ShellState = {
 type Props = {
   accounts: Account[];
   // Slots que llenan las Tasks 16 y 17.
-  sidebar?: (s: ShellState) => ReactNode;
+  sidebar?: (s: ShellState, mode: SidebarMode) => ReactNode;
   list?: (s: ShellState) => ReactNode;
   reader?: (s: ShellState) => ReactNode;
   // Componentes sin lugar en pantalla que necesitan el estado (p. ej. avisos).
@@ -141,6 +190,36 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   // Los tamaños arrancan según la posición; al cambiarla se leen los de la nueva.
   const layout = useMemo(() => loadLayouts(pane), [pane]);
   const composer = useComposer();
+  // El flag guardado manda: el tamaño en porcentaje no alcanza para saber si
+  // estaba plegado (cambia con el ancho de la ventana).
+  const [collapsed, setCollapsedState] = useState(loadSidebarCollapsed);
+  const collapsedRef = useRef(collapsed);
+  const sidebarRef = usePanelRef();
+  const setCollapsed = useCallback((c: boolean) => {
+    saveSidebarCollapsed(c);
+    setCollapsedState(c);
+  }, []);
+  const toggleSidebar = useCallback(() => {
+    setCollapsedState((c) => {
+      saveSidebarCollapsed(!c);
+      return !c;
+    });
+  }, []);
+  // El panel sigue al estado: al tocar el botón y al montar (si quedó plegado).
+  // Si ya está como corresponde (se arrastró el borde) no hace nada.
+  const applyToPanel = useCallback(
+    (c: boolean) => {
+      const panel = sidebarRef.current;
+      if (!panel) return;
+      if (c && !panel.isCollapsed()) panel.collapse();
+      else if (!c && panel.isCollapsed()) panel.resize(expandedSidebarSize(pane));
+    },
+    [sidebarRef, pane],
+  );
+  useLayoutEffect(() => {
+    collapsedRef.current = collapsed;
+    applyToPanel(collapsed);
+  }, [collapsed, applyToPanel]);
   // La última vista elegida que ya se guardó y se mandó a sincronizar.
   const syncedRef = useRef<View | null>(null);
 
@@ -283,64 +362,103 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   );
 
   return (
-    <div className="h-screen bg-background text-foreground">
-      {extras?.(state)}
-      <ShortcutsDialog open={keys.helpOpen} onOpenChange={keys.setHelpOpen} />
-      <ResizablePanelGroup
-        orientation="horizontal"
-        defaultLayout={layout.outer}
-        onLayoutChanged={(sizes) => saveLayout(pane, "outer", sizes)}
-      >
-        <ResizablePanel id="sidebar" defaultSize={`${layout.outer.sidebar}%`} minSize="14%" className="bg-sidebar">
-          <div className="flex h-full flex-col">
-            <div className="p-2">
-              <Button className="w-full" onClick={() => composer.openNew(composeAccount.id)}>
-                <PencilIcon />
-                Redactar
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1">
-              {sidebar ? (
-                sidebar(state)
+    <TooltipProvider delayDuration={300}>
+      <div className="h-screen bg-background text-foreground">
+        {extras?.(state)}
+        <ShortcutsDialog open={keys.helpOpen} onOpenChange={keys.setHelpOpen} />
+        <ResizablePanelGroup
+          orientation="horizontal"
+          defaultLayout={layout.outer}
+          // Se pregunta al panel: al plegar con el teclado este aviso llega antes que onResize.
+          onLayoutChanged={(sizes) =>
+            saveOuterLayout(pane, sizes, sidebarRef.current?.isCollapsed() ?? collapsedRef.current)
+          }
+        >
+          <ResizablePanel
+            id="sidebar"
+            defaultSize={`${layout.outer.sidebar}%`}
+            minSize="14%"
+            collapsible
+            collapsedSize="52px"
+            panelRef={sidebarRef}
+            // Plegarlo o desplegarlo arrastrando el borde también cambia el modo.
+            onResize={(_size, _id, prev) => {
+              const panel = sidebarRef.current;
+              if (!panel) return;
+              const c = panel.isCollapsed();
+              const action = sidebarResizeAction(prev?.inPixels, c, collapsedRef.current);
+              if (action === "reapply") applyToPanel(collapsedRef.current);
+              else if (action === "adopt") {
+                collapsedRef.current = c;
+                setCollapsed(c);
+              }
+            }}
+            className="bg-sidebar"
+          >
+            <div className="flex h-full flex-col">
+              {collapsed ? (
+                <div className="flex flex-col items-center gap-1 p-2">
+                  <RailButton label="Redactar" onClick={() => composer.openNew(composeAccount.id)}>
+                    <PencilIcon />
+                  </RailButton>
+                  <RailButton label="Expandir sidebar" onClick={toggleSidebar}>
+                    <PanelLeftOpenIcon />
+                  </RailButton>
+                </div>
               ) : (
-                <div className="flex items-center gap-2.5 border-b p-3">
-                  <Avatar className="size-8">
-                    <AvatarFallback>{composeAccount.email.slice(0, 1).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{composeAccount.displayName || composeAccount.email}</p>
-                    <p className="truncate text-xs text-muted-foreground">{composeAccount.email}</p>
-                  </div>
+                <div className="flex gap-1 p-2">
+                  <Button className="flex-1" onClick={() => composer.openNew(composeAccount.id)}>
+                    <PencilIcon />
+                    Redactar
+                  </Button>
+                  <Button variant="ghost" size="icon" aria-label="Plegar sidebar" title="Plegar sidebar" onClick={toggleSidebar}>
+                    <PanelLeftCloseIcon />
+                  </Button>
                 </div>
               )}
+              <div className="min-h-0 flex-1">
+                {sidebar ? (
+                  sidebar(state, { collapsed, toggle: toggleSidebar })
+                ) : (
+                  <div className="flex items-center gap-2.5 border-b p-3">
+                    <Avatar className="size-8">
+                      <AvatarFallback>{composeAccount.email.slice(0, 1).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{composeAccount.displayName || composeAccount.email}</p>
+                      <p className="truncate text-xs text-muted-foreground">{composeAccount.email}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel id="main" defaultSize={`${layout.outer.main}%`} minSize="40%">
-          {/* key = posición: al cambiarla el grupo se vuelve a montar con sus tamaños. */}
-          <ResizablePanelGroup
-            key={pane}
-            orientation={vertical ? "vertical" : "horizontal"}
-            defaultLayout={layout.inner}
-            onLayoutChanged={(sizes) => saveLayout(pane, "inner", sizes)}
-          >
-            {pane === "top" ? (
-              <>
-                {readerPanel}
-                <ResizableHandle />
-                {listPanel}
-              </>
-            ) : (
-              <>
-                {listPanel}
-                <ResizableHandle />
-                {readerPanel}
-              </>
-            )}
-          </ResizablePanelGroup>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel id="main" defaultSize={`${layout.outer.main}%`} minSize="40%">
+            {/* key = posición: al cambiarla el grupo se vuelve a montar con sus tamaños. */}
+            <ResizablePanelGroup
+              key={pane}
+              orientation={vertical ? "vertical" : "horizontal"}
+              defaultLayout={layout.inner}
+              onLayoutChanged={(sizes) => saveLayout(pane, "inner", sizes)}
+            >
+              {pane === "top" ? (
+                <>
+                  {readerPanel}
+                  <ResizableHandle />
+                  {listPanel}
+                </>
+              ) : (
+                <>
+                  {listPanel}
+                  <ResizableHandle />
+                  {readerPanel}
+                </>
+              )}
+            </ResizablePanelGroup>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    </TooltipProvider>
   );
 }

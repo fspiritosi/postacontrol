@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -588,6 +589,32 @@ func (c *Core) SetFolderOrder(ctx context.Context, accountID int64, folderIDs []
 		return c.ctxOrUserError(ctx, err)
 	}
 	c.emit(EventFoldersUpdated, map[string]any{"accountId": accountID})
+	return nil
+}
+
+var folderColorRe = regexp.MustCompile(`^#[0-9a-f]{6}$`)
+
+// SetFolderColor guarda el color local de la carpeta: "#rrggbb" en
+// minúsculas, o "" para sacarlo. No se manda al servidor.
+func (c *Core) SetFolderColor(ctx context.Context, folderID int64, color string) error {
+	ctx, cancel := c.lifeCtx(ctx)
+	defer cancel()
+	if color != "" && !folderColorRe.MatchString(color) {
+		return &UserError{Code: "invalid", Msg: "Color inválido."}
+	}
+	unlock, err := c.lockFolderAccount(ctx, folderID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	f, _, err := c.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	if err := c.store.SetFolderColor(ctx, folderID, color); err != nil {
+		return c.ctxOrUserError(ctx, err)
+	}
+	c.emit(EventFoldersUpdated, map[string]any{"accountId": f.AccountID})
 	return nil
 }
 

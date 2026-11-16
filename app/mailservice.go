@@ -215,6 +215,11 @@ func (s *MailService) SetFolderOrder(ctx context.Context, accountID int64, folde
 	return s.core.SetFolderOrder(ctx, accountID, folderIDs)
 }
 
+// SetFolderColor guarda el color local de la carpeta ("" = sin color).
+func (s *MailService) SetFolderColor(ctx context.Context, folderID int64, color string) error {
+	return s.core.SetFolderColor(ctx, folderID, color)
+}
+
 func (s *MailService) SyncAccount(ctx context.Context, accountID int64) error {
 	return s.core.SyncAccount(ctx, accountID)
 }

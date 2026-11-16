@@ -31,6 +31,7 @@ export async function saveSettings(
     background: "",
     disableUndoSend: false,
     autoBackupDir: "",
+    theme: "",
     ...current,
     ...patch,
   });

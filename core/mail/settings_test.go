@@ -39,6 +39,28 @@ func TestSetSettings_ReadingPaneInvalid(t *testing.T) {
 	assert.Equal(t, "right", got.ReadingPane)
 }
 
+func TestSetSettings_Theme(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	for _, theme := range []string{"dark", "light", "system", ""} {
+		require.NoError(t, c.SetSettings(context.Background(), model.Settings{Theme: theme}))
+		got, err := c.GetSettings(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, theme, got.Theme)
+	}
+}
+
+func TestSetSettings_ThemeInvalid(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	require.NoError(t, c.SetSettings(context.Background(), model.Settings{Theme: "dark"}))
+	err := c.SetSettings(context.Background(), model.Settings{Theme: "sepia"})
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "invalid", ue.Code)
+	got, err := c.GetSettings(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "dark", got.Theme)
+}
+
 func TestSetSettings_KeepsBackground(t *testing.T) {
 	c, _, _, _ := newTestCore(t)
 	ctx := context.Background()

@@ -183,7 +183,7 @@ export function resetSyncStateForTests(): void {
   notify();
 }
 
-// Lo que usa el redactor (cuentas, firmas y contactos para las sugerencias).
+// Lo que usa el redactor (cuentas, firmas, ajustes y contactos para las sugerencias).
 // Lo escuchan la ventana principal y cada ventana del redactor.
 function onComposeDataEvents(queryClient: QueryClient): (() => void)[] {
   return [
@@ -192,6 +192,13 @@ function onComposeDataEvents(queryClient: QueryClient): (() => void)[] {
     }),
     Events.On("mail:signatures-changed", () => {
       void queryClient.invalidateQueries({ queryKey: ["signatures"] });
+    }),
+    Events.On("mail:settings-changed", () => {
+      // El tema y el corrector se leen de acá; también cambia el fondo
+      // (useBackground va por el nombre guardado). autoBackup solo existe en
+      // la ventana principal: en el redactor no hace nada.
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      void queryClient.invalidateQueries({ queryKey: ["autoBackup"] });
     }),
     Events.On("mail:contacts-changed", () => {
       for (const key of ["contacts", "contact", "contact-for", "suggest"]) {
@@ -311,11 +318,6 @@ export function useMailEvents(queryClient: QueryClient): void {
       Events.On("mail:auto-backup-failed", (ev) => {
         const { message } = ev.data as { message: string };
         toast.warning(message, { id: "auto-backup-failed", duration: 15000 });
-      }),
-      Events.On("mail:settings-changed", () => {
-        // También cambia el fondo: useBackground va por el nombre guardado.
-        void queryClient.invalidateQueries({ queryKey: ["settings"] });
-        void queryClient.invalidateQueries({ queryKey: ["autoBackup"] });
       }),
       Events.On("mail:sync-progress", (ev) => {
         const p = ev.data as SyncProgress;

@@ -10,6 +10,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   RenameFolder: vi.fn(() => Promise.resolve({})),
   MoveFolder: vi.fn(() => Promise.resolve({})),
   SetFolderOrder: vi.fn(() => Promise.resolve()),
+  SetFolderColor: vi.fn(() => Promise.resolve()),
   DeleteFolderPreview: vi.fn(() => Promise.resolve({ total: 0, subfolders: [] })),
   DeleteFolder: vi.fn(() => Promise.resolve(0)),
   MoveMessages: vi.fn(() => Promise.resolve()),
@@ -30,6 +31,7 @@ import type { ShellState } from "../layout/MailShell";
 import { setFolderDrag, setMessageDrag } from "@/lib/dnd";
 import { FakeDataTransfer } from "../../test/dataTransfer";
 import { toast } from "sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { FolderSidebar } from "./FolderSidebar";
 
 const account: Account = {
@@ -59,23 +61,41 @@ const baseState: ShellState = {
 
 const account2: Account = { ...account, id: 8, email: "x@y.z", displayName: "X", color: "#0f0" };
 const inbox = (id: number, accountId: number, unread: number) =>
-  ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true, position: 0 }) as const;
+  ({ id, accountId, name: "INBOX", delimiter: "/", role: "inbox", unread, total: 0, selectable: true, position: 0, color: "" }) as const;
 
 // Carpeta sin rol: no choca con la fila "Entrada" de Todas las cuentas.
-const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0 } as const;
+const proyectos = { id: 9, accountId: 7, name: "Proyectos", delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position: 0, color: "" } as const;
 
-function renderSidebar(accounts: Account[], state: ShellState = baseState, client = new QueryClient()) {
+function renderSidebar(accounts: Account[], state: ShellState = baseState, client = new QueryClient(), collapsed = false) {
   return render(
     <QueryClientProvider client={client}>
-      <FolderSidebar accounts={accounts} state={state} />
+      <TooltipProvider>
+        <FolderSidebar accounts={accounts} state={state} collapsed={collapsed} />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
 
+describe("FolderSidebar plegado", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" });
+    vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0)]);
+  });
+
+  it("con collapsed no muestra Agregar cuenta y sí la columna de íconos", async () => {
+    renderSidebar([account], baseState, new QueryClient(), true);
+    expect(screen.getByRole("button", { name: "A · a@b.c" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Todas las cuentas · Entrada" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Agregar cuenta/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Configuración" })).toBeTruthy();
+  });
+});
+
 describe("FolderSidebar", () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" });
     vi.mocked(svc.ListFolders).mockResolvedValue([inbox(3, 7, 0)]);
   });
 
@@ -89,7 +109,7 @@ describe("FolderSidebar", () => {
   });
 
   it("con la bandeja unificada muestra Todas las cuentas y suma los no leídos de las Entradas", async () => {
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" });
     vi.mocked(svc.ListFolders).mockImplementation(((id: number) =>
       Promise.resolve(id === 7 ? [inbox(3, 7, 2)] : [inbox(4, 8, 5)])) as never);
     const selectView = vi.fn();
@@ -136,7 +156,7 @@ describe("FolderSidebar", () => {
   });
 
   it("con la unificada y sin estado guardado, las secciones arrancan plegadas", async () => {
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" });
     vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
     renderSidebar([account]);
     expect(await screen.findByText("Todas las cuentas")).toBeTruthy();
@@ -146,7 +166,7 @@ describe("FolderSidebar", () => {
   });
 
   it("con la unificada, una sección expandida a mano (pc:expanded) arranca abierta", async () => {
-    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "" });
+    vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox: true, disableNotifications: false, disableSpellcheck: false, threadedList: false, readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "" });
     localStorage.setItem("pc:expanded", JSON.stringify([7]));
     vi.mocked(svc.ListFolders).mockResolvedValue([proyectos]);
     renderSidebar([account]);
@@ -190,8 +210,8 @@ describe("FolderSidebar", () => {
 
   it("al elegir una carpeta abre su vista y marca la activa", async () => {
     vi.mocked(svc.ListFolders).mockResolvedValueOnce([
-      { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true, position: 0 },
-      { id: 4, accountId: 7, name: "Sent", delimiter: "/", role: "sent", unread: 0, total: 0, selectable: true, position: 0 },
+      { id: 3, accountId: 7, name: "INBOX", delimiter: "/", role: "inbox", unread: 0, total: 0, selectable: true, position: 0, color: "" },
+      { id: 4, accountId: 7, name: "Sent", delimiter: "/", role: "sent", unread: 0, total: 0, selectable: true, position: 0, color: "" },
     ]);
     const user = userEvent.setup();
     const selectView = vi.fn();
@@ -314,7 +334,7 @@ describe("FolderSidebar", () => {
 
   describe("arrastrar carpetas", () => {
     const folder = (id: number, name: string, position = 0) =>
-      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position }) as const;
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position, color: "" }) as const;
     const TOP = 2, MID = 20, BOT = 38;
 
     beforeEach(() => {
@@ -541,7 +561,7 @@ describe("FolderSidebar", () => {
 
   describe("gestión de carpetas", () => {
     const folder = (id: number, name: string, position = 0) =>
-      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position }) as const;
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread: 0, total: 0, selectable: true, position, color: "" }) as const;
 
     beforeAll(() => {
       // Radix pide estas APIs y jsdom no las trae.
@@ -586,6 +606,37 @@ describe("FolderSidebar", () => {
       await user.type(screen.getByLabelText("Nombre"), "Beta");
       await user.click(screen.getByRole("button", { name: "Crear" }));
       await waitFor(() => expect(svc.CreateFolder).toHaveBeenCalledWith(7, 10, "Beta"));
+    });
+
+    it("el ícono de una carpeta con color usa ese color", async () => {
+      vi.mocked(svc.ListFolders).mockResolvedValue([
+        inbox(3, 7, 0),
+        { ...folder(12, "Zeta"), color: "#2563eb" },
+      ] as never);
+      renderSidebar([account]);
+      const row = await screen.findByRole("button", { name: "Zeta" });
+      const icon = row.querySelector<HTMLElement>("[data-slot=folder-icon]")!;
+      expect(icon.style.color).toBe("rgb(37, 99, 235)");
+      const inboxIcon = screen
+        .getByRole("button", { name: "Entrada" })
+        .querySelector<HTMLElement>("[data-slot=folder-icon]")!;
+      expect(inboxIcon.style.color).toBe("");
+    });
+
+    it("Color en el menú contextual guarda el color elegido o lo saca", async () => {
+      const user = userEvent.setup();
+      renderSidebar([account]);
+      await menuOf("Zeta");
+      await user.click(screen.getByRole("menuitem", { name: "Color" }));
+      // En jsdom el submenú se cierra al mover el puntero hacia él: se elige con el teclado.
+      (await screen.findByRole("menuitem", { name: "#16a34a" })).focus();
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(svc.SetFolderColor).toHaveBeenCalledWith(12, "#16a34a"));
+      await menuOf("Zeta");
+      await user.click(screen.getByRole("menuitem", { name: "Color" }));
+      (await screen.findByRole("menuitem", { name: "Sin color" })).focus();
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(svc.SetFolderColor).toHaveBeenCalledWith(12, ""));
     });
 
     it("Renombrar… viene con el nombre actual", async () => {
@@ -708,7 +759,7 @@ describe("FolderSidebar", () => {
 
   describe("plegar subcarpetas", () => {
     const folder = (id: number, name: string, unread = 0) =>
-      ({ id, accountId: 7, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0 }) as const;
+      ({ id, accountId: 7, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0, color: "" }) as const;
 
     beforeEach(() => {
       vi.mocked(svc.ListFolders).mockResolvedValue([

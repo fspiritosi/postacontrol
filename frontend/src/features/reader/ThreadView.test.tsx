@@ -32,7 +32,7 @@ const account: Account = {
 };
 
 function folder(id: number, name: string, role: string): Folder {
-  return { id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0 };
+  return { id, accountId: 7, name, delimiter: "/", role, unread: 0, total: 0, selectable: true, position: 0, color: "" };
 }
 const folders = [
   folder(3, "INBOX", "inbox"),

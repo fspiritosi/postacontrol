@@ -20,7 +20,7 @@ const f = (name: string, role = ""): Folder => ({
   role,
   unread: 0,
   total: 0,
-  selectable: true, position: 0,
+  selectable: true, position: 0, color: "",
 });
 
 describe("buildFolderTree", () => {
@@ -59,6 +59,13 @@ describe("buildFolderTree", () => {
     expect(a.label).toBe("A");
     expect(a.selectable).toBe(false);
     expect(a.children[0].label).toBe("B");
+  });
+
+  it("copia el color de cada carpeta; los padres sintetizados van sin color", () => {
+    const tree = buildFolderTree([f("INBOX", "inbox"), { ...f("INBOX.A.B"), color: "#2563eb" }]);
+    const a = tree[0].children[0];
+    expect(a.color).toBe("");
+    expect(a.children[0].color).toBe("#2563eb");
   });
 });
 
@@ -163,7 +170,7 @@ describe("isFirstLevel", () => {
 describe("subtreeUnread", () => {
   it("suma los no leídos del nodo y de todo lo que cuelga de él", () => {
     const f = (id: number, name: string, unread: number) =>
-      ({ id, accountId: 1, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0 }) as Folder;
+      ({ id, accountId: 1, name, delimiter: "/", role: "", unread, total: 0, selectable: true, position: 0, color: "" }) as Folder;
     const [a] = buildFolderTree([f(1, "A", 1), f(2, "A/B", 2), f(3, "A/B/C", 4)]);
     expect(subtreeUnread(a)).toBe(7);
     expect(subtreeUnread(a.children[0].children[0])).toBe(4);
