@@ -11,8 +11,8 @@ vi.mock("@wailsio/runtime", () => ({
     },
   },
 }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
-vi.mock("../../bindings/postacontrol/app/mailservice", () => ({ SyncFolder: vi.fn() }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
+vi.mock("../../bindings/postacontrol/app/mailservice", () => ({ SyncFolder: vi.fn(), ConnectTaskapp: vi.fn() }));
 
 import { toast } from "sonner";
 import * as svc from "../../bindings/postacontrol/app/mailservice";
@@ -20,6 +20,7 @@ import {
   PROGRESS_REFRESH_MS,
   SEARCH_REFRESH_MS,
   onOpenMessage,
+  onOpenTask,
   onPasswordRequest,
   onSettingsRequest,
   requestSettings,
@@ -65,6 +66,39 @@ describe("useMailEvents", () => {
     off();
     emit("app:open-message", { folderId: 4, messageId: 0 });
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("app:open-task llega a onOpenTask", () => {
+    const cb = vi.fn();
+    const off = onOpenTask(cb);
+    emit("app:open-task", { taskId: 7 });
+    expect(cb).toHaveBeenCalledWith({ taskId: 7 });
+    off();
+  });
+
+  it("recarga las tareas locales y las de Taskapp cuando cambian", () => {
+    emit("mail:tasks-changed", null);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["local-tasks"] });
+    emit("mail:taskapp-changed", null);
+    for (const k of ["taskapp-tasks", "taskapp-status", "task-links"]) {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: [k] });
+    }
+  });
+
+  it("mail:taskapp-auth deja un aviso fijo con Reconectar", async () => {
+    vi.mocked(svc.ConnectTaskapp).mockResolvedValue({ connected: true, userName: "A", userEmail: "a@b.c" });
+    emit("mail:taskapp-auth", null);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["taskapp-status"] });
+    expect(toast.error).toHaveBeenCalledWith(
+      "Taskapp rechazó la conexión.",
+      expect.objectContaining({ id: "taskapp-auth", duration: Infinity }),
+    );
+    const opts = vi.mocked(toast.error).mock.lastCall![1] as { action: { label: string; onClick: () => void } };
+    expect(opts.action.label).toBe("Reconectar");
+    opts.action.onClick();
+    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Conectado con Taskapp."));
+    expect(svc.ConnectTaskapp).toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["task-links"] });
   });
 
   it("recarga la bandeja de salida cuando cambia", () => {

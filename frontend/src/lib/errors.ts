@@ -23,3 +23,12 @@ export const NOT_FOUND_MESSAGE = "No encontramos lo que buscabas.";
 export function isNotFoundError(e: unknown): boolean {
   return errorMessage(e) === NOT_FOUND_MESSAGE;
 }
+
+// Contrato con Go: msgTaskappOrphan (la tarea se creó en Taskapp pero no se
+// guardó el vínculo) y msgTaskappUncertain (no se sabe si se creó) de
+// core/mail/taskapp_create.go; lo cubre un test allá.
+export const ORPHAN_MESSAGE_FRAGMENT = "no la vuelvas a crear";
+
+export function isOrphanError(e: unknown): boolean {
+  return errorMessage(e).includes(ORPHAN_MESSAGE_FRAGMENT);
+}

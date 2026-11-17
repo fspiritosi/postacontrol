@@ -1,7 +1,9 @@
 package app
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"postacontrol/core/model"
 )
@@ -198,5 +200,41 @@ func TestNotificationMessageAction(t *testing.T) {
 		if got != c.want || id != c.id {
 			t.Fatalf("%s %v: got %q %d", c.action, c.data, got, id)
 		}
+	}
+}
+
+func TestTaskReminderNotification_Fields(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 11, 16, 8, 0, 0, 0, loc)
+
+	hoy := TaskReminderNotification(model.TaskReminder{TaskID: 7, Title: "Llamar", At: time.Date(2026, 11, 16, 10, 0, 0, 0, loc)}, now, loc)
+	if hoy.ID != "task-reminder-7" || hoy.Title != "Recordatorio: Llamar" || hoy.Body != "Hoy a las 10:00" {
+		t.Errorf("hoy: %+v", hoy)
+	}
+	if hoy.Data["kind"] != "task-reminder" || hoy.Data["taskId"] != int64(7) {
+		t.Errorf("data: %+v", hoy.Data)
+	}
+
+	otro := TaskReminderNotification(model.TaskReminder{TaskID: 7, Title: "x", At: time.Date(2026, 11, 19, 9, 5, 0, 0, loc)}, now, loc)
+	if otro.Body != "Jue 19/11 a las 09:05" {
+		t.Errorf("otro día: %q", otro.Body)
+	}
+}
+
+func TestTaskReminderNotification_EscapesBody(t *testing.T) {
+	// El día abreviado nunca trae markup, pero el cuerpo pasa por escapeBody;
+	// el título se muestra tal cual.
+	n := TaskReminderNotification(model.TaskReminder{TaskID: 1, Title: "a <b> & c", At: time.Now()}, time.Now(), time.Local)
+	if n.Title != "Recordatorio: a <b> & c" {
+		t.Errorf("título: %q", n.Title)
+	}
+	if strings.ContainsAny(n.Body, "<>&") {
+		t.Errorf("cuerpo sin escapar: %q", n.Body)
+	}
+}
+
+func TestNotificationOpensMessage_TaskReminderFalse(t *testing.T) {
+	if notificationOpensMessage(map[string]interface{}{"kind": "task-reminder"}) {
+		t.Error("el aviso de tarea no abre un mensaje")
 	}
 }

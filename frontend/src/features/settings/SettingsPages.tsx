@@ -16,6 +16,7 @@ import { errorMessage } from "@/lib/errors";
 import { useBackground, useImageSenders, useSettings } from "@/lib/queries";
 import { readingPane, saveSettings, type ReadingPane } from "@/lib/settings";
 import type { Settings } from "../../../bindings/postacontrol/core/model/models";
+import { REMINDER_OPTIONS } from "@/lib/tasks";
 import { themePref, type ThemePref } from "@/lib/theme";
 import { SignaturesSection } from "./SignaturesSection";
 import { TemplatesSection } from "./TemplatesSection";
@@ -41,7 +42,7 @@ export function PageHeader({ id, title, description, children }: {
 }
 
 // Una opción: nombre y explicación a la izquierda, el control a la derecha.
-function SettingRow({ htmlFor, label, description, children }: {
+export function SettingRow({ htmlFor, label, description, children }: {
   htmlFor?: string;
   label: string;
   description: string;
@@ -59,14 +60,17 @@ function SettingRow({ htmlFor, label, description, children }: {
 }
 
 // Guarda al instante, sin botón Guardar.
-function useSaveSetting() {
+export function useSaveSetting() {
   const queryClient = useQueryClient();
   const settings = useSettings();
-  const save = async (patch: Partial<Settings>) => {
+  // Devuelve si se guardó; si falla, ya avisó.
+  const save = async (patch: Partial<Settings>): Promise<boolean> => {
     try {
       await saveSettings(queryClient, settings.data, patch);
+      return true;
     } catch (e) {
       toast.error(errorMessage(e));
+      return false;
     }
   };
   return { settings, save };
@@ -133,6 +137,28 @@ export function GeneralPage() {
             disabled={settings.isPending}
             onCheckedChange={(v) => void save({ disableNotifications: !v })}
           />
+        </SettingRow>
+        <SettingRow
+          htmlFor="task-reminder"
+          label="Aviso de tareas por defecto"
+          description="Cuánto antes del vencimiento avisa una tarea nueva."
+        >
+          <Select
+            value={String(settings.data?.taskReminderMinutes ?? 15)}
+            disabled={settings.isPending}
+            onValueChange={(v) => void save({ taskReminderMinutes: Number(v) })}
+          >
+            <SelectTrigger id="task-reminder" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {REMINDER_OPTIONS.map((o) => (
+                <SelectItem key={o.minutes} value={String(o.minutes)}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
         <SettingRow
           htmlFor="start-at-login"

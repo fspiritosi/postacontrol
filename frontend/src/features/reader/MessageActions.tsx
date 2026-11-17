@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { AlarmClockIcon, ArchiveIcon, DownloadIcon, EllipsisIcon, FileCodeIcon, PrinterIcon, FilterIcon, FolderInputIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
+import { AlarmClockIcon, ArchiveIcon, DownloadIcon, EllipsisIcon, FileCodeIcon, PrinterIcon, FilterIcon, FolderInputIcon, ListPlusIcon, MailIcon, PencilIcon, StarIcon, TagIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -41,9 +41,10 @@ import { useComposer } from "../compose/ComposerContext";
 type Props = {
   message: MessageDetail;
   selectMessage: (id: number | null) => void;
+  onCreateTask?: () => void;
 };
 
-export function MessageActions({ message, selectMessage }: Props) {
+export function MessageActions({ message, selectMessage, onCreateTask }: Props) {
   const queryClient = useQueryClient();
   const composer = useComposer();
   const folders = useFolders(message.accountId).data ?? [];
@@ -158,6 +159,12 @@ export function MessageActions({ message, selectMessage }: Props) {
             <MailIcon /> Marcar como no leído
             <DropdownMenuShortcut>U</DropdownMenuShortcut>
           </DropdownMenuItem>
+          {onCreateTask && (
+            <DropdownMenuItem onSelect={onCreateTask}>
+              <ListPlusIcon /> Crear tarea
+              <DropdownMenuShortcut>T</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <TagIcon /> Etiquetas

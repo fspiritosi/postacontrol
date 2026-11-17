@@ -83,6 +83,43 @@ export function useContactForEmail(email: string) {
   });
 }
 
+// Tareas locales. Con includeDone también vienen las hechas.
+export function useLocalTasks(includeDone: boolean) {
+  return useQuery({
+    queryKey: ["local-tasks", includeDone],
+    queryFn: async () => (await svc.ListLocalTasks(includeDone)) ?? [],
+  });
+}
+
+export const TASKAPP_REFRESH_MS = 5 * 60_000;
+
+// Pendientes de Taskapp. El intervalo solo corre mientras el componente que la
+// usa está montado (la vista de Tareas).
+export function useTaskappTasks(enabled = true) {
+  return useQuery({
+    queryKey: ["taskapp-tasks"],
+    queryFn: () => svc.ListTaskappTasks(),
+    enabled,
+    refetchInterval: TASKAPP_REFRESH_MS,
+  });
+}
+
+export function useTaskappStatus() {
+  return useQuery({
+    queryKey: ["taskapp-status"],
+    queryFn: () => svc.TaskappStatus(),
+  });
+}
+
+// Las tareas de Taskapp a las que está vinculado el hilo de este correo.
+export function useTaskLinks(messageId: number | null) {
+  return useQuery({
+    queryKey: ["task-links", messageId],
+    queryFn: async () => (await svc.TaskLinksForMessage(messageId!)) ?? [],
+    enabled: messageId != null,
+  });
+}
+
 export function useFolders(accountId: number | null) {
   return useQuery({
     queryKey: ["folders", accountId],

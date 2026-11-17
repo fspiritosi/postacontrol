@@ -53,20 +53,25 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : `${n} 
 //   s           destacar o quitar destacado
 //   u           marcar como no leído
 //   z           deshacer lo último que se movió
+//   t           crear una tarea desde el correo abierto
 //   n           redactar
 //   /           buscar
 //   ?           esta ayuda
 //
 // Actúan sobre lo marcado y, si no hay nada marcado, sobre lo abierto. No
 // valen escribiendo, con un diálogo o un menú abierto, ni con Ctrl/Alt.
-export function useMailKeys(state: ShellState, composeAccountId: number | undefined) {
+export function useMailKeys(
+  state: ShellState,
+  composeAccountId: number | undefined,
+  onCreateTask?: (messageId: number) => void,
+) {
   const queryClient = useQueryClient();
   const composer = useComposer();
   const [helpOpen, setHelpOpen] = useState(false);
   // El oyente se registra una vez y lee siempre lo último.
-  const latest = useRef({ state, composeAccountId, composer });
+  const latest = useRef({ state, composeAccountId, composer, onCreateTask });
   useEffect(() => {
-    latest.current = { state, composeAccountId, composer };
+    latest.current = { state, composeAccountId, composer, onCreateTask };
   });
 
   useEffect(() => {
@@ -116,7 +121,7 @@ export function useMailKeys(state: ShellState, composeAccountId: number | undefi
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (!shortcutKey(e)) return;
-      const { state: s, composeAccountId: accountId, composer: c } = latest.current;
+      const { state: s, composeAccountId: accountId, composer: c, onCreateTask: createTask } = latest.current;
       const key = e.key;
       const mailView = s.view?.kind === "folder" || s.view?.kind === "unified";
 
@@ -167,6 +172,14 @@ export function useMailKeys(state: ShellState, composeAccountId: number | undefi
         if (id == null) return;
         e.preventDefault();
         void c.openFrom(id, replyMode).catch((err: unknown) => toast.error(errorMessage(err)));
+        return;
+      }
+
+      if (key === "t" && !e.shiftKey) {
+        const id = s.messageId ?? (s.threadRoot != null ? latestOfThread(queryClient, s.threadRoot) : null);
+        if (id == null || !createTask) return;
+        e.preventDefault();
+        createTask(id);
         return;
       }
 

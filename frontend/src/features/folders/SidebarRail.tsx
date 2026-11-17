@@ -1,4 +1,4 @@
-import { ClockArrowUpIcon, InboxIcon, SettingsIcon, StarIcon, UsersIcon } from "lucide-react";
+import { CheckSquareIcon, ClockArrowUpIcon, InboxIcon, SettingsIcon, StarIcon, UsersIcon } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -167,6 +167,13 @@ export function SidebarRail({
           onClick={() => state.selectView({ kind: "contacts" })}
         >
           <UsersIcon />
+        </RailButton>
+        <RailButton
+          label="Tareas"
+          active={v?.kind === "tasks"}
+          onClick={() => state.selectView({ kind: "tasks" })}
+        >
+          <CheckSquareIcon />
         </RailButton>
       </nav>
       <div className="border-t p-2">

@@ -49,6 +49,9 @@ export function useFolderSyncing(folderId: number | null): boolean {
   );
 }
 
+// Lo que depende de la conexión con Taskapp.
+export const TASKAPP_KEYS = ["taskapp-status", "taskapp-tasks", "task-links"];
+
 const REJECTED_CREDENTIALS = "El servidor rechazó el usuario o la contraseña.";
 
 // Emisor simple de módulo: el toast vive fuera del árbol de la barra lateral,
@@ -68,7 +71,7 @@ export function requestPassword(accountId: number): void {
 
 // Pedido de abrir Configuración, opcionalmente en una sección. Lo escucha la
 // barra lateral, que es quien tiene el diálogo.
-export type SettingsSection = "general" | "reading" | "compose" | "accounts" | "labels" | "rules" | "backup";
+export type SettingsSection = "general" | "reading" | "compose" | "accounts" | "labels" | "rules" | "backup" | "taskapp";
 const settingsListeners = new Set<(section?: SettingsSection) => void>();
 
 export function onSettingsRequest(cb: (section?: SettingsSection) => void): () => void {
@@ -116,6 +119,21 @@ export function onOpenMessage(cb: (r: OpenMessageRequest) => void): () => void {
 
 export function requestOpenMessage(r: OpenMessageRequest): void {
   openListeners.forEach((l) => l(r));
+}
+
+// Pedido de abrir una tarea local (al tocar su aviso). Lo escucha MailShell.
+export type OpenTaskRequest = { taskId: number };
+const openTaskListeners = new Set<(r: OpenTaskRequest) => void>();
+
+export function onOpenTask(cb: (r: OpenTaskRequest) => void): () => void {
+  openTaskListeners.add(cb);
+  return () => {
+    openTaskListeners.delete(cb);
+  };
+}
+
+export function requestOpenTask(r: OpenTaskRequest): void {
+  openTaskListeners.forEach((l) => l(r));
 }
 
 // Archivos soltados sobre el redactor (ya preparados por Go) o el motivo por
@@ -328,6 +346,36 @@ export function useMailEvents(queryClient: QueryClient): void {
       // vez en App; así hay un único Events.On aunque MailShell se remonte.
       Events.On("app:open-message", (ev) => {
         requestOpenMessage(ev.data as OpenMessageRequest);
+      }),
+      Events.On("app:open-task", (ev) => {
+        requestOpenTask(ev.data as OpenTaskRequest);
+      }),
+      Events.On("mail:tasks-changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["local-tasks"] });
+      }),
+      Events.On("mail:taskapp-changed", () => {
+        for (const key of ["taskapp-tasks", "taskapp-status", "task-links"]) {
+          void queryClient.invalidateQueries({ queryKey: [key] });
+        }
+      }),
+      Events.On("mail:taskapp-auth", () => {
+        void queryClient.invalidateQueries({ queryKey: ["taskapp-status"] });
+        toast.error("Taskapp rechazó la conexión.", {
+          id: "taskapp-auth",
+          duration: Infinity,
+          action: {
+            label: "Reconectar",
+            onClick: () => {
+              svc
+                .ConnectTaskapp()
+                .then(() => {
+                  for (const key of TASKAPP_KEYS) void queryClient.invalidateQueries({ queryKey: [key] });
+                  toast.success("Conectado con Taskapp.");
+                })
+                .catch((e) => toast.error(errorMessage(e)));
+            },
+          },
+        });
       }),
       Events.On("mail:outbox-updated", () => {
         void queryClient.invalidateQueries({ queryKey: ["drafts"] });

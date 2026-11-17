@@ -23,6 +23,10 @@ export function AddAccount($in: model$0.AccountInput): $CancellablePromise<model
     return $Call.ByID(1220864989, $in);
 }
 
+export function AddMessageToTask(linkID: number, messageID: number): $CancellablePromise<void> {
+    return $Call.ByID(1314666829, linkID, messageID);
+}
+
 /**
  * AddSenderToContacts crea la ficha del remitente o devuelve la que ya tiene.
  */
@@ -121,6 +125,14 @@ export function ComposeSendStarted(draftID: number): $CancellablePromise<void> {
 }
 
 /**
+ * ConnectTaskapp abre el navegador para autorizar la app y espera el permiso.
+ * Si el usuario cancela, el error es "taskapp-cancelled".
+ */
+export function ConnectTaskapp(): $CancellablePromise<model$0.TaskappStatus> {
+    return $Call.ByID(2275728649);
+}
+
+/**
  * ContactForEmail devuelve la ficha dueña del correo, o nil si nadie lo tiene.
  */
 export function ContactForEmail(email: string): $CancellablePromise<model$0.Contact | null> {
@@ -136,6 +148,14 @@ export function CreateFolder(accountID: number, parentFolderID: number, name: st
 
 export function CreateLabel(name: string, color: string): $CancellablePromise<model$0.Label> {
     return $Call.ByID(837288471, name, color);
+}
+
+export function CreateLocalTaskFrom(messageID: number): $CancellablePromise<model$0.LocalTask> {
+    return $Call.ByID(3586373711, messageID);
+}
+
+export function CreateTaskappItem(req: model$0.TaskappCreate): $CancellablePromise<model$0.TaskLink> {
+    return $Call.ByID(1608058830, req);
 }
 
 export function DeleteContact(id: number): $CancellablePromise<void> {
@@ -173,6 +193,10 @@ export function DeleteLocalDraft(id: number): $CancellablePromise<void> {
     return $Call.ByID(1825177514, id);
 }
 
+export function DeleteLocalTask(id: number): $CancellablePromise<void> {
+    return $Call.ByID(1299437654, id);
+}
+
 /**
  * DeleteMessages manda los mensajes a la Papelera (los que ya estaban ahí se
  * borran definitivamente) y devuelve con qué deshacer lo que fue a la Papelera.
@@ -200,6 +224,10 @@ export function DetectSettings(email: string): $CancellablePromise<autoconfig$0.
     return $Call.ByID(1057426541, email);
 }
 
+export function DisconnectTaskapp(): $CancellablePromise<void> {
+    return $Call.ByID(2501104247);
+}
+
 /**
  * EmptyTrash borra definitivamente todos los correos de la Papelera y
  * devuelve cuántos borró.
@@ -214,6 +242,10 @@ export function EmptyTrash(folderID: number): $CancellablePromise<number> {
  */
 export function ExportBackup(): $CancellablePromise<boolean> {
     return $Call.ByID(2962194959);
+}
+
+export function FindMessageByHeader(headerID: string): $CancellablePromise<model$0.MessageSummary> {
+    return $Call.ByID(2445866839, headerID);
 }
 
 export function GetContact(id: number): $CancellablePromise<model$0.Contact> {
@@ -285,6 +317,10 @@ export function ListLocalDrafts(): $CancellablePromise<model$0.LocalDraft[] | nu
     return $Call.ByID(3910714378);
 }
 
+export function ListLocalTasks(includeDone: boolean): $CancellablePromise<model$0.LocalTask[] | null> {
+    return $Call.ByID(3005876416, includeDone);
+}
+
 export function ListMessages(folderID: number, q: model$0.ListQuery): $CancellablePromise<model$0.MessageSummary[] | null> {
     return $Call.ByID(3544686215, folderID, q);
 }
@@ -305,6 +341,10 @@ export function ListRules(accountID: number): $CancellablePromise<model$0.Rule[]
 
 export function ListSignatures(): $CancellablePromise<model$0.Signature[] | null> {
     return $Call.ByID(2055430592);
+}
+
+export function ListTaskappTasks(): $CancellablePromise<model$0.TaskappList> {
+    return $Call.ByID(3908784277);
 }
 
 /**
@@ -386,6 +426,14 @@ export function OpenMailtoArgs(args: string[] | null): $CancellablePromise<void>
 }
 
 /**
+ * OpenTaskInTaskapp abre en el navegador una tarea de Taskapp. Solo acepta
+ * enlaces de la web de Taskapp configurada.
+ */
+export function OpenTaskInTaskapp(link: string): $CancellablePromise<void> {
+    return $Call.ByID(1564947151, link);
+}
+
+/**
  * PickAttachments abre el diálogo nativo para elegir archivos a adjuntar y los
  * deja preparados. Devuelve una lista vacía (sin error) si se cancela.
  */
@@ -457,6 +505,10 @@ export function ReorderRules(accountID: number, ids: number[] | null): $Cancella
     return $Call.ByID(2477328953, accountID, ids);
 }
 
+export function RetryTaskLinkAttachment(linkID: number): $CancellablePromise<model$0.TaskLink> {
+    return $Call.ByID(131409603, linkID);
+}
+
 /**
  * RunAutoBackupNow guarda ya una copia en la carpeta del respaldo automático.
  */
@@ -489,6 +541,10 @@ export function SaveContact(c: model$0.Contact): $CancellablePromise<model$0.Con
  */
 export function SaveDraft(id: number, req: model$0.SendRequest): $CancellablePromise<model$0.Draft> {
     return $Call.ByID(1483319153, id, req);
+}
+
+export function SaveLocalTask(t: model$0.LocalTask): $CancellablePromise<model$0.LocalTask> {
+    return $Call.ByID(2795130728, t);
 }
 
 /**
@@ -569,6 +625,10 @@ export function SetLabel(ids: number[] | null, labelID: number, on: boolean): $C
     return $Call.ByID(2294959173, ids, labelID, on);
 }
 
+export function SetLocalTaskDone(id: number, done: boolean): $CancellablePromise<void> {
+    return $Call.ByID(635154465, id, done);
+}
+
 /**
  * SetSaveSentCopy cambia si se guarda la copia de lo enviado en Enviados.
  */
@@ -639,6 +699,22 @@ export function SyncFolder(folderID: number): $CancellablePromise<void> {
 
 export function SyncUnified(view: model$0.UnifiedView): $CancellablePromise<void> {
     return $Call.ByID(2019396610, view);
+}
+
+export function TaskLinksForMessage(messageID: number): $CancellablePromise<model$0.TaskLink[] | null> {
+    return $Call.ByID(3561831169, messageID);
+}
+
+export function TaskappDraftFor(messageID: number): $CancellablePromise<model$0.TaskappDraft> {
+    return $Call.ByID(1594410179, messageID);
+}
+
+export function TaskappProjects(): $CancellablePromise<model$0.TaskappProject[] | null> {
+    return $Call.ByID(2355920535);
+}
+
+export function TaskappStatus(): $CancellablePromise<model$0.TaskappStatus> {
+    return $Call.ByID(3346678991);
 }
 
 export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void> {

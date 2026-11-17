@@ -97,6 +97,12 @@ export interface BackupImport {
      */
     "templatesAdded": number;
     "templatesSkipped": number;
+
+    /**
+     * Tareas locales (las de mismo título, fecha y hora se saltean).
+     */
+    "tasksAdded": number;
+    "tasksSkipped": number;
 }
 
 export interface ComposeDraft {
@@ -227,6 +233,38 @@ export interface LocalDraft {
      */
     "status": string;
     "error": string;
+}
+
+/**
+ * LocalTask es una tarea propia de Postacontrol (no vive en Taskapp).
+ */
+export interface LocalTask {
+    "id": number;
+    "title": string;
+    "notes": string;
+
+    /**
+     * "AAAA-MM-DD" o ""
+     */
+    "dueDate": string;
+
+    /**
+     * "HH:MM" o ""; solo con DueDate
+     */
+    "dueTime": string;
+
+    /**
+     * minutos; nil = el de Configuración
+     */
+    "remindBefore": number | null;
+
+    /**
+     * Message-ID del correo de origen o ""
+     */
+    "sourceMessageId": string;
+    "sourceSubject": string;
+    "doneAt": string | null;
+    "createdAt": string;
 }
 
 export interface MessageDetail {
@@ -529,6 +567,19 @@ export interface Settings {
      * (configuración vieja) se lee como "system".
      */
     "theme": string;
+
+    /**
+     * TaskReminderMinutes es la anticipación por defecto del aviso de una
+     * tarea con hora; nil = 15.
+     */
+    "taskReminderMinutes": number | null;
+
+    /**
+     * TaskappAPIURL y TaskappWebURL son las direcciones de Taskapp; vacías =
+     * las de producción.
+     */
+    "taskappApiUrl": string;
+    "taskappWebUrl": string;
 }
 
 /**
@@ -583,6 +634,127 @@ export interface Suggestion {
      * 0 = no es contacto
      */
     "contactId": number;
+}
+
+/**
+ * TaskLink vincula un hilo de correo con una tarea o ticket de Taskapp.
+ */
+export interface TaskLink {
+    "id": number;
+    "threadRoot": string;
+    "taskId": number;
+    "ticket": boolean;
+    "projectName": string;
+    "title": string;
+
+    /**
+     * la tarea existe pero el .eml no se adjuntó
+     */
+    "attachPending": boolean;
+    "createdAt": string;
+
+    /**
+     * Los completa core/mail, no el store:
+     */
+    "url": string;
+
+    /**
+     * el correo consultado ya se sumó
+     */
+    "alreadyAdded": boolean;
+    "completed": boolean;
+
+    /**
+     * false = no se pudo preguntar a Taskapp
+     */
+    "stateKnown": boolean;
+}
+
+/**
+ * TaskappCreate es el pedido de crear una tarea o ticket desde un correo.
+ */
+export interface TaskappCreate {
+    "messageId": number;
+    "ticket": boolean;
+    "projectId": number;
+    "title": string;
+    "descriptionHtml": string;
+
+    /**
+     * none|low|medium|high|urgent
+     */
+    "priority": string;
+
+    /**
+     * solo tarea
+     */
+    "dueDate": string;
+}
+
+/**
+ * TaskappDraft es lo que se propone al crear una tarea o ticket desde un correo.
+ */
+export interface TaskappDraft {
+    "messageId": number;
+    "title": string;
+    "descriptionHtml": string;
+
+    /**
+     * 0 = sin sugerencia
+     */
+    "projectId": number;
+
+    /**
+     * el .eml no entra en MaxUpload: se adjunta sin adjuntos
+     */
+    "oversize": boolean;
+}
+
+/**
+ * TaskappList es la lista de pendientes; Stale indica que viene de la caché
+ * porque Taskapp no respondió (Error dice por qué). Tasks nunca es nil.
+ */
+export interface TaskappList {
+    "tasks": TaskappTask[] | null;
+    "fetchedAt": string;
+    "stale": boolean;
+    "error": string;
+}
+
+/**
+ * TaskappProject es un proyecto activo de Taskapp.
+ */
+export interface TaskappProject {
+    "id": number;
+    "workspaceId": number;
+    "name": string;
+    "color": string;
+}
+
+/**
+ * TaskappStatus dice si hay una cuenta de Taskapp conectada y de quién.
+ */
+export interface TaskappStatus {
+    "connected": boolean;
+    "userName": string;
+    "userEmail": string;
+}
+
+/**
+ * TaskappTask es una tarea o ticket pendiente asignado al usuario.
+ */
+export interface TaskappTask {
+    "id": number;
+    "ticket": boolean;
+    "title": string;
+    "priority": string;
+    "dueDate": string;
+    "statusName": string;
+    "projectId": number;
+    "projectName": string;
+    "projectColor": string;
+    "url": string;
+    "description": string;
 }
 
 /**

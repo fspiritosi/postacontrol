@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readingPane } from "./settings";
 
-const base = { unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "", threadedList: false, background: "" };
+const base = { unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "", threadedList: false, background: "" };
 
 describe("readingPane", () => {
   it("sin configuración o con valor vacío, abajo", () => {

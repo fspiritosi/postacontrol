@@ -17,6 +17,7 @@ import (
 	"postacontrol/core/model"
 	"postacontrol/core/secrets"
 	"postacontrol/core/store"
+	"postacontrol/core/taskapp"
 )
 
 // Notifier recibe los eventos del núcleo (la cáscara los traduce a eventos de Wails).
@@ -44,6 +45,8 @@ type Config struct {
 	// UndoSendDelay es cuánto espera un correo en la bandeja de salida antes
 	// de salir, para poder deshacer el envío (CancelSend). 0 = sale enseguida.
 	UndoSendDelay time.Duration
+	// TaskappHTTP es el cliente de la API de Taskapp (nil = uno con timeout de 20 s).
+	TaskappHTTP *http.Client
 }
 
 type Core struct {
@@ -149,6 +152,27 @@ type Core struct {
 	indexHook    func(messageID int64, err error)
 	indexStarted bool
 	indexRunning int
+
+	// Taskapp (taskapp.go): taskappMu protege la caché en memoria del usuario
+	// y los proyectos, connectCancel (la conexión en curso, si hay) y
+	// taskappAuthFailed: Taskapp rechazó el token guardado y, hasta reconectar
+	// o desconectar, no se le vuelve a pedir nada.
+	taskappMu         sync.Mutex
+	taskappMe         *taskapp.User
+	taskappProjs      []taskapp.Project
+	taskappProjAt     time.Time
+	connectCancel     context.CancelFunc
+	connectSeq        int
+	taskappAuthFailed bool
+
+	// inflight: operaciones de Taskapp en curso (taskapp_create.go), para no
+	// repetir un pedido que ya está andando. addLinkHook y afterCommentHook
+	// son solo para tests: si addLinkHook devuelve error, el vínculo no se
+	// guarda; afterCommentHook corre apenas Taskapp aceptó el comentario.
+	inflightMu       sync.Mutex
+	inflight         map[string]struct{}
+	addLinkHook      func() error
+	afterCommentHook func()
 }
 
 func New(cfg Config) (*Core, error) {
@@ -204,6 +228,19 @@ func (c *Core) spawn(fn func(ctx context.Context)) bool {
 		fn(c.ctx)
 	}()
 	return true
+}
+
+// hold registra una operación en curso que Close tiene que esperar antes de
+// cerrar el store (como spawn, pero en la goroutine de quien llama). Después
+// de Close devuelve ok=false y no registra nada.
+func (c *Core) hold() (done func(), ok bool) {
+	c.lifeMu.Lock()
+	defer c.lifeMu.Unlock()
+	if c.closed {
+		return nil, false
+	}
+	c.wg.Add(1)
+	return c.wg.Done, true
 }
 
 // emit avisa por Notifier. Ver la advertencia de Notifier: se puede llamar con

@@ -1,4 +1,4 @@
-import { ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon, UsersIcon } from "lucide-react";
+import { CheckSquareIcon, ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon, UsersIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,27 @@ function ContactsRow({ state }: { state: ShellState }) {
         <UsersIcon />
       </span>
       <span className="min-w-0 flex-1 truncate">Contactos</span>
+    </button>
+  );
+}
+
+// Las tareas (locales y de Taskapp): debajo de Contactos.
+function TasksRow({ state }: { state: ShellState }) {
+  const active = state.view?.kind === "tasks";
+  return (
+    <button
+      type="button"
+      onClick={() => state.selectView({ kind: "tasks" })}
+      aria-current={active ? "true" : undefined}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
+        active && "bg-sidebar-accent font-medium",
+      )}
+    >
+      <span className="text-muted-foreground [&>svg]:size-4">
+        <CheckSquareIcon />
+      </span>
+      <span className="min-w-0 flex-1 truncate">Tareas</span>
     </button>
   );
 }
@@ -243,6 +264,7 @@ export function FolderSidebar({
           />
         ))}
         <ContactsRow state={state} />
+        <TasksRow state={state} />
       </nav>
       <div className="space-y-0.5 border-t p-2">
         <Button variant="ghost" className="w-full justify-start" onClick={() => setAddOpen(true)}>

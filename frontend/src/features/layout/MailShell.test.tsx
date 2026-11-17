@@ -50,7 +50,7 @@ const FOLDERS: Record<number, Folder[]> = {
 function setup(saved: View | null, unifiedInbox: boolean, readingPane = "", withSidebar = false) {
   if (saved) localStorage.setItem("pc:view", JSON.stringify(saved));
   vi.mocked(svc.ListFolders).mockImplementation((id: number) => Promise.resolve(FOLDERS[id]) as never);
-  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", theme: "", threadedList: false, readingPane, background: "" });
+  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "", threadedList: false, readingPane, background: "" });
   let current: ShellState | null = null;
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -190,6 +190,18 @@ describe("MailShell contactos", () => {
     expect(state().contactId).toBeNull();
     await waitFor(() => expect(svc.SyncFolder).toHaveBeenCalledWith(22));
     expect(vi.mocked(svc.SyncFolder)).toHaveBeenCalledTimes(2);
+  });
+
+  it("openTask pasa a Tareas con la tarea local abierta; selectView la cierra", async () => {
+    const { state } = setup({ kind: "folder", folderId: 21 }, false);
+    await waitFor(() => expect(svc.SyncFolder).toHaveBeenCalledWith(21));
+    act(() => state().openTask(9));
+    expect(shown()).toEqual({ kind: "tasks" });
+    expect(state().taskKey).toBe("l:9");
+    act(() => state().selectTask("t:3"));
+    expect(state().taskKey).toBe("t:3");
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().taskKey).toBeNull();
   });
 
   it("la libreta guardada vuelve al reabrir", async () => {

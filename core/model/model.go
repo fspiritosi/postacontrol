@@ -344,6 +344,52 @@ type Settings struct {
 	// Theme es el tema de la UI: "light", "dark" o "system". Vacío
 	// (configuración vieja) se lee como "system".
 	Theme string `json:"theme"`
+	// TaskReminderMinutes es la anticipación por defecto del aviso de una
+	// tarea con hora; nil = 15.
+	TaskReminderMinutes *int `json:"taskReminderMinutes"`
+	// TaskappAPIURL y TaskappWebURL son las direcciones de Taskapp; vacías =
+	// las de producción.
+	TaskappAPIURL string `json:"taskappApiUrl"`
+	TaskappWebURL string `json:"taskappWebUrl"`
+}
+
+// TaskappStatus dice si hay una cuenta de Taskapp conectada y de quién.
+type TaskappStatus struct {
+	Connected bool   `json:"connected"`
+	UserName  string `json:"userName"`
+	UserEmail string `json:"userEmail"`
+}
+
+// TaskappProject es un proyecto activo de Taskapp.
+type TaskappProject struct {
+	ID          int64  `json:"id"`
+	WorkspaceID int64  `json:"workspaceId"`
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+}
+
+// TaskappTask es una tarea o ticket pendiente asignado al usuario.
+type TaskappTask struct {
+	ID           int64  `json:"id"`
+	Ticket       bool   `json:"ticket"`
+	Title        string `json:"title"`
+	Priority     string `json:"priority"`
+	DueDate      string `json:"dueDate"`
+	StatusName   string `json:"statusName"`
+	ProjectID    int64  `json:"projectId"`
+	ProjectName  string `json:"projectName"`
+	ProjectColor string `json:"projectColor"`
+	URL          string `json:"url"`
+	Description  string `json:"description"`
+}
+
+// TaskappList es la lista de pendientes; Stale indica que viene de la caché
+// porque Taskapp no respondió (Error dice por qué). Tasks nunca es nil.
+type TaskappList struct {
+	Tasks     []TaskappTask `json:"tasks"`
+	FetchedAt time.Time     `json:"fetchedAt"`
+	Stale     bool          `json:"stale"`
+	Error     string        `json:"error"`
 }
 
 // Rule es una regla de una cuenta, como los filtros de Thunderbird: si un
@@ -409,6 +455,17 @@ type BackupImport struct {
 	// Plantillas del redactor (las de mismo nombre se saltean).
 	TemplatesAdded   int `json:"templatesAdded"`
 	TemplatesSkipped int `json:"templatesSkipped"`
+	// Tareas locales (las de mismo título, fecha y hora se saltean).
+	TasksAdded   int `json:"tasksAdded"`
+	TasksSkipped int `json:"tasksSkipped"`
+}
+
+// TaskReminder es el aviso de una tarea próxima; At es su fecha y hora, no el
+// momento del aviso.
+type TaskReminder struct {
+	TaskID int64     `json:"taskId"`
+	Title  string    `json:"title"`
+	At     time.Time `json:"at"`
 }
 
 // AutoBackupInfo es el estado del respaldo automático: la carpeta elegida
@@ -460,4 +517,55 @@ type Template struct {
 type MessageSource struct {
 	Text      string `json:"text"`
 	Truncated bool   `json:"truncated"`
+}
+
+// LocalTask es una tarea propia de Postacontrol (no vive en Taskapp).
+type LocalTask struct {
+	ID              int64      `json:"id"`
+	Title           string     `json:"title"`
+	Notes           string     `json:"notes"`
+	DueDate         string     `json:"dueDate"`         // "AAAA-MM-DD" o ""
+	DueTime         string     `json:"dueTime"`         // "HH:MM" o ""; solo con DueDate
+	RemindBefore    *int       `json:"remindBefore"`    // minutos; nil = el de Configuración
+	SourceMessageID string     `json:"sourceMessageId"` // Message-ID del correo de origen o ""
+	SourceSubject   string     `json:"sourceSubject"`
+	DoneAt          *time.Time `json:"doneAt"`
+	CreatedAt       time.Time  `json:"createdAt"`
+}
+
+// TaskLink vincula un hilo de correo con una tarea o ticket de Taskapp.
+type TaskLink struct {
+	ID            int64     `json:"id"`
+	ThreadRoot    string    `json:"threadRoot"`
+	TaskID        int64     `json:"taskId"`
+	Ticket        bool      `json:"ticket"`
+	ProjectName   string    `json:"projectName"`
+	Title         string    `json:"title"`
+	AttachPending bool      `json:"attachPending"` // la tarea existe pero el .eml no se adjuntó
+	CreatedAt     time.Time `json:"createdAt"`
+	// Los completa core/mail, no el store:
+	URL          string `json:"url"`
+	AlreadyAdded bool   `json:"alreadyAdded"` // el correo consultado ya se sumó
+	Completed    bool   `json:"completed"`
+	StateKnown   bool   `json:"stateKnown"` // false = no se pudo preguntar a Taskapp
+}
+
+// TaskappDraft es lo que se propone al crear una tarea o ticket desde un correo.
+type TaskappDraft struct {
+	MessageID       int64  `json:"messageId"`
+	Title           string `json:"title"`
+	DescriptionHTML string `json:"descriptionHtml"`
+	ProjectID       int64  `json:"projectId"` // 0 = sin sugerencia
+	Oversize        bool   `json:"oversize"`  // el .eml no entra en MaxUpload: se adjunta sin adjuntos
+}
+
+// TaskappCreate es el pedido de crear una tarea o ticket desde un correo.
+type TaskappCreate struct {
+	MessageID       int64  `json:"messageId"`
+	Ticket          bool   `json:"ticket"`
+	ProjectID       int64  `json:"projectId"`
+	Title           string `json:"title"`
+	DescriptionHTML string `json:"descriptionHtml"`
+	Priority        string `json:"priority"` // none|low|medium|high|urgent
+	DueDate         string `json:"dueDate"`  // solo tarea
 }

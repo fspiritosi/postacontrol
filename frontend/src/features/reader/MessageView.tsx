@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ForwardIcon, ReplyAllIcon, ReplyIcon, UserIcon, UserPlusIcon, XIcon } from "lucide-react";
+import { ForwardIcon, ListPlusIcon, ReplyAllIcon, ReplyIcon, UserIcon, UserPlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
@@ -23,6 +23,8 @@ import { UnsubscribeButton } from "./UnsubscribeButton";
 import { SnoozeBanner } from "./SnoozeBanner";
 import { InviteCard, isCalendar } from "./InviteCard";
 import { ReaderBackdrop } from "./ReaderBackdrop";
+import { CreateTaskDialog } from "../tasks/CreateTaskDialog";
+import { TaskChips } from "../tasks/TaskChips";
 
 export type ComposeMode = "reply" | "replyAll" | "forward";
 
@@ -140,6 +142,7 @@ function Body({
     }
   };
   const composer = useComposer();
+  const [taskOpen, setTaskOpen] = useState(false);
   const folder = useFolders(message.accountId).data?.find((f) => f.id === message.folderId);
   const role = folder?.role;
   // Un borrador no se responde ni se reenvía (MessageActions ofrece seguir editándolo).
@@ -169,7 +172,12 @@ function Body({
             {a.label}
           </Button>
         ))}
-        <MessageActions message={message} selectMessage={selectMessage} />
+        <Button variant="outline" size="sm" onClick={() => setTaskOpen(true)}>
+          <ListPlusIcon />
+          Crear tarea
+        </Button>
+        <CreateTaskDialog messageId={message.id} open={taskOpen} onOpenChange={setTaskOpen} />
+        <MessageActions message={message} selectMessage={selectMessage} onCreateTask={() => setTaskOpen(true)} />
       </div>
       <div className={embedded ? undefined : "flex-1 overflow-y-auto"}>
         <div className="space-y-3 px-6 pt-5">
@@ -214,6 +222,7 @@ function Body({
             )}
           </div>
           <MessageLabels message={message} />
+          <TaskChips messageId={message.id} />
         </div>
 
         {folder && isSnoozeFolder(folder) && (

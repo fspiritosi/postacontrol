@@ -507,6 +507,27 @@ func (s *MailService) OpenExternal(link string) error {
 	return nil
 }
 
+// OpenTaskInTaskapp abre en el navegador una tarea de Taskapp. Solo acepta
+// enlaces de la web de Taskapp configurada.
+func (s *MailService) OpenTaskInTaskapp(ctx context.Context, link string) error {
+	if err := checkTaskappURL(link, s.core.TaskappWebURL(ctx)); err != nil {
+		return err
+	}
+	return s.OpenExternal(link)
+}
+
+// checkTaskappURL acepta solo enlaces con el mismo esquema y host que web.
+func checkTaskappURL(link, web string) error {
+	errNo := errors.New("Ese enlace no es de Taskapp.")
+	u, err := url.Parse(link)
+	w, werr := url.Parse(web)
+	if err != nil || werr != nil || u.Host == "" || u.User != nil ||
+		!strings.EqualFold(u.Scheme, w.Scheme) || !strings.EqualFold(u.Host, w.Host) {
+		return errNo
+	}
+	return nil
+}
+
 // validateExternalURL acepta solo http y https con host (los mailto: van por OpenMailto).
 func validateExternalURL(link string) error {
 	u, err := url.Parse(link)
@@ -882,4 +903,82 @@ func (s *MailService) GetThread(ctx context.Context, folderID int64, threadRoot 
 
 func (s *MailService) UpdatePassword(ctx context.Context, accountID int64, password string) error {
 	return s.core.UpdatePassword(ctx, accountID, password)
+}
+
+// Tareas locales y Taskapp: envoltorios finos sobre el núcleo.
+
+func (s *MailService) ListLocalTasks(ctx context.Context, includeDone bool) ([]model.LocalTask, error) {
+	return s.core.ListLocalTasks(ctx, includeDone)
+}
+
+func (s *MailService) SaveLocalTask(ctx context.Context, t model.LocalTask) (model.LocalTask, error) {
+	return s.core.SaveLocalTask(ctx, t)
+}
+
+func (s *MailService) SetLocalTaskDone(ctx context.Context, id int64, done bool) error {
+	return s.core.SetLocalTaskDone(ctx, id, done)
+}
+
+func (s *MailService) DeleteLocalTask(ctx context.Context, id int64) error {
+	return s.core.DeleteLocalTask(ctx, id)
+}
+
+func (s *MailService) TaskappStatus(ctx context.Context) (model.TaskappStatus, error) {
+	return s.core.TaskappStatus(ctx)
+}
+
+// ConnectTaskapp abre el navegador para autorizar la app y espera el permiso.
+// Si el usuario cancela, el error es "taskapp-cancelled".
+func (s *MailService) ConnectTaskapp(ctx context.Context) (model.TaskappStatus, error) {
+	open := func(link string) error {
+		if err := validateExternalURL(link); err != nil {
+			return err
+		}
+		return s.app.Browser.OpenURL(link)
+	}
+	st, err := s.core.ConnectTaskapp(ctx, open)
+	if err != nil && errors.Is(err, context.Canceled) {
+		return model.TaskappStatus{}, &mail.UserError{Code: "taskapp-cancelled", Msg: "Se canceló la conexión con Taskapp."}
+	}
+	return st, err
+}
+
+func (s *MailService) DisconnectTaskapp(ctx context.Context) error {
+	return s.core.DisconnectTaskapp(ctx)
+}
+
+func (s *MailService) TaskappProjects(ctx context.Context) ([]model.TaskappProject, error) {
+	return s.core.TaskappProjects(ctx)
+}
+
+func (s *MailService) ListTaskappTasks(ctx context.Context) (model.TaskappList, error) {
+	return s.core.ListTaskappTasks(ctx)
+}
+
+func (s *MailService) TaskappDraftFor(ctx context.Context, messageID int64) (model.TaskappDraft, error) {
+	return s.core.TaskappDraftFor(ctx, messageID)
+}
+
+func (s *MailService) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (model.TaskLink, error) {
+	return s.core.CreateTaskappItem(ctx, req)
+}
+
+func (s *MailService) RetryTaskLinkAttachment(ctx context.Context, linkID int64) (model.TaskLink, error) {
+	return s.core.RetryTaskLinkAttachment(ctx, linkID)
+}
+
+func (s *MailService) TaskLinksForMessage(ctx context.Context, messageID int64) ([]model.TaskLink, error) {
+	return s.core.TaskLinksForMessage(ctx, messageID)
+}
+
+func (s *MailService) AddMessageToTask(ctx context.Context, linkID, messageID int64) error {
+	return s.core.AddMessageToTask(ctx, linkID, messageID)
+}
+
+func (s *MailService) CreateLocalTaskFrom(ctx context.Context, messageID int64) (model.LocalTask, error) {
+	return s.core.CreateLocalTaskFrom(ctx, messageID)
+}
+
+func (s *MailService) FindMessageByHeader(ctx context.Context, headerID string) (model.MessageSummary, error) {
+	return s.core.FindMessageByHeader(ctx, headerID)
 }

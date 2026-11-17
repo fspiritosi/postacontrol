@@ -20,7 +20,7 @@ import { BackupSection, describeImport } from "./BackupSection";
 const none = {
   contactsAdded: 0, contactsSkipped: 0, signaturesAdded: 0, signaturesSkipped: 0,
   labelsAdded: 0, labelsSkipped: 0, labelsFailed: 0, rulesAdded: 0, rulesSkipped: 0, rulesFailed: 0,
-  imageSendersAdded: 0, imageSendersSkipped: 0, templatesAdded: 0, templatesSkipped: 0,
+  imageSendersAdded: 0, imageSendersSkipped: 0, templatesAdded: 0, templatesSkipped: 0, tasksAdded: 0, tasksSkipped: 0,
 };
 
 function setup(info = { dir: "", lastDate: "" }) {
@@ -59,6 +59,15 @@ describe("BackupSection", () => {
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent("Se sumaron: 2 contactos y 1 regla.");
     expect(status).toHaveTextContent("Ya estaban y no se tocaron: 1 contacto.");
+  });
+
+  it("importar cuenta también las tareas", async () => {
+    vi.mocked(svc.ImportBackup).mockResolvedValue({ ...none, tasksAdded: 3, tasksSkipped: 1 });
+    const user = setup();
+    await user.click(screen.getByRole("button", { name: "Importar respaldo…" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Se sumaron: 3 tareas.");
+    expect(status).toHaveTextContent("Ya estaban y no se tocaron: 1 tarea.");
   });
 
   it("cancelar el diálogo de importar no muestra nada", async () => {

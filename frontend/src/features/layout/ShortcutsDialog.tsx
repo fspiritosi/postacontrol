@@ -16,6 +16,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
       [["r"], "Responder"],
       [["a"], "Responder a todos"],
       [["f"], "Reenviar"],
+      [["t"], "Crear tarea"],
     ],
   },
   {
