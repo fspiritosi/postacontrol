@@ -41,7 +41,7 @@ export function LocalTaskDialog({ open, onOpenChange, task, onSaved }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* El formulario se monta de nuevo en cada apertura: parte siempre de la tarea. */}
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-lg">
         <TaskForm key={task?.id ?? 0} task={task ?? NEW_TASK} onOpenChange={onOpenChange} onSaved={onSaved} />
       </DialogContent>
     </Dialog>
