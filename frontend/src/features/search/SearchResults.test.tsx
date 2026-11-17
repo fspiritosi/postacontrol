@@ -63,7 +63,7 @@ function Harness({ initial, labelFilter = null }: { initial: View; labelFilter?:
         state={{
           view, messageId: null, selectView: vi.fn(), selectMessage, search, setSearch,
           threadRoot: null, selectThread: vi.fn(),
-          contactId: null, selectContact: vi.fn(), openContact: vi.fn(),
+          contactId: null, selectContact: vi.fn(), openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
           marked, markedThreads: { keys: [], anchor: null },
           setMarked, setMarkedThreads: vi.fn(), clearMarks: () => setMarked({ keys: [], anchor: null }),
           labelFilter, setLabelFilter: vi.fn(),

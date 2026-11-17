@@ -48,7 +48,8 @@ export function SettingsDialog({ open, onOpenChange, focusSection, ruleDraft }: 
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open && focusSection) setSection(focusSection);
+    // "taskapp" todavía no tiene página: se ignora hasta que exista.
+    if (open && focusSection && SECTIONS.some((s) => s.id === focusSection)) setSection(focusSection);
   }
   // La regla pedida desde un correo se usa una sola vez: al cerrar su editor
   // se descarta, y volver a Reglas no lo reabre.

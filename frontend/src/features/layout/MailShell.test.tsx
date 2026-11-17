@@ -192,6 +192,18 @@ describe("MailShell contactos", () => {
     expect(vi.mocked(svc.SyncFolder)).toHaveBeenCalledTimes(2);
   });
 
+  it("openTask pasa a Tareas con la tarea local abierta; selectView la cierra", async () => {
+    const { state } = setup({ kind: "folder", folderId: 21 }, false);
+    await waitFor(() => expect(svc.SyncFolder).toHaveBeenCalledWith(21));
+    act(() => state().openTask(9));
+    expect(shown()).toEqual({ kind: "tasks" });
+    expect(state().taskKey).toBe("l:9");
+    act(() => state().selectTask("t:3"));
+    expect(state().taskKey).toBe("t:3");
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().taskKey).toBeNull();
+  });
+
   it("la libreta guardada vuelve al reabrir", async () => {
     setup({ kind: "contacts" }, false);
     await waitFor(() => expect(shown()).toEqual({ kind: "contacts" }));

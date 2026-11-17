@@ -53,7 +53,7 @@ const baseState: ShellState = {
   selectThread: vi.fn(),
   contactId: null,
   selectContact: vi.fn(),
-  openContact: vi.fn(),
+  openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
   marked: { keys: [], anchor: null }, markedThreads: { keys: [], anchor: null },
   setMarked: vi.fn(), setMarkedThreads: vi.fn(), clearMarks: vi.fn(),
     labelFilter: null, setLabelFilter: vi.fn(),

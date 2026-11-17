@@ -29,6 +29,10 @@ describe("viewIsValid", () => {
   it("pasa para la libreta de contactos", () => {
     expect(viewIsValid({ kind: "contacts" }, [], false)).toBe(true);
   });
+
+  it("pasa para las tareas", () => {
+    expect(viewIsValid({ kind: "tasks" }, [], false)).toBe(true);
+  });
 });
 
 describe("defaultView", () => {
@@ -62,6 +66,11 @@ describe("loadView / saveView", () => {
   it("guarda y vuelve a leer la libreta de contactos", () => {
     saveView({ kind: "contacts" });
     expect(loadView()).toEqual({ kind: "contacts" });
+  });
+
+  it("guarda y vuelve a leer las tareas", () => {
+    saveView({ kind: "tasks" });
+    expect(loadView()).toEqual({ kind: "tasks" });
   });
 
   it("no guarda la Bandeja de salida: al reabrir se vuelve a la vista anterior", () => {

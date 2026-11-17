@@ -2,7 +2,7 @@ import { MailIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PencilIcon } from "luc
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
-import { onOpenMessage, syncFolder, syncUnified } from "@/lib/events";
+import { onOpenMessage, onOpenTask, syncFolder, syncUnified } from "@/lib/events";
 import { useAllFolders, useSettings } from "@/lib/queries";
 import { NO_MARKS, type Marks } from "@/lib/selection";
 import { useReadingPane, type ReadingPane } from "@/lib/settings";
@@ -131,6 +131,11 @@ export type ShellState = {
   selectContact: (id: number | null) => void;
   // Pasa a la libreta con esa ficha abierta.
   openContact: (id: number) => void;
+  // Tarea abierta en la vista de Tareas ("l:<id>" local, "t:<id>" de Taskapp).
+  taskKey: string | null;
+  selectTask: (key: string | null) => void;
+  // Pasa a Tareas con esa tarea local abierta.
+  openTask: (localId: number) => void;
   // Correos marcados para actuar sobre varios (listas planas y búsqueda) y
   // conversaciones marcadas (por raíz). Abrir algo, cambiar de vista o buscar
   // los suelta: si no, una acción tocaría correos que ya no se ven.
@@ -172,7 +177,7 @@ function syncView(v: View, folders: Folder[]) {
   } else if (v.kind === "unified") {
     void syncUnified(v.role);
   }
-  // outbox y contacts no tienen nada que traer del servidor.
+  // outbox, contacts y tasks no tienen nada que traer del servidor.
 }
 
 export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
@@ -181,6 +186,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   const [search, setSearchState] = useState<SearchState | null>(null);
   const [threadRoot, setThreadRoot] = useState<string | null>(null);
   const [contactId, setContactId] = useState<number | null>(null);
+  const [taskKey, setTaskKey] = useState<string | null>(null);
   const [marked, setMarked] = useState<Marks<number>>(NO_MARKS);
   const [markedThreads, setMarkedThreads] = useState<Marks<string>>(NO_MARKS);
   const [labelFilter, setLabelFilterState] = useState<number | null>(null);
@@ -240,6 +246,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
       setSearchState(null);
       setThreadRoot(null);
       setContactId(null);
+      setTaskKey(null);
       setMarked(NO_MARKS);
       setMarkedThreads(NO_MARKS);
       setLabelFilterState(null);
@@ -268,6 +275,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setSearchState(null);
     setThreadRoot(null);
     setContactId(null);
+    setTaskKey(null);
     setLabelFilterState(null);
   }, [clearMarks]);
 
@@ -284,6 +292,16 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setSearchState(null);
     setThreadRoot(null);
     setContactId(id);
+  }, [clearMarks]);
+
+  const openTask = useCallback((localId: number) => {
+    clearMarks();
+    setChosen({ kind: "tasks" });
+    setLabelFilterState(null);
+    setMessageId(null);
+    setSearchState(null);
+    setThreadRoot(null);
+    setTaskKey(`l:${localId}`);
   }, [clearMarks]);
 
   const selectMessage = useCallback((id: number | null) => {
@@ -315,6 +333,9 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     [selectView],
   );
 
+  // Abrir desde el aviso de una tarea.
+  useEffect(() => onOpenTask(({ taskId }) => openTask(taskId)), [openTask]);
+
   const vertical = pane !== "right";
   const view = !ready || valid ? chosen : null;
   const composeAccount = viewAccount(view, folders, accounts) ?? accounts[0];
@@ -331,6 +352,9 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     contactId,
     selectContact: setContactId,
     openContact,
+    taskKey,
+    selectTask: setTaskKey,
+    openTask,
     marked,
     markedThreads,
     setMarked,

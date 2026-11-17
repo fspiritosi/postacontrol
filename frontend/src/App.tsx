@@ -6,6 +6,8 @@ import { Welcome } from "./features/accounts/Welcome";
 import { FolderSidebar } from "./features/folders/FolderSidebar";
 import { ContactList } from "./features/contacts/ContactList";
 import { ContactPanel } from "./features/contacts/ContactPanel";
+import { TaskList } from "./features/tasks/TaskList";
+import { TaskPanel } from "./features/tasks/TaskPanel";
 import { MailShell } from "./features/layout/MailShell";
 import { MessageList } from "./features/messages/MessageList";
 import { OutboxList } from "./features/outbox/OutboxList";
@@ -65,6 +67,8 @@ export default function App() {
             <OutboxList />
           ) : s.view?.kind === "contacts" ? (
             <ContactList state={s} />
+          ) : s.view?.kind === "tasks" ? (
+            <TaskList state={s} />
           ) : (
             <MessageList accounts={all} state={s} />
           )
@@ -72,6 +76,8 @@ export default function App() {
         reader={(s) =>
           s.view?.kind === "contacts" ? (
             <ContactPanel state={s} />
+          ) : s.view?.kind === "tasks" ? (
+            <TaskPanel state={s} />
           ) : s.view?.kind === "outbox" ? (
             <OutboxPane />
           ) : s.marked.keys.length > 1 ? (

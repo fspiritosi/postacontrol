@@ -20,6 +20,7 @@ import {
   PROGRESS_REFRESH_MS,
   SEARCH_REFRESH_MS,
   onOpenMessage,
+  onOpenTask,
   onPasswordRequest,
   onSettingsRequest,
   requestSettings,
@@ -65,6 +66,23 @@ describe("useMailEvents", () => {
     off();
     emit("app:open-message", { folderId: 4, messageId: 0 });
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("app:open-task llega a onOpenTask", () => {
+    const cb = vi.fn();
+    const off = onOpenTask(cb);
+    emit("app:open-task", { taskId: 7 });
+    expect(cb).toHaveBeenCalledWith({ taskId: 7 });
+    off();
+  });
+
+  it("recarga las tareas locales y las de Taskapp cuando cambian", () => {
+    emit("mail:tasks-changed", null);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["local-tasks"] });
+    emit("mail:taskapp-changed", null);
+    for (const k of ["taskapp-tasks", "taskapp-status", "task-links"]) {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: [k] });
+    }
   });
 
   it("recarga la bandeja de salida cuando cambia", () => {
