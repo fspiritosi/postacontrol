@@ -2,6 +2,24 @@
 
 Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
 
+## Funciones
+
+### Tareas
+
+- **Tareas locales:** creá tareas con fecha y hora, editalas y marcalas como hechas. Viven solo en esta PC.
+- **Avisos:** la app te avisa con una notificación del escritorio antes del vencimiento, con la anticipación que elijas (también «A la hora»). Funciona con la ventana cerrada, desde la bandeja. Al hacer clic en el aviso se abre la tarea.
+- **Crear en Taskapp desde un correo:** desde un correo abierto creás una tarea o un ticket en Taskapp con el `.eml` adjunto. El proyecto se sugiere según quién lo mandó; los dominios públicos (gmail, hotmail, etc.) nunca se usan para adivinarlo.
+- **Sumar a la tarea:** las respuestas posteriores del mismo hilo se suman a la tarea como comentarios internos.
+- **Mis pendientes de Taskapp:** la vista «Tareas» muestra tus tareas pendientes de Taskapp junto a las locales, solo para ver.
+- **Conectar Taskapp:** en Configuración → Taskapp se conecta por el navegador, igual que la CLI de Taskapp.
+- **Respaldo:** las tareas locales van en el respaldo de Configuración → Respaldo.
+
+### Atajos de teclado
+
+| Tecla | Acción |
+|---|---|
+| `t` | Crear tarea desde el correo |
+
 ## Getting Started
 
 1. Navigate to your project directory in the terminal.

@@ -335,3 +335,22 @@ Cuerpo [CÓDIGO]: todos los campos son punteros/opcionales; solo se cambia lo qu
 3. Formato de `due_date` cuando tiene valor.
 4. Que `GET /api/tasks?assignee_id=<id>` devuelva también las completadas (el código no las filtra).
 5. Si producción agregó una ruta dedicada para adjuntar (el MCP tiene `add_task_attachment`/`attach_uploaded_file`, que podrían usar `PUT /api/tasks/{id}` por debajo).
+
+## Prueba de aceptación
+
+Pendiente: se completa con Fabricio. La prueba manual no escribe en Taskapp.
+
+### Prueba manual (sin escribir en Taskapp)
+
+- [ ] Crear, editar y marcar una tarea local.
+- [ ] Recibir un aviso con una tarea a 1 minuto y anticipación «A la hora», con la ventana cerrada en la bandeja.
+- [ ] El clic en el aviso abre la tarea.
+- [ ] Conectar Taskapp y ver los pendientes.
+- [ ] El diálogo de crear precarga bien desde un correo de un aprobador conocido.
+- [ ] Cancelar sin crear.
+
+### Aceptación con Fabricio
+
+- [ ] Crea la primera tarea real desde la app.
+- [ ] Suma una respuesta del hilo a esa tarea.
+- [ ] Resultado anotado (códigos y cuerpos de las escrituras, para cerrar los puntos de «Pendiente de confirmar»).
