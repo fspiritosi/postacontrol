@@ -61,6 +61,15 @@ describe("BackupSection", () => {
     expect(status).toHaveTextContent("Ya estaban y no se tocaron: 1 contacto.");
   });
 
+  it("importar cuenta también las tareas", async () => {
+    vi.mocked(svc.ImportBackup).mockResolvedValue({ ...none, tasksAdded: 3, tasksSkipped: 1 });
+    const user = setup();
+    await user.click(screen.getByRole("button", { name: "Importar respaldo…" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Se sumaron: 3 tareas.");
+    expect(status).toHaveTextContent("Ya estaban y no se tocaron: 1 tarea.");
+  });
+
   it("cancelar el diálogo de importar no muestra nada", async () => {
     vi.mocked(svc.ImportBackup).mockResolvedValue(null);
     const user = setup();

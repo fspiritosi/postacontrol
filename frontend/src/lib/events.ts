@@ -49,6 +49,9 @@ export function useFolderSyncing(folderId: number | null): boolean {
   );
 }
 
+// Lo que depende de la conexión con Taskapp.
+export const TASKAPP_KEYS = ["taskapp-status", "taskapp-tasks", "task-links"];
+
 const REJECTED_CREDENTIALS = "El servidor rechazó el usuario o la contraseña.";
 
 // Emisor simple de módulo: el toast vive fuera del árbol de la barra lateral,
@@ -354,6 +357,25 @@ export function useMailEvents(queryClient: QueryClient): void {
         for (const key of ["taskapp-tasks", "taskapp-status", "task-links"]) {
           void queryClient.invalidateQueries({ queryKey: [key] });
         }
+      }),
+      Events.On("mail:taskapp-auth", () => {
+        void queryClient.invalidateQueries({ queryKey: ["taskapp-status"] });
+        toast.error("Taskapp rechazó la conexión.", {
+          id: "taskapp-auth",
+          duration: Infinity,
+          action: {
+            label: "Reconectar",
+            onClick: () => {
+              svc
+                .ConnectTaskapp()
+                .then(() => {
+                  for (const key of TASKAPP_KEYS) void queryClient.invalidateQueries({ queryKey: [key] });
+                  toast.success("Conectado con Taskapp.");
+                })
+                .catch((e) => toast.error(errorMessage(e)));
+            },
+          },
+        });
       }),
       Events.On("mail:outbox-updated", () => {
         void queryClient.invalidateQueries({ queryKey: ["drafts"] });

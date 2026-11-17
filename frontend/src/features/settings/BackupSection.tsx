@@ -14,6 +14,7 @@ const KINDS = [
   ["labels", "etiqueta", "etiquetas"],
   ["rules", "regla", "reglas"],
   ["templates", "plantilla", "plantillas"],
+  ["tasks", "tarea", "tareas"],
   ["imageSenders", "remitente con imágenes permitidas", "remitentes con imágenes permitidas"],
 ] as const;
 
