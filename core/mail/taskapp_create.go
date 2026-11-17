@@ -34,6 +34,11 @@ var taskPriorities = []string{"none", "low", "medium", "high", "urgent"}
 
 // claim marca la operación key como en curso; si ya lo estaba devuelve un
 // error de usuario con msg. release la libera.
+// msgTaskappOrphan: la tarea quedó creada en Taskapp pero sin vínculo local.
+// Contrato con la UI: frontend/src/lib/errors.ts (ORPHAN_MESSAGE_FRAGMENT)
+// reconoce la frase "no la vuelvas a crear".
+const msgTaskappOrphan = "La tarea #%d se creó en Taskapp, pero no se pudo guardar el vínculo en esta PC. Abrila desde Taskapp; no la vuelvas a crear."
+
 func (c *Core) claim(key, msg string) (release func(), err error) {
 	c.inflightMu.Lock()
 	defer c.inflightMu.Unlock()
@@ -255,7 +260,7 @@ func (c *Core) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (
 	if err != nil {
 		slog.Warn("taskapp: la tarea se creó pero no se guardó el vínculo", "taskId", created.ID, "err", err)
 		return model.TaskLink{}, &UserError{Code: "taskapp-orphan", Err: err,
-			Msg: fmt.Sprintf("La tarea #%d se creó en Taskapp, pero no se pudo guardar el vínculo en esta PC. Abrila desde Taskapp; no la vuelvas a crear.", created.ID)}
+			Msg: fmt.Sprintf(msgTaskappOrphan, created.ID)}
 	}
 	link.URL = c.taskURL(link.TaskID, link.Ticket)
 	link.AlreadyAdded, link.StateKnown = true, true

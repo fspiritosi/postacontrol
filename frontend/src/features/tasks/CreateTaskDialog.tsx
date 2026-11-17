@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage } from "@/lib/errors";
+import { errorMessage, isOrphanError } from "@/lib/errors";
 import { requestSettings } from "@/lib/events";
 import { useTaskappStatus } from "@/lib/queries";
 import { LocalTaskDialog } from "./LocalTaskDialog";
@@ -34,7 +34,7 @@ const PRIORITIES = [
 // Un error que dice que la tarea quedó creada a medias: el aviso no se va solo.
 export function showTaskError(e: unknown) {
   const msg = errorMessage(e);
-  if (msg.includes("taskapp-orphan")) toast.error(msg, { duration: Infinity });
+  if (isOrphanError(e)) toast.error(msg, { duration: Infinity });
   else toast.error(msg);
 }
 
@@ -202,7 +202,14 @@ function Fields({
       onOpenChange(false);
       announce(qc, link);
     },
-    onError: showTaskError,
+    onError: (e) => {
+      showTaskError(e);
+      // La tarea quedó creada en Taskapp: el diálogo no puede dejar crearla de nuevo.
+      if (isOrphanError(e)) {
+        void qc.invalidateQueries({ queryKey: ["task-links"] });
+        onOpenChange(false);
+      }
+    },
   });
 
   const needsProject = !ticket && projectId === 0;

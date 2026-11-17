@@ -34,3 +34,12 @@ describe("isNotFoundError", () => {
     expect(isNotFoundError(runtimeError("Sin conexión."))).toBe(false);
   });
 });
+
+import { isOrphanError } from "./errors";
+
+describe("isOrphanError", () => {
+  it("reconoce el mensaje de la tarea huérfana", () => {
+    expect(isOrphanError(new Error("Abrila desde Taskapp; no la vuelvas a crear."))).toBe(true);
+    expect(isOrphanError(new Error("otra cosa"))).toBe(false);
+  });
+});

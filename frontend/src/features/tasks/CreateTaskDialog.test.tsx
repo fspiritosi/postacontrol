@@ -104,12 +104,15 @@ describe("CreateTaskDialog", () => {
     expect(svc.RetryTaskLinkAttachment).toHaveBeenCalledWith(1);
   });
 
-  it("un error de huérfana queda fijo en pantalla", async () => {
-    vi.mocked(svc.CreateTaskappItem).mockRejectedValue(new Error("taskapp-orphan: no la vuelvas a crear"));
-    const { user } = setup();
+  it("un error de huérfana queda fijo en pantalla y cierra el diálogo", async () => {
+    const msg = "La tarea #5 se creó en Taskapp, pero no se pudo guardar el vínculo en esta PC. Abrila desde Taskapp; no la vuelvas a crear.";
+    vi.mocked(svc.CreateTaskappItem).mockRejectedValue(new Error(msg));
+    const { user, onOpenChange, spy } = setup();
     await screen.findByDisplayValue("Re: Presupuesto");
     await user.click(screen.getByRole("button", { name: "Crear" }));
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.any(String), { duration: Infinity }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(msg, { duration: Infinity }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["task-links"] });
   });
 
   it("sin conexión solo ofrece Tarea local", async () => {
