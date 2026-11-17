@@ -20,11 +20,16 @@ const label = (l: TaskLink) => `${l.ticket ? "Ticket" : "Tarea"} #${l.taskId}`;
 
 // Las tareas de Taskapp del hilo de este correo, y sumar este correo a ellas.
 export function TaskChips({ messageId }: { messageId: number }) {
-  const qc = useQueryClient();
   const links = useTaskLinks(messageId).data ?? [];
+  if (links.length === 0) return null;
+  return <Chips messageId={messageId} links={links} />;
+}
+
+// El estado de Taskapp se pide solo si hay chips que mostrar.
+function Chips({ messageId, links }: { messageId: number; links: TaskLink[] }) {
+  const qc = useQueryClient();
   const status = useTaskappStatus();
   const [creating, setCreating] = useState(false);
-  if (links.length === 0) return null;
   // Sin token (o con el token rechazado) sumar y reintentar fallarían: se
   // muestran deshabilitados y se ofrece conectar.
   const disconnected = status.isSuccess ? !status.data.connected : status.isError;
