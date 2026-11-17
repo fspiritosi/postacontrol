@@ -59,6 +59,13 @@ func (f *createTaskapp) last(method, path string) (tReq, bool) {
 	return tReq{}, false
 }
 
+// set cambia la configuración del falso con el lock (el handler la lee con él).
+func (f *createTaskapp) set(fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn()
+}
+
 func (f *createTaskapp) total() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -72,6 +79,7 @@ func newCreateTaskapp(t *testing.T) *createTaskapp {
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
 		f.reqs = append(f.reqs, tReq{r.Method, r.URL.Path, string(b)})
+		postDrop, postCode := f.postDrop, f.postCode
 		f.mu.Unlock()
 		switch {
 		case r.URL.Path == "/api/projects":
@@ -81,13 +89,13 @@ func newCreateTaskapp(t *testing.T) *createTaskapp {
 				f.postHit <- struct{}{}
 				<-f.postGate
 			}
-			if f.postDrop {
+			if postDrop {
 				conn, _, _ := w.(http.Hijacker).Hijack()
 				_ = conn.Close()
 				return
 			}
-			if f.postCode != 0 {
-				w.WriteHeader(f.postCode)
+			if postCode != 0 {
+				w.WriteHeader(postCode)
 				_, _ = w.Write([]byte(`{"error":"título repetido"}`))
 				return
 			}
@@ -557,14 +565,14 @@ func TestCreate_CloseWaitsForCreate(t *testing.T) {
 // se creó: el error lo dice y la UI lo trata como la huérfana.
 func TestCreate_UncertainOnNetworkErrorAfterPost(t *testing.T) {
 	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
-	f.postDrop = true
+	f.set(func() { f.postDrop = true })
 	_, err := c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
 	var ue *UserError
 	require.ErrorAs(t, err, &ue)
 	assert.Equal(t, "taskapp-uncertain", ue.Code)
 	assert.Contains(t, ue.Msg, "no la vuelvas a crear")
 
-	f.postDrop, f.postCode = false, 422
+	f.set(func() { f.postDrop, f.postCode = false, 422 })
 	_, err = c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
 	require.ErrorAs(t, err, &ue)
 	assert.Equal(t, "taskapp", ue.Code, "una respuesta de Taskapp no es incierta")
