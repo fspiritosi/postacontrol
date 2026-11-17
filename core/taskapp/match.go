@@ -35,6 +35,11 @@ func SuggestProject(sender string, projects []Project) int64 {
 		return 0
 	}
 	dominio := sender[arroba+1:]
+	if dominio == "" {
+		// "x@" no tiene dominio: no coincidiría con nada razonable, solo
+		// con aprobadores vacíos o sin arroba.
+		return 0
+	}
 
 	if id, ok := unicoProyecto(projects, func(aprobador string) bool {
 		return aprobador == sender

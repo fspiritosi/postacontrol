@@ -86,3 +86,13 @@ func TestCleanSubject(t *testing.T) {
 		assert.Equal(t, want, CleanSubject(in), "entrada %q", in)
 	}
 }
+
+func TestSuggest_EmptyDomainNeverMatches(t *testing.T) {
+	proyectos := []Project{
+		{ID: 1, Status: "active", ApproverEmails: []string{""}},
+		{ID: 2, Status: "inactive"},
+	}
+	assert.Equal(t, int64(0), SuggestProject("x@", proyectos))
+	proyectos = []Project{{ID: 3, Status: "active", ApproverEmails: []string{"sin-arroba"}}}
+	assert.Equal(t, int64(0), SuggestProject("x@", proyectos))
+}
