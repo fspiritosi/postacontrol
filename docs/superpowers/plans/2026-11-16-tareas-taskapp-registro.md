@@ -354,3 +354,15 @@ Pendiente: se completa con Fabricio. La prueba manual no escribe en Taskapp.
 - [ ] Crea la primera tarea real desde la app.
 - [ ] Suma una respuesta del hilo a esa tarea.
 - [ ] Resultado anotado (códigos y cuerpos de las escrituras, para cerrar los puntos de «Pendiente de confirmar»).
+
+## Pendientes conocidos (revisión final)
+
+Quedaron para después, ninguno bloquea:
+
+- Si se re-enraiza un hilo (llega tarde el correo padre), el vínculo con la tarea no lo sigue y el chip deja de verse en esa conversación.
+- Al abrir un hilo largo se consulta el estado de cada vínculo por cada correo (N×M pedidos); lento sin conexión.
+- "Sumar a la tarea": un corte de red después de enviar el comentario se informa como "sin conexión" y puede llevar a sumarlo dos veces (queda un comentario interno de más).
+- Conectar: entre la validación del token y guardarlo no se vuelve a mirar si se canceló (carrera teórica con un cambio de URL de la API).
+- Con una URL de API propia, guardar un ajuste antes de que cargue la configuración puede borrar el token de Taskapp.
+- La descripción se edita como HTML crudo en el diálogo; conviene pasarla a texto o al editor enriquecido.
+- Confirmar en la prueba real: subtareas asignadas (`include_subtasks`), adjuntar y leer en tickets con `PUT/GET /api/tasks/{id}`.
