@@ -204,3 +204,21 @@ func TestSanitizeForExport(t *testing.T) {
 	assert.Contains(t, got, "<b>mundo</b>")
 	assert.NotContains(t, SanitizeForExport(`<img src="https://e.com/a.png">`), "<img")
 }
+
+func TestSanitizeForExport_DataURLsOnlyRasterImages(t *testing.T) {
+	got := SanitizeForExport(`<a href="data:image/svg+xml;base64,PHN2Zz4=">svg</a>`)
+	assert.NotContains(t, got, "data:")
+	assert.NotContains(t, got, "href")
+	assert.NotContains(t, SanitizeForExport(`<a href="data:image/png;base64,QUJD">png</a>`), "href")
+	assert.NotContains(t, SanitizeForExport(`<img src="data:image/svg+xml;base64,PHN2Zz4=">`), "<img")
+	assert.Contains(t, SanitizeForExport(`<img src="data:image/png;base64,QUJD">`), `<img src="data:image/png;base64,QUJD"`)
+	assert.Contains(t, SanitizeForExport(`<img src="DATA:image/JPEG;base64,QUJD">`), `<img src=`)
+	assert.Contains(t, SanitizeForExport(`<img src="data:image/webp;base64,QUJD">`), `<img src=`)
+	assert.NotContains(t, SanitizeForExport(`<img src="data:image/bmp;base64,QUJD">`), "<img")
+	// bluemonday pasa el esquema a minúsculas.
+	assert.Contains(t, SanitizeForExport(`<a href="MAILTO:a@b.com">m</a>`), `href="mailto:a@b.com"`)
+	http := SanitizeForExport(`<a href="HTTP://e.com">x</a>`)
+	assert.Contains(t, http, `href="http://e.com"`)
+	assert.Contains(t, http, "noopener")
+	assert.Contains(t, http, `target="_blank"`)
+}

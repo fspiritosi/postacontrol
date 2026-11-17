@@ -10,7 +10,8 @@ import (
 
 var (
 	exportPolicy  = newExportPolicy()
-	exportDataImg = regexp.MustCompile(`(?i)^data:image/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$`)
+	exportDataImg = regexp.MustCompile(`(?i)^data:image/(png|jpeg|gif|webp);base64,[a-z0-9+/=]+$`)
+	exportHref    = regexp.MustCompile(`(?i)^(https?:|mailto:)`)
 	exportEmptyIm = regexp.MustCompile(`<img\s*/?>`)
 )
 
@@ -20,10 +21,12 @@ func newExportPolicy() *bluemonday.Policy {
 		"ul", "ol", "li", "table", "thead", "tbody", "tfoot", "tr", "td", "th",
 		"b", "i", "strong", "em", "u", "blockquote", "pre", "code", "hr")
 	p.AllowAttrs("colspan", "rowspan").OnElements("td", "th")
-	p.AllowAttrs("href").OnElements("a")
+	// href solo http, https o mailto (nunca data:, aunque sea una imagen).
+	p.AllowAttrs("href").Matching(exportHref).OnElements("a")
 	p.AllowURLSchemes("http", "https", "mailto")
 	// bluemonday valida el esquema de src sin mirar el elemento: data: se
-	// acepta solo si es una imagen; el src de <img> además debe cumplir el regexp.
+	// acepta solo si es una imagen; el src de <img> además debe cumplir el
+	// regexp (png, jpeg, gif o webp en base64: nada de SVG).
 	p.AllowURLSchemeWithCustomPolicy("data", func(u *url.URL) bool {
 		return strings.HasPrefix(strings.ToLower(u.Opaque), "image/")
 	})
@@ -35,7 +38,7 @@ func newExportPolicy() *bluemonday.Policy {
 
 // SanitizeForExport limpia HTML para mandarlo a un sistema que lo muestra sin
 // sandbox: sin <style>, sin atributos style, sin imágenes remotas (solo
-// data:image) y solo enlaces http, https y mailto.
+// data: de png, jpeg, gif o webp) y solo enlaces http, https y mailto.
 func SanitizeForExport(in string) string {
 	return exportEmptyIm.ReplaceAllString(exportPolicy.Sanitize(in), "")
 }
