@@ -362,3 +362,50 @@ func TestListTaskappTasks_SortedNoSpuriousChange(t *testing.T) {
 	assert.Equal(t, first.Tasks, second.Tasks)
 	assert.Len(t, n.matching(EventTaskappChanged), before, "misma lista, sin aviso")
 }
+
+// Cambiar la API de Taskapp borra el token: nunca se manda el de un host a
+// otro. Cambiar solo la web olvida lo que había en memoria.
+func TestSetSettings_TaskappURLChangeDisconnects(t *testing.T) {
+	f := newFakeTaskapp(t)
+	c, n, sec := newTaskappCore(t, f)
+	connected(t, c)
+	_, err := c.ListTaskappTasks(context.Background())
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	before := len(n.matching(EventTaskappChanged))
+	st, err := c.GetSettings(ctx)
+	require.NoError(t, err)
+	st.TaskappWebURL = f.srv.URL + "/" // misma dirección: no cambia nada
+	require.NoError(t, c.SetSettings(ctx, st))
+	assert.Len(t, n.matching(EventTaskappChanged), before)
+	c.taskappMu.Lock()
+	assert.NotNil(t, c.taskappMe)
+	c.taskappMu.Unlock()
+
+	st.TaskappWebURL = "https://otra-web.ej"
+	require.NoError(t, c.SetSettings(ctx, st))
+	assert.Greater(t, len(n.matching(EventTaskappChanged)), before)
+	c.taskappMu.Lock()
+	assert.Nil(t, c.taskappMe)
+	assert.Nil(t, c.taskappProjs)
+	c.taskappMu.Unlock()
+	tok, err := sec.Get(taskappSecret)
+	require.NoError(t, err)
+	assert.Equal(t, taskappTok, tok, "la web no cambia el token")
+
+	before = len(n.matching(EventTaskappChanged))
+	hits := f.hits.Load()
+	st.TaskappAPIURL = "https://otra-api.ej"
+	require.NoError(t, c.SetSettings(ctx, st))
+	assert.Greater(t, len(n.matching(EventTaskappChanged)), before)
+	_, err = sec.Get(taskappSecret)
+	assert.ErrorIs(t, err, secrets.ErrNotFound)
+	_, _, ok, err := c.store.TaskappCache(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok)
+	got, err := c.TaskappStatus(ctx)
+	require.NoError(t, err)
+	assert.False(t, got.Connected)
+	assert.Equal(t, hits, f.hits.Load())
+}

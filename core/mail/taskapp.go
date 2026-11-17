@@ -117,6 +117,12 @@ func (c *Core) setTaskappAuthFailed(v bool) bool {
 // el error "taskapp-disconnected"; si Taskapp ya rechazó el token, el error
 // "taskapp-auth" sin ir a la red (no se reintenta en bucle).
 func (c *Core) taskappClient(ctx context.Context) (*taskapp.Client, error) {
+	// La dirección antes que el token: SetSettings borra el token antes de
+	// guardar una API nueva, así que nunca se junta el token viejo con ella.
+	api, _, err := c.taskappURLs(ctx)
+	if err != nil {
+		return nil, err
+	}
 	tok, err := c.cfg.Secrets.Get(taskappSecret)
 	if errors.Is(err, secrets.ErrNotFound) {
 		return nil, &UserError{Code: "taskapp-disconnected", Msg: "Conectá Taskapp en Configuración.", Err: err}
@@ -129,10 +135,6 @@ func (c *Core) taskappClient(ctx context.Context) (*taskapp.Client, error) {
 	c.taskappMu.Unlock()
 	if failed {
 		return nil, &UserError{Code: "taskapp-auth", Msg: msgTaskappAuth, Err: taskapp.ErrUnauthorized}
-	}
-	api, _, err := c.taskappURLs(ctx)
-	if err != nil {
-		return nil, err
 	}
 	return &taskapp.Client{BaseURL: api, Token: tok, HTTP: c.taskappHTTP()}, nil
 }
