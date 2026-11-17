@@ -90,12 +90,21 @@ en el servidor si no se lo pedís.
   `hasta:`.
 - Si el índice local no cubre todo, busca también en el servidor.
 
+**Tareas**
+
+- Tareas locales con aviso de escritorio y anticipación configurable.
+- Crear una tarea o un ticket de Taskapp desde un correo, con el original
+  adjunto y el proyecto sugerido según el remitente.
+- Sumar las respuestas posteriores del hilo a la tarea.
+- Ver tus tareas pendientes de Taskapp.
+- Conectar con Taskapp desde Configuración → Taskapp.
+
 **Tus datos**
 
 - Contraseñas en el llavero del sistema (KWallet o GNOME Keyring), nunca en
   texto plano.
-- Respaldo de contactos, firmas, etiquetas, reglas y plantillas, manual o
-  automático cada semana.
+- Respaldo de contactos, firmas, etiquetas, reglas, plantillas y tareas locales,
+  manual o automático cada semana.
 - Tema Sistema, Claro u Oscuro.
 
 ### Atajos de teclado
@@ -108,6 +117,7 @@ en el servidor si no se lo pedís.
 | `Supr` | Mandar a la Papelera |
 | `s` / `u` | Destacar / Marcar como no leído |
 | `n` | Redactar |
+| `t` | Crear tarea desde el correo |
 | `/` | Buscar |
 | `z` | Deshacer |
 | `?` | Ver todos los atajos |
