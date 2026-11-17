@@ -49,8 +49,10 @@ function shell(over: Over = {}): ShellState {
   } as unknown as ShellState;
 }
 
+const onCreateTask = vi.fn();
+
 function Harness({ state }: { state: ShellState }) {
-  const keys = useMailKeys(state, 7);
+  const keys = useMailKeys(state, 7, onCreateTask);
   return (
     <>
       <input aria-label="Buscar correo" />
@@ -87,6 +89,24 @@ const press = (key: string, init: KeyboardEventInit = {}) => fireEvent.keyDown(w
 
 describe("useMailKeys", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("t con un correo abierto pide crear la tarea", () => {
+    setup(shell({ messageId: 11 }));
+    press("t");
+    expect(onCreateTask).toHaveBeenCalledWith(11);
+  });
+
+  it("t sin correo abierto, con Shift o escribiendo no hace nada", () => {
+    setup(shell());
+    press("t");
+    expect(onCreateTask).not.toHaveBeenCalled();
+    setup(shell({ messageId: 11 }));
+    press("t", { shiftKey: true });
+    const input = screen.getAllByLabelText("Buscar correo")[0];
+    input.focus();
+    fireEvent.keyDown(input, { key: "t" });
+    expect(onCreateTask).not.toHaveBeenCalled();
+  });
 
   it("j y k abren el correo siguiente y el anterior de la lista", () => {
     const s = shell({ messageId: 11 });

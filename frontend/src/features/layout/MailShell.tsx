@@ -14,6 +14,7 @@ import { RailButton } from "./RailButton";
 import { useComposer } from "../compose/ComposerContext";
 import { useLabelKeys } from "../labels/useLabelKeys";
 import { ShortcutsDialog } from "./ShortcutsDialog";
+import { CreateTaskDialog } from "../tasks/CreateTaskDialog";
 import { useMailKeys } from "./useMailKeys";
 import {
   ResizableHandle,
@@ -365,7 +366,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   };
 
   useLabelKeys(state);
-  const keys = useMailKeys(state, composeAccount?.id);
+  const [taskFor, setTaskFor] = useState<number | null>(null);
+  const keys = useMailKeys(state, composeAccount?.id, setTaskFor);
 
   // Los dos paneles del grupo interior se arman una vez; solo cambia el orden.
   const listPanel = (
@@ -389,6 +391,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     <TooltipProvider delayDuration={300}>
       <div className="h-screen bg-background text-foreground">
         {extras?.(state)}
+        <CreateTaskDialog messageId={taskFor} open={taskFor != null} onOpenChange={(o) => !o && setTaskFor(null)} />
         <ShortcutsDialog open={keys.helpOpen} onOpenChange={keys.setHelpOpen} />
         <ResizablePanelGroup
           orientation="horizontal"

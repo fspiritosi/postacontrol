@@ -111,6 +111,15 @@ export function useTaskappStatus() {
   });
 }
 
+// Las tareas de Taskapp a las que está vinculado el hilo de este correo.
+export function useTaskLinks(messageId: number | null) {
+  return useQuery({
+    queryKey: ["task-links", messageId],
+    queryFn: async () => (await svc.TaskLinksForMessage(messageId!)) ?? [],
+    enabled: messageId != null,
+  });
+}
+
 export function useFolders(accountId: number | null) {
   return useQuery({
     queryKey: ["folders", accountId],

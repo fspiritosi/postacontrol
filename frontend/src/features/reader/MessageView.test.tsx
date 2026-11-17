@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
+  TaskLinksForMessage: vi.fn(() => Promise.resolve([])),
   GetMessage: vi.fn(),
   ListFolders: vi.fn(),
   ContactForEmail: vi.fn(),
