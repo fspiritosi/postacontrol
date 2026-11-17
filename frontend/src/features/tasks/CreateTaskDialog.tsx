@@ -85,7 +85,7 @@ function Flow({ messageId, onOpenChange }: { messageId: number; onOpenChange: (o
   }
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Crear tarea</DialogTitle>
           <DialogDescription>Elegí dónde crear la tarea de este correo.</DialogDescription>
