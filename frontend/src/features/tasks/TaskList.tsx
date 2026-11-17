@@ -196,7 +196,12 @@ function TaskRow({ item, active, state }: { item: TaskItem; active: boolean; sta
       >
         <span className="size-4 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{t.title}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{`#${t.id}`}</span>
+        {t.statusName && (
+          <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground">{t.statusName}</span>
+        )}
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {t.ticket ? `Ticket #${t.id}` : `#${t.id}`}
+        </span>
         <span className="flex max-w-28 shrink-0 items-center gap-1 text-xs text-muted-foreground">
           <span
             className="size-2 shrink-0 rounded-full"

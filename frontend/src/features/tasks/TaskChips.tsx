@@ -12,7 +12,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/lib/errors";
-import { useTaskLinks } from "@/lib/queries";
+import { requestSettings } from "@/lib/events";
+import { useTaskappStatus, useTaskLinks } from "@/lib/queries";
 import { CreateTaskDialog, retryAttachment, showTaskError } from "./CreateTaskDialog";
 
 const label = (l: TaskLink) => `${l.ticket ? "Ticket" : "Tarea"} #${l.taskId}`;
@@ -21,8 +22,12 @@ const label = (l: TaskLink) => `${l.ticket ? "Ticket" : "Tarea"} #${l.taskId}`;
 export function TaskChips({ messageId }: { messageId: number }) {
   const qc = useQueryClient();
   const links = useTaskLinks(messageId).data ?? [];
+  const status = useTaskappStatus();
   const [creating, setCreating] = useState(false);
   if (links.length === 0) return null;
+  // Sin token (o con el token rechazado) sumar y reintentar fallarían: se
+  // muestran deshabilitados y se ofrece conectar.
+  const disconnected = status.isSuccess ? !status.data.connected : status.isError;
 
   const add = async (l: TaskLink) => {
     try {
@@ -39,6 +44,8 @@ export function TaskChips({ messageId }: { messageId: number }) {
   const completed = pending.filter((l) => l.completed);
   const addable = pending.filter((l) => !l.completed);
   const single = links.length === 1;
+  const offersAction = pending.length > 0 || links.some((l) => l.attachPending);
+  const needConnect = disconnected ? "Conectá Taskapp para hacerlo" : undefined;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -59,7 +66,8 @@ export function TaskChips({ messageId }: { messageId: number }) {
                   <button
                     type="button"
                     aria-label="Adjunto pendiente"
-                    title="No se pudo adjuntar el correo"
+                    title={disconnected ? "No se pudo adjuntar el correo. Conectá Taskapp para reintentar" : "No se pudo adjuntar el correo"}
+                    disabled={disconnected}
                     className="rounded-r px-1.5 py-0.5 text-amber-600 hover:bg-muted"
                   >
                     <AlertTriangleIcon className="size-3.5" />
@@ -75,11 +83,11 @@ export function TaskChips({ messageId }: { messageId: number }) {
       })}
 
       {single && pending.length === 1 && (
-        <span title={pending[0].completed ? `La tarea #${pending[0].taskId} está completada` : undefined}>
+        <span title={pending[0].completed ? `La tarea #${pending[0].taskId} está completada` : needConnect}>
           <Button
             size="xs"
             variant="outline"
-            disabled={pending[0].completed}
+            disabled={pending[0].completed || disconnected}
             onClick={() => void add(pending[0])}
           >
             {`Sumar a la tarea #${pending[0].taskId}`}
@@ -88,8 +96,8 @@ export function TaskChips({ messageId }: { messageId: number }) {
       )}
       {!single && addable.length > 0 && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="xs" variant="outline">
+          <DropdownMenuTrigger asChild disabled={disconnected}>
+            <Button size="xs" variant="outline" title={needConnect}>
               Sumar a…
             </Button>
           </DropdownMenuTrigger>
@@ -101,6 +109,11 @@ export function TaskChips({ messageId }: { messageId: number }) {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {disconnected && offersAction && (
+        <Button size="xs" variant="link" className="px-0" onClick={() => requestSettings("taskapp")}>
+          Conectá Taskapp
+        </Button>
       )}
       {completed.length > 0 && (
         <Button size="xs" variant="ghost" onClick={() => setCreating(true)}>

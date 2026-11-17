@@ -13,6 +13,8 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   TaskappProjects: vi.fn(),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+const requestSettings = vi.fn();
+vi.mock("@/lib/events", async (orig) => ({ ...(await orig<object>()), requestSettings: (s?: string) => requestSettings(s) }));
 
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import { TaskChips } from "./TaskChips";
@@ -27,10 +29,10 @@ const link = (over = {}) => ({
   attachPending: false, createdAt: "", url: "https://t/123", alreadyAdded: false, completed: false, stateKnown: true, ...over,
 });
 
-function setup(links: unknown[]) {
+function setup(links: unknown[], connected = true) {
   vi.mocked(svc.TaskLinksForMessage).mockResolvedValue(links as never);
   vi.mocked(svc.OpenTaskInTaskapp).mockResolvedValue(undefined);
-  vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected: true, userName: "", userEmail: "" });
+  vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected, userName: "", userEmail: "" });
   vi.mocked(svc.TaskappDraftFor).mockResolvedValue({ messageId: 9, title: "Nuevo", descriptionHtml: "", projectId: 0, oversize: false });
   vi.mocked(svc.TaskappProjects).mockResolvedValue([]);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -96,5 +98,32 @@ describe("TaskChips", () => {
     await user.click(await screen.findByRole("button", { name: "Adjunto pendiente" }));
     await user.click(await screen.findByRole("menuitem", { name: "Reintentar adjunto" }));
     expect(svc.RetryTaskLinkAttachment).toHaveBeenCalledWith(1);
+  });
+
+  it("sin Taskapp conectada no ofrece Sumar ni Reintentar, y lleva a conectar", async () => {
+    const { user } = setup([link({ attachPending: true })], false);
+    const chip = await screen.findByRole("button", { name: "Tarea #123 · Sinergia" });
+    const conectar = await screen.findByRole("button", { name: "Conectá Taskapp" });
+    expect(screen.getByRole("button", { name: "Sumar a la tarea #123" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Adjunto pendiente" })).toBeDisabled();
+    await user.click(conectar);
+    expect(requestSettings).toHaveBeenCalledWith("taskapp");
+    await user.click(chip);
+    expect(svc.OpenTaskInTaskapp).toHaveBeenCalledWith("https://t/123");
+    expect(svc.AddMessageToTask).not.toHaveBeenCalled();
+    expect(svc.RetryTaskLinkAttachment).not.toHaveBeenCalled();
+  });
+
+  it("sin Taskapp conectada, con varios vínculos Sumar a… queda deshabilitado", async () => {
+    setup([link(), link({ id: 2, taskId: 7, ticket: true, projectName: "" })], false);
+    await screen.findByRole("button", { name: "Conectá Taskapp" });
+    expect(screen.getByRole("button", { name: "Sumar a…" })).toBeDisabled();
+  });
+
+  it("conectada no muestra el enlace para conectar", async () => {
+    setup([link()]);
+    await screen.findByRole("button", { name: "Tarea #123 · Sinergia" });
+    await waitFor(() => expect(svc.TaskappStatus).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Conectá Taskapp" })).not.toBeInTheDocument();
   });
 });

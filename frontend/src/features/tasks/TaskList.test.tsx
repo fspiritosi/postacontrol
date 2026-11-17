@@ -58,7 +58,26 @@ describe("TaskList", () => {
     expect(screen.getByText("Local")).toBeInTheDocument();
     expect(await screen.findByText("Arreglar login")).toBeInTheDocument();
     expect(screen.getByText("Web")).toBeInTheDocument();
-    expect(screen.getByText("#5")).toBeInTheDocument();
+    expect(screen.getByText("Ticket #5")).toBeInTheDocument();
+    expect(screen.getByText("En curso")).toBeInTheDocument();
+  });
+
+  it("cada fila de Taskapp muestra su estado y distingue tarea de ticket", async () => {
+    vi.mocked(svc.ListTaskappTasks).mockResolvedValue({
+      tasks: [
+        remoteTask({ dueDate: today }),
+        remoteTask({ id: 9, ticket: false, title: "Revisar factura", statusName: "Pendiente", dueDate: today }),
+      ],
+      fetchedAt: new Date().toISOString(), stale: false, error: "",
+    } as never);
+    setup();
+    const tarea = (await screen.findByText("Revisar factura")).closest("button")!;
+    expect(tarea).toHaveTextContent("#9");
+    expect(tarea).not.toHaveTextContent("Ticket");
+    expect(tarea).toHaveTextContent("Pendiente");
+    const ticket = screen.getByText("Arreglar login").closest("button")!;
+    expect(ticket).toHaveTextContent("Ticket #5");
+    expect(ticket).toHaveTextContent("En curso");
   });
 
   it("avisa cuando la lista de Taskapp viene de la caché", async () => {

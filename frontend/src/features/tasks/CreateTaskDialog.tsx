@@ -226,13 +226,15 @@ function Fields({
       <div className="space-y-2">
         <Label htmlFor="ct-project">Proyecto</Label>
         <Select
-          value={projectId === 0 ? "" : String(projectId)}
+          // Un ticket puede ir sin proyecto ("0"); una tarea no.
+          value={projectId === 0 ? (ticket ? "0" : "") : String(projectId)}
           onValueChange={(v) => setProjectId(Number(v))}
         >
           <SelectTrigger id="ct-project" className="w-full" aria-label="Proyecto">
             <SelectValue placeholder="Elegí un proyecto" />
           </SelectTrigger>
           <SelectContent>
+            {ticket && <SelectItem value="0">Sin proyecto</SelectItem>}
             {projects.map((p) => (
               <SelectItem key={p.id} value={String(p.id)}>
                 <span className="inline-block size-2 rounded-full" style={{ backgroundColor: p.color }} aria-hidden />

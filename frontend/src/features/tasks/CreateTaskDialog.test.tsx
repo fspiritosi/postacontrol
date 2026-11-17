@@ -77,6 +77,33 @@ describe("CreateTaskDialog", () => {
     expect(screen.queryByLabelText("Vence")).not.toBeInTheDocument();
   });
 
+  it("un ticket puede volver a Sin proyecto; una tarea no lo ofrece", async () => {
+    vi.mocked(svc.CreateTaskappItem).mockResolvedValue(link({ ticket: true, projectName: "" }));
+    const { user } = setup();
+    await screen.findByDisplayValue("Re: Presupuesto");
+    await user.click(screen.getByRole("combobox", { name: "Proyecto" }));
+    expect(screen.queryByRole("option", { name: "Sin proyecto" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByLabelText("Ticket en Taskapp"));
+    await user.click(screen.getByRole("combobox", { name: "Proyecto" }));
+    await user.click(await screen.findByRole("option", { name: "Sin proyecto" }));
+    expect(screen.getByRole("combobox", { name: "Proyecto" })).toHaveTextContent("Sin proyecto");
+    await user.click(screen.getByRole("button", { name: "Crear" }));
+    await waitFor(() => expect(svc.CreateTaskappItem).toHaveBeenCalledWith(
+      expect.objectContaining({ ticket: true, projectId: 0 }),
+    ));
+  });
+
+  it("si no se sabe si la tarea se creó, el aviso queda fijo y cierra el diálogo", async () => {
+    const msg = "No sabemos si la tarea se creó en Taskapp: revisala ahí antes de volver a intentar; no la vuelvas a crear sin revisar.";
+    vi.mocked(svc.CreateTaskappItem).mockRejectedValue(new Error(msg));
+    const { user, onOpenChange } = setup();
+    await screen.findByDisplayValue("Re: Presupuesto");
+    await user.click(screen.getByRole("button", { name: "Crear" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(msg, { duration: Infinity }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("crea la tarea, avisa y refresca los vínculos", async () => {
     vi.mocked(svc.CreateTaskappItem).mockResolvedValue(link());
     const { user, spy, onOpenChange } = setup();
