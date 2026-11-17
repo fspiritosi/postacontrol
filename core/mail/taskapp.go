@@ -24,6 +24,15 @@ const (
 	taskappProjectTTL = 5 * time.Minute
 	taskappLoginWait  = 5 * time.Minute
 	taskappHTTPWait   = 20 * time.Second
+	// taskappUploadWait acota cada subida de un .eml (hasta 20 MB), que no
+	// usa el timeout de taskappHTTPWait.
+	taskappUploadWait = 5 * time.Minute
+	// taskappCreateWait acota el POST que crea la tarea o el ticket, que no
+	// se corta si el usuario cancela.
+	taskappCreateWait = 60 * time.Second
+	// taskappSaveWait acota lo que se guarda en la base después de que
+	// Taskapp aceptó algo (y que tampoco se corta si el usuario cancela).
+	taskappSaveWait = 30 * time.Second
 
 	msgBadTaskappURL  = "La dirección de Taskapp no es válida."
 	msgTaskappAuth    = "Taskapp rechazó la conexión. Volvé a conectar desde Configuración."
@@ -83,6 +92,13 @@ func (c *Core) taskappHTTP() *http.Client {
 	return &http.Client{Timeout: taskappHTTPWait}
 }
 
+// taskappUploadHTTP es el cliente de las subidas: el mismo transporte que
+// taskappHTTP pero sin su Timeout (las acota taskappUploadWait por contexto).
+func (c *Core) taskappUploadHTTP() *http.Client {
+	base := c.taskappHTTP()
+	return &http.Client{Transport: base.Transport, CheckRedirect: base.CheckRedirect, Jar: base.Jar}
+}
+
 // forgetTaskapp olvida el usuario y los proyectos en memoria.
 func (c *Core) forgetTaskapp() {
 	c.taskappMu.Lock()
@@ -136,7 +152,7 @@ func (c *Core) taskappClient(ctx context.Context) (*taskapp.Client, error) {
 	if failed {
 		return nil, &UserError{Code: "taskapp-auth", Msg: msgTaskappAuth, Err: taskapp.ErrUnauthorized}
 	}
-	return &taskapp.Client{BaseURL: api, Token: tok, HTTP: c.taskappHTTP()}, nil
+	return &taskapp.Client{BaseURL: api, Token: tok, HTTP: c.taskappHTTP(), UploadHTTP: c.taskappUploadHTTP()}, nil
 }
 
 // taskappErr traduce los errores del cliente de Taskapp. Con 401 además

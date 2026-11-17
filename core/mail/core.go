@@ -166,11 +166,13 @@ type Core struct {
 	taskappAuthFailed bool
 
 	// inflight: operaciones de Taskapp en curso (taskapp_create.go), para no
-	// repetir un pedido que ya está andando. addLinkHook es solo para tests:
-	// si devuelve error, el vínculo no se guarda.
-	inflightMu  sync.Mutex
-	inflight    map[string]struct{}
-	addLinkHook func() error
+	// repetir un pedido que ya está andando. addLinkHook y afterCommentHook
+	// son solo para tests: si addLinkHook devuelve error, el vínculo no se
+	// guarda; afterCommentHook corre apenas Taskapp aceptó el comentario.
+	inflightMu       sync.Mutex
+	inflight         map[string]struct{}
+	addLinkHook      func() error
+	afterCommentHook func()
 }
 
 func New(cfg Config) (*Core, error) {
@@ -226,6 +228,19 @@ func (c *Core) spawn(fn func(ctx context.Context)) bool {
 		fn(c.ctx)
 	}()
 	return true
+}
+
+// hold registra una operación en curso que Close tiene que esperar antes de
+// cerrar el store (como spawn, pero en la goroutine de quien llama). Después
+// de Close devuelve ok=false y no registra nada.
+func (c *Core) hold() (done func(), ok bool) {
+	c.lifeMu.Lock()
+	defer c.lifeMu.Unlock()
+	if c.closed {
+		return nil, false
+	}
+	c.wg.Add(1)
+	return c.wg.Done, true
 }
 
 // emit avisa por Notifier. Ver la advertencia de Notifier: se puede llamar con

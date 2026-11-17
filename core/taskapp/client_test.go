@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,4 +171,20 @@ func TestSetAttachments_FullList(t *testing.T) {
 		assert.Len(t, b, 1)
 	})
 	require.NoError(t, c.SetAttachments(context.Background(), 4, []string{"k1", "k2"}))
+}
+
+// Upload usa UploadHTTP: el Timeout corto del cliente de la API no la corta.
+func TestUpload_UsesUploadClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"key":"k"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &Client{BaseURL: srv.URL, Token: "tok", HTTP: &http.Client{Timeout: 50 * time.Millisecond}}
+	_, err := c.Upload(context.Background(), "a.eml", []byte("x"))
+	require.Error(t, err, "sin UploadHTTP vale el Timeout de HTTP")
+	c.UploadHTTP = &http.Client{}
+	key, err := c.Upload(context.Background(), "a.eml", []byte("x"))
+	require.NoError(t, err)
+	assert.Equal(t, "k", key)
 }

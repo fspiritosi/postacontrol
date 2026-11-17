@@ -31,6 +31,9 @@ type createTaskapp struct {
 	commentErr string
 	postGate   chan struct{} // si no es nil, el POST de tarea avisa en postHit y espera
 	postHit    chan struct{}
+	postCode   int           // el POST de tarea responde con este código (0 = 200)
+	postDrop   bool          // el POST de tarea corta la conexión sin responder
+	uploadWait time.Duration // la subida tarda esto antes de responder
 }
 
 func (f *createTaskapp) count(method, path string) int {
@@ -78,10 +81,21 @@ func newCreateTaskapp(t *testing.T) *createTaskapp {
 				f.postHit <- struct{}{}
 				<-f.postGate
 			}
+			if f.postDrop {
+				conn, _, _ := w.(http.Hijacker).Hijack()
+				_ = conn.Close()
+				return
+			}
+			if f.postCode != 0 {
+				w.WriteHeader(f.postCode)
+				_, _ = w.Write([]byte(`{"error":"título repetido"}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"id":42,"project_id":1,"title":"x","source":"internal","attachments":["viejo"],"status":{"id":1,"name":"Pendiente","is_completed":false}}`))
 		case r.URL.Path == "/api/tickets":
 			_, _ = w.Write([]byte(`{"id":43,"title":"x","source":"widget","attachments":[],"status":{"id":1,"name":"Abierto","is_completed":false}}`))
 		case r.URL.Path == "/api/upload":
+			time.Sleep(f.uploadWait)
 			if f.uploadCode != 0 {
 				w.WriteHeader(f.uploadCode)
 				return
@@ -468,4 +482,138 @@ func TestCreate_DescriptionIsSanitizedBeforePost(t *testing.T) {
 	var body struct{ Description string }
 	require.NoError(t, json.Unmarshal([]byte(post.Body), &body))
 	assert.Equal(t, "<p>hola</p>", body.Description)
+}
+
+// Cancelar mientras sale el POST no corta la creación: la tarea se crea y
+// queda vinculada (si no, quedaría huérfana y se crearía dos veces).
+func TestCreate_CancelDuringPostStillLinks(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	f.postGate, f.postHit = make(chan struct{}), make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	type res struct {
+		link model.TaskLink
+		err  error
+	}
+	done := make(chan res, 1)
+	go func() {
+		l, err := c.CreateTaskappItem(ctx, model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+		done <- res{l, err}
+	}()
+	<-f.postHit
+	cancel()
+	time.Sleep(20 * time.Millisecond)
+	close(f.postGate)
+	r := <-done
+	require.NoError(t, r.err)
+	assert.Equal(t, int64(42), r.link.TaskID)
+	assert.False(t, r.link.AttachPending)
+	stored, err := c.store.TaskLinksForThread(context.Background(), r.link.ThreadRoot)
+	require.NoError(t, err)
+	assert.Len(t, stored, 1)
+}
+
+// Cancelar antes del POST no crea nada.
+func TestCreate_CancelledBeforePostCreatesNothing(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.CreateTaskappItem(ctx, model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+	require.Error(t, err)
+	assert.Equal(t, 0, f.count("POST", "/api/tasks"))
+}
+
+// Close espera a que termine la creación en curso antes de cerrar la base.
+func TestCreate_CloseWaitsForCreate(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	f.postGate, f.postHit = make(chan struct{}), make(chan struct{}, 1)
+	var release sync.Once
+	open := func() { release.Do(func() { close(f.postGate) }) }
+	t.Cleanup(open) // antes de cerrar el servidor, aunque el test falle
+	type res struct {
+		link model.TaskLink
+		err  error
+	}
+	done := make(chan res, 1)
+	go func() {
+		l, err := c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+		done <- res{l, err}
+	}()
+	<-f.postHit
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close() }()
+	select {
+	case <-closed:
+		t.Fatal("Close volvió con la creación en curso")
+	case <-time.After(50 * time.Millisecond):
+	}
+	open()
+	r := <-done
+	require.NoError(t, r.err)
+	assert.NotZero(t, r.link.ID, "el vínculo se guardó")
+	require.NoError(t, <-closed)
+}
+
+// Si la conexión se corta después de mandar el POST no sabemos si la tarea
+// se creó: el error lo dice y la UI lo trata como la huérfana.
+func TestCreate_UncertainOnNetworkErrorAfterPost(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	f.postDrop = true
+	_, err := c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp-uncertain", ue.Code)
+	assert.Contains(t, ue.Msg, "no la vuelvas a crear")
+
+	f.postDrop, f.postCode = false, 422
+	_, err = c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp", ue.Code, "una respuesta de Taskapp no es incierta")
+	assert.Equal(t, "Taskapp: título repetido", ue.Msg)
+}
+
+// La subida del .eml no la corta el timeout corto del cliente de la API.
+func TestCreate_SlowUploadNotCutByClientTimeout(t *testing.T) {
+	c, f, ms, _ := createEnv(t,
+		hdrMail("Bea <bea@cliente.com>", "Hilo", "a@ej.com", ""),
+		hdrMail("Bea <bea@cliente.com>", "Re: Hilo", "b@ej.com", "a@ej.com"))
+	c.cfg.TaskappHTTP = &http.Client{Timeout: 100 * time.Millisecond}
+	f.uploadWait = 300 * time.Millisecond
+	ctx := context.Background()
+	link, err := c.CreateTaskappItem(ctx, model.TaskappCreate{MessageID: msgBySubject(t, ms, "Hilo").ID, ProjectID: 1, Title: "Hilo"})
+	require.NoError(t, err)
+	assert.False(t, link.AttachPending)
+	require.NoError(t, c.AddMessageToTask(ctx, link.ID, msgBySubject(t, ms, "Re: Hilo").ID))
+	assert.Equal(t, 2, f.count("POST", "/api/upload"))
+}
+
+// Si se cancela después de que Taskapp aceptó el comentario, el correo queda
+// marcado igual: si no, se ofrecería "Sumar" otra vez y se duplicaría.
+func TestAddMessage_CancelAfterCommentStillMarks(t *testing.T) {
+	c, f, ms, _ := createEnv(t,
+		hdrMail("Bea <bea@cliente.com>", "Hilo", "a@ej.com", ""),
+		hdrMail("Bea <bea@cliente.com>", "Re: Hilo", "b@ej.com", "a@ej.com"))
+	link, err := c.CreateTaskappItem(context.Background(), model.TaskappCreate{MessageID: msgBySubject(t, ms, "Hilo").ID, ProjectID: 1, Title: "Hilo"})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	c.afterCommentHook = cancel
+	require.NoError(t, c.AddMessageToTask(ctx, link.ID, msgBySubject(t, ms, "Re: Hilo").ID))
+	added, err := c.store.AddedToLink(context.Background(), link.ID, "<b@ej.com>")
+	require.NoError(t, err)
+	assert.True(t, added)
+	assert.Equal(t, 1, f.count("POST", "/api/tasks/42/comments"))
+}
+
+// Reintentar un vínculo que ya tiene el .eml no sube nada.
+func TestRetry_NotPendingDoesNothing(t *testing.T) {
+	c, f, ms, _ := createEnv(t, hdrMail("Bea <bea@cliente.com>", "Factura", "s@ej.com", ""))
+	ctx := context.Background()
+	link, err := c.CreateTaskappItem(ctx, model.TaskappCreate{MessageID: ms[0].ID, ProjectID: 1, Title: "Factura"})
+	require.NoError(t, err)
+	require.False(t, link.AttachPending)
+	total := f.total()
+	got, err := c.RetryTaskLinkAttachment(ctx, link.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AttachPending)
+	assert.Equal(t, "https://web.ej/tasks/42", got.URL)
+	assert.Equal(t, total, f.total(), "no se pide nada a Taskapp")
 }

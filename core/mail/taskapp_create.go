@@ -39,6 +39,10 @@ var taskPriorities = []string{"none", "low", "medium", "high", "urgent"}
 // reconoce la frase "no la vuelvas a crear".
 const msgTaskappOrphan = "La tarea #%d se creó en Taskapp, pero no se pudo guardar el vínculo en esta PC. Abrila desde Taskapp; no la vuelvas a crear."
 
+// msgTaskappUncertain: el pedido de crear salió pero no llegó respuesta, así
+// que la tarea puede existir. Mismo contrato con la UI que msgTaskappOrphan.
+const msgTaskappUncertain = "No sabemos si la tarea se creó en Taskapp: revisala ahí antes de volver a intentar; no la vuelvas a crear sin revisar."
+
 func (c *Core) claim(key, msg string) (release func(), err error) {
 	c.inflightMu.Lock()
 	defer c.inflightMu.Unlock()
@@ -226,36 +230,59 @@ func (c *Core) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (
 		}
 	}
 	desc := htmlx.SanitizeForExport(req.DescriptionHTML) + droppedHTML(dropped)
+	if !req.Ticket && proj.ID == 0 {
+		return model.TaskLink{}, &UserError{Code: "invalid", Msg: msgTaskNoProject}
+	}
 
+	// Desde el POST hasta guardar el vínculo y adjuntar, Close espera: si
+	// cerrara la base en el medio, la tarea quedaría sin vínculo.
+	done, ok := c.hold()
+	if !ok {
+		return model.TaskLink{}, context.Canceled
+	}
+	defer done()
+	// Cancelar antes de crear no crea nada; una vez que sale el POST, la
+	// creación sigue aunque el usuario cancele (si no, la tarea podría quedar
+	// creada sin vínculo y crearse dos veces).
+	if cerr := c.ctxErr(ctx); cerr != nil {
+		return model.TaskLink{}, cerr
+	}
+	// bg es un contexto que no se corta si el usuario cancela.
+	bg := func(d time.Duration) (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.WithoutCancel(ctx), d)
+	}
+	postCtx, cancelPost := bg(taskappCreateWait)
 	var created taskapp.Task
 	if req.Ticket {
-		created, err = cl.CreateTicket(ctx, taskapp.NewTicket{ProjectID: req.ProjectID, Title: req.Title, Description: desc, Priority: req.Priority})
+		created, err = cl.CreateTicket(postCtx, taskapp.NewTicket{ProjectID: req.ProjectID, Title: req.Title, Description: desc, Priority: req.Priority})
 	} else {
-		if proj.ID == 0 {
-			return model.TaskLink{}, &UserError{Code: "invalid", Msg: msgTaskNoProject}
-		}
-		created, err = cl.CreateTask(ctx, taskapp.NewTask{WorkspaceID: proj.WorkspaceID, ProjectID: proj.ID,
+		created, err = cl.CreateTask(postCtx, taskapp.NewTask{WorkspaceID: proj.WorkspaceID, ProjectID: proj.ID,
 			Title: req.Title, Description: desc, Priority: req.Priority, DueDate: req.DueDate})
 	}
+	cancelPost()
 	if err != nil {
-		if cerr := c.ctxErr(ctx); cerr != nil {
-			return model.TaskLink{}, cerr
+		var api *taskapp.APIError
+		if errors.Is(err, taskapp.ErrUnauthorized) || errors.As(err, &api) {
+			return model.TaskLink{}, c.taskappErr(err)
 		}
-		return model.TaskLink{}, c.taskappErr(err)
+		// Sin respuesta de Taskapp el pedido pudo haber llegado: la tarea
+		// puede existir y volver a crearla la duplicaría.
+		slog.Warn("taskapp: no se sabe si la tarea se creó", "err", err)
+		return model.TaskLink{}, &UserError{Code: "taskapp-uncertain", Msg: msgTaskappUncertain, Err: err}
 	}
 	c.emit(EventTaskappChanged, nil)
 
 	// La tarea ya existe en Taskapp: de acá en adelante no se corta si el
 	// usuario cancela, para no dejarla sin vínculo y que se cree dos veces.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
 	var link model.TaskLink
 	if c.addLinkHook != nil {
 		err = c.addLinkHook()
 	}
 	if err == nil {
-		link, err = c.store.AddTaskLink(ctx, model.TaskLink{ThreadRoot: root, TaskID: created.ID, Ticket: req.Ticket,
+		saveCtx, cancelSave := bg(taskappSaveWait)
+		link, err = c.store.AddTaskLink(saveCtx, model.TaskLink{ThreadRoot: root, TaskID: created.ID, Ticket: req.Ticket,
 			ProjectName: proj.Name, Title: req.Title, AttachPending: true}, headerID)
+		cancelSave()
 	}
 	if err != nil {
 		slog.Warn("taskapp: la tarea se creó pero no se guardó el vínculo", "taskId", created.ID, "err", err)
@@ -265,10 +292,17 @@ func (c *Core) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (
 	link.URL = c.taskURL(link.TaskID, link.Ticket)
 	link.AlreadyAdded, link.StateKnown = true, true
 
-	if err := c.attachEml(ctx, cl, link.TaskID, created.Attachments, d.Subject, eml); err != nil {
+	// Adjuntar no lo corta el usuario, pero sí Close (la subida puede tardar
+	// minutos): el vínculo ya quedó con AttachPending para reintentar.
+	attachCtx, cancelAttach := c.lifeCtx(context.WithoutCancel(ctx))
+	err = c.attachEml(attachCtx, cl, link.TaskID, created.Attachments, d.Subject, eml)
+	cancelAttach()
+	if err != nil {
 		return link, nil // queda AttachPending=true para reintentar
 	}
-	if err := c.store.SetAttachPending(ctx, link.ID, false); err != nil {
+	saveCtx, cancelSave := bg(taskappSaveWait)
+	defer cancelSave()
+	if err := c.store.SetAttachPending(saveCtx, link.ID, false); err != nil {
 		return link, nil
 	}
 	link.AttachPending = false
@@ -276,9 +310,16 @@ func (c *Core) CreateTaskappItem(ctx context.Context, req model.TaskappCreate) (
 	return link, nil
 }
 
+// uploadEml sube el .eml con su propio plazo (taskappUploadWait).
+func uploadEml(ctx context.Context, cl *taskapp.Client, subject string, eml []byte) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskappUploadWait)
+	defer cancel()
+	return cl.Upload(ctx, emlFilename(subject), eml)
+}
+
 // attachEml sube el .eml y lo suma a los adjuntos que la tarea ya tenía.
 func (c *Core) attachEml(ctx context.Context, cl *taskapp.Client, taskID int64, existing []string, subject string, eml []byte) error {
-	key, err := cl.Upload(ctx, emlFilename(subject), eml)
+	key, err := uploadEml(ctx, cl, subject, eml)
 	if err != nil {
 		return err
 	}
@@ -299,6 +340,10 @@ func (c *Core) RetryTaskLinkAttachment(ctx context.Context, linkID int64) (model
 	}
 	if err != nil {
 		return model.TaskLink{}, c.ctxOrUserError(ctx, err)
+	}
+	link.URL = c.taskURL(link.TaskID, link.Ticket)
+	if !link.AttachPending {
+		return link, nil // ya tiene el .eml: subirlo otra vez lo duplicaría
 	}
 	cl, err := c.taskappClient(ctx)
 	if err != nil {
@@ -338,7 +383,6 @@ func (c *Core) RetryTaskLinkAttachment(ctx context.Context, linkID int64) (model
 		return model.TaskLink{}, c.ctxOrUserError(ctx, err)
 	}
 	link.AttachPending = false
-	link.URL = c.taskURL(link.TaskID, link.Ticket)
 	c.emit(EventTaskappChanged, nil)
 	return link, nil
 }
@@ -440,20 +484,38 @@ func (c *Core) AddMessageToTask(ctx context.Context, linkID, messageID int64) er
 	if err != nil {
 		return err
 	}
-	key, err := cl.Upload(ctx, emlFilename(d.Subject), eml)
+	key, err := uploadEml(ctx, cl, d.Subject, eml)
 	if err != nil {
 		return c.taskappErrCtx(ctx, err)
 	}
 	body := htmlx.SanitizeForExport(taskDescriptionHTML(d, time.Local)) + droppedHTML(dropped)
-	if err := cl.AddComment(ctx, link.TaskID, body, []string{key}, true); err != nil {
+	// Del comentario a marcar el correo como sumado, Close espera y cancelar
+	// no corta: si no, se volvería a ofrecer "Sumar" y se duplicaría.
+	done, ok := c.hold()
+	if !ok {
+		return context.Canceled
+	}
+	defer done()
+	if cerr := c.ctxErr(ctx); cerr != nil {
+		return cerr
+	}
+	commentCtx, cancelComment := context.WithTimeout(context.WithoutCancel(ctx), taskappCreateWait)
+	err = cl.AddComment(commentCtx, link.TaskID, body, []string{key}, true)
+	cancelComment()
+	if err != nil {
 		var api *taskapp.APIError
 		if errors.As(err, &api) && api.Status == 400 && strings.Contains(strings.ToLower(api.Msg), "completed") {
 			return completed
 		}
-		return c.taskappErrCtx(ctx, err)
+		return c.taskappErr(err)
 	}
-	if err := c.store.MarkAddedToLink(ctx, linkID, headerID); err != nil {
-		return c.ctxOrUserError(ctx, err)
+	if c.afterCommentHook != nil {
+		c.afterCommentHook()
+	}
+	saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), taskappSaveWait)
+	defer cancelSave()
+	if err := c.store.MarkAddedToLink(saveCtx, linkID, headerID); err != nil {
+		return asUserError(err)
 	}
 	c.emit(EventTaskappChanged, nil)
 	return nil

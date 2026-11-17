@@ -29,6 +29,10 @@ type Client struct {
 	BaseURL string // API, sin barra final
 	Token   string
 	HTTP    *http.Client // nil = http.DefaultClient
+	// UploadHTTP es el cliente de Upload (nil = HTTP). Una subida grande
+	// puede tardar más que el Timeout de HTTP: conviene uno sin Timeout,
+	// acotado por el contexto.
+	UploadHTTP *http.Client
 }
 
 func (c *Client) client() *http.Client {
@@ -38,9 +42,20 @@ func (c *Client) client() *http.Client {
 	return http.DefaultClient
 }
 
+func (c *Client) uploadClient() *http.Client {
+	if c.UploadHTTP != nil {
+		return c.UploadHTTP
+	}
+	return c.client()
+}
+
 // do hace el pedido, mapea 401 a ErrUnauthorized y el resto de los no-2xx a
 // *APIError. in es JSON, salvo *multipartBody (ya armado).
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	return c.doWith(c.client(), ctx, method, path, in, out)
+}
+
+func (c *Client) doWith(hc *http.Client, ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	ctype := ""
 	if mp, ok := in.(*multipartBody); ok {
@@ -61,7 +76,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
 	}
-	resp, err := c.client().Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return err
 	}
@@ -183,7 +198,8 @@ func (c *Client) CreateTicket(ctx context.Context, t NewTicket) (Task, error) {
 	return w.task(), nil
 }
 
-// Upload sube un archivo y devuelve su key para usar en attachments.
+// Upload sube un archivo y devuelve su key para usar en attachments. Usa
+// UploadHTTP (ver Client).
 func (c *Client) Upload(ctx context.Context, filename string, data []byte) (string, error) {
 	if len(data) > MaxUpload {
 		return "", fmt.Errorf("el archivo %q supera el máximo de %d MB", filename, MaxUpload>>20)
@@ -203,7 +219,7 @@ func (c *Client) Upload(ctx context.Context, filename string, data []byte) (stri
 	var out struct {
 		Key string `json:"key"`
 	}
-	if err := c.do(ctx, "POST", "/api/upload", &multipartBody{buf.Bytes(), mw.FormDataContentType()}, &out); err != nil {
+	if err := c.doWith(c.uploadClient(), ctx, "POST", "/api/upload", &multipartBody{buf.Bytes(), mw.FormDataContentType()}, &out); err != nil {
 		return "", err
 	}
 	return out.Key, nil
