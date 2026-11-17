@@ -21,6 +21,8 @@ type fakeTaskapp struct {
 	srv      *httptest.Server
 	meStatus atomic.Int32 // 0 = 200
 	tasksHit atomic.Int32
+	hits     atomic.Int32 // todos los pedidos
+	flip     atomic.Bool  // /api/tasks devuelve la lista al revés
 }
 
 func newFakeTaskapp(t *testing.T) *fakeTaskapp {
@@ -50,11 +52,17 @@ func newFakeTaskapp(t *testing.T) *fakeTaskapp {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte(`[
-{"id":10,"project_id":1,"title":"Tarea","description":"<p>d</p>","priority":"high","due_date":"2026-12-01","source":"internal","status":{"id":1,"name":"Pendiente","is_completed":false}},
-{"id":11,"project_id":99,"title":"Ticket","description":"","priority":"none","source":"widget","status":{"id":2,"name":"Abierto","is_completed":false}}]`))
+		a := `{"id":10,"project_id":1,"title":"Tarea","description":"<p>d</p>","priority":"high","due_date":"2026-12-01","source":"internal","status":{"id":1,"name":"Pendiente","is_completed":false}}`
+		b := `{"id":11,"project_id":99,"title":"Ticket","description":"","priority":"none","source":"widget","status":{"id":2,"name":"Abierto","is_completed":false}}`
+		if f.flip.Load() {
+			a, b = b, a
+		}
+		_, _ = w.Write([]byte("[" + a + "," + b + "]"))
 	})
-	f.srv = httptest.NewServer(mux)
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.hits.Add(1)
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -265,4 +273,73 @@ func TestSetSettings_TaskappURLValidation(t *testing.T) {
 	}
 	require.NoError(t, c.SetSettings(context.Background(), model.Settings{TaskappAPIURL: "https://x.com", TaskappWebURL: "http://localhost:3000"}))
 	require.NoError(t, c.SetSettings(context.Background(), model.Settings{}))
+}
+
+// Después de un 401 no se vuelve a la red hasta reconectar, y el aviso sale
+// una sola vez: si no, la UI (que vuelve a pedir el estado al recibirlo)
+// entraría en un bucle contra Taskapp.
+func TestTaskapp401_LatchStopsRequestsUntilReconnect(t *testing.T) {
+	f := newFakeTaskapp(t)
+	c, n, _ := newTaskappCore(t, f)
+	connected(t, c)
+	f.meStatus.Store(401)
+	_, err := c.TaskappStatus(context.Background())
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp-auth", ue.Code)
+	require.Len(t, n.matching(EventTaskappAuth), 1)
+
+	before := f.hits.Load()
+	_, err = c.TaskappStatus(context.Background())
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp-auth", ue.Code)
+	_, err = c.ListTaskappTasks(context.Background())
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp-auth", ue.Code)
+	_, err = c.TaskappProjects(context.Background())
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp-auth", ue.Code)
+	assert.Equal(t, before, f.hits.Load(), "no se pide nada a Taskapp")
+	assert.Len(t, n.matching(EventTaskappAuth), 1, "el aviso sale una sola vez")
+
+	f.meStatus.Store(0)
+	connected(t, c)
+	st, err := c.TaskappStatus(context.Background())
+	require.NoError(t, err)
+	assert.True(t, st.Connected)
+	_, err = c.ListTaskappTasks(context.Background())
+	require.NoError(t, err)
+}
+
+// Un 401 al conectar es un intento fallido: no traba ni avisa.
+func TestConnectTaskapp_401DoesNotLatch(t *testing.T) {
+	f := newFakeTaskapp(t)
+	c, n, sec := newTaskappCore(t, f)
+	connected(t, c)
+	_, err := c.ConnectTaskapp(context.Background(), grantOpen("otro-token"))
+	var ue *UserError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, "taskapp-auth", ue.Code)
+	assert.Empty(t, n.matching(EventTaskappAuth))
+	tok, err := sec.Get(taskappSecret)
+	require.NoError(t, err)
+	assert.Equal(t, taskappTok, tok, "se queda el token que andaba")
+	st, err := c.TaskappStatus(context.Background())
+	require.NoError(t, err)
+	assert.True(t, st.Connected)
+}
+
+func TestDisconnectTaskapp_ClearsAuthLatch(t *testing.T) {
+	f := newFakeTaskapp(t)
+	c, _, sec := newTaskappCore(t, f)
+	connected(t, c)
+	f.meStatus.Store(401)
+	_, err := c.TaskappStatus(context.Background())
+	require.Error(t, err)
+	require.NoError(t, c.DisconnectTaskapp(context.Background()))
+	f.meStatus.Store(0)
+	require.NoError(t, sec.Set(taskappSecret, taskappTok))
+	st, err := c.TaskappStatus(context.Background())
+	require.NoError(t, err)
+	assert.True(t, st.Connected)
 }

@@ -24,7 +24,9 @@ const (
 	taskappLoginWait  = 5 * time.Minute
 	taskappHTTPWait   = 20 * time.Second
 
-	msgBadTaskappURL = "La dirección de Taskapp no es válida."
+	msgBadTaskappURL  = "La dirección de Taskapp no es válida."
+	msgTaskappAuth    = "Taskapp rechazó la conexión. Volvé a conectar desde Configuración."
+	msgTaskappOffline = "No pudimos conectar con Taskapp."
 )
 
 // validTaskappURL acepta vacío (usa la de producción) o una URL absoluta
@@ -100,8 +102,19 @@ func (c *Core) taskURL(id int64, ticket bool) string {
 	return web + "/" + kind + "/" + strconv.FormatInt(id, 10)
 }
 
+// setTaskappAuthFailed prende o apaga la traba por token rechazado y dice si
+// cambió.
+func (c *Core) setTaskappAuthFailed(v bool) bool {
+	c.taskappMu.Lock()
+	defer c.taskappMu.Unlock()
+	changed := c.taskappAuthFailed != v
+	c.taskappAuthFailed = v
+	return changed
+}
+
 // taskappClient arma el cliente con el token del llavero. Sin token devuelve
-// el error "taskapp-disconnected".
+// el error "taskapp-disconnected"; si Taskapp ya rechazó el token, el error
+// "taskapp-auth" sin ir a la red (no se reintenta en bucle).
 func (c *Core) taskappClient(ctx context.Context) (*taskapp.Client, error) {
 	tok, err := c.cfg.Secrets.Get(taskappSecret)
 	if errors.Is(err, secrets.ErrNotFound) {
@@ -109,6 +122,12 @@ func (c *Core) taskappClient(ctx context.Context) (*taskapp.Client, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	c.taskappMu.Lock()
+	failed := c.taskappAuthFailed
+	c.taskappMu.Unlock()
+	if failed {
+		return nil, &UserError{Code: "taskapp-auth", Msg: msgTaskappAuth, Err: taskapp.ErrUnauthorized}
 	}
 	api, _, err := c.taskappURLs(ctx)
 	if err != nil {
@@ -118,8 +137,23 @@ func (c *Core) taskappClient(ctx context.Context) (*taskapp.Client, error) {
 }
 
 // taskappErr traduce los errores del cliente de Taskapp. Con 401 además
-// descarta lo que había en memoria y avisa a la UI que hay que reconectar.
+// descarta lo que había en memoria, traba las próximas llamadas (ver
+// taskappClient) y avisa a la UI que hay que reconectar, una sola vez.
 func (c *Core) taskappErr(err error) error {
+	if errors.Is(err, taskapp.ErrUnauthorized) {
+		var ue *UserError
+		if !errors.As(err, &ue) {
+			c.forgetTaskapp()
+			if c.setTaskappAuthFailed(true) {
+				c.emit(EventTaskappAuth, nil)
+			}
+		}
+	}
+	return taskappUserErr(err)
+}
+
+// taskappUserErr traduce los errores del cliente de Taskapp sin efectos.
+func taskappUserErr(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -130,13 +164,11 @@ func (c *Core) taskappErr(err error) error {
 	var api *taskapp.APIError
 	switch {
 	case errors.Is(err, taskapp.ErrUnauthorized):
-		c.forgetTaskapp()
-		c.emit(EventTaskappAuth, nil)
-		return &UserError{Code: "taskapp-auth", Msg: "Taskapp rechazó la conexión. Volvé a conectar desde Configuración.", Err: err}
+		return &UserError{Code: "taskapp-auth", Msg: msgTaskappAuth, Err: err}
 	case errors.As(err, &api):
 		return &UserError{Code: "taskapp", Msg: "Taskapp: " + api.Msg, Err: err}
 	}
-	return &UserError{Code: "taskapp-offline", Msg: "No pudimos conectar con Taskapp.", Err: err}
+	return &UserError{Code: "taskapp-offline", Msg: msgTaskappOffline, Err: err}
 }
 
 // isTaskappUnreachable dice si err es de red (y no una respuesta de Taskapp).
@@ -194,7 +226,9 @@ func (c *Core) ConnectTaskapp(ctx context.Context, open func(string) error) (mod
 		if cerr := ctx.Err(); cerr != nil {
 			return model.TaskappStatus{}, cerr
 		}
-		return model.TaskappStatus{}, c.taskappErr(err)
+		// Un intento fallido: no traba ni avisa (el token guardado, si hay,
+		// sigue siendo el de antes).
+		return model.TaskappStatus{}, taskappUserErr(err)
 	}
 	if err := c.cfg.Secrets.Set(taskappSecret, grant.Token); err != nil {
 		return model.TaskappStatus{}, err
@@ -202,6 +236,7 @@ func (c *Core) ConnectTaskapp(ctx context.Context, open func(string) error) (mod
 	c.forgetTaskapp()
 	c.taskappMu.Lock()
 	c.taskappMe = &me
+	c.taskappAuthFailed = false
 	c.taskappMu.Unlock()
 	c.emit(EventTaskappChanged, nil)
 	return c.statusOf(me), nil
@@ -213,6 +248,7 @@ func (c *Core) DisconnectTaskapp(ctx context.Context) error {
 		return err
 	}
 	c.forgetTaskapp()
+	c.setTaskappAuthFailed(false)
 	if err := c.store.ClearTaskappData(ctx); err != nil {
 		return c.ctxOrUserError(ctx, err)
 	}

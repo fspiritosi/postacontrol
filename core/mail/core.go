@@ -154,13 +154,16 @@ type Core struct {
 	indexRunning int
 
 	// Taskapp (taskapp.go): taskappMu protege la caché en memoria del usuario
-	// y los proyectos, y connectCancel (la conexión en curso, si hay).
-	taskappMu     sync.Mutex
-	taskappMe     *taskapp.User
-	taskappProjs  []taskapp.Project
-	taskappProjAt time.Time
-	connectCancel context.CancelFunc
-	connectSeq    int
+	// y los proyectos, connectCancel (la conexión en curso, si hay) y
+	// taskappAuthFailed: Taskapp rechazó el token guardado y, hasta reconectar
+	// o desconectar, no se le vuelve a pedir nada.
+	taskappMu         sync.Mutex
+	taskappMe         *taskapp.User
+	taskappProjs      []taskapp.Project
+	taskappProjAt     time.Time
+	connectCancel     context.CancelFunc
+	connectSeq        int
+	taskappAuthFailed bool
 
 	// inflight: operaciones de Taskapp en curso (taskapp_create.go), para no
 	// repetir un pedido que ya está andando. addLinkHook es solo para tests:
