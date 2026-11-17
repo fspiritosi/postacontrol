@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -426,5 +427,17 @@ func (c *Core) fetchTaskappTasks(ctx context.Context, cl *taskapp.Client) ([]mod
 			URL: c.taskURL(t.ID, t.Ticket), Description: t.Description,
 		})
 	}
+	// Orden fijo: la API puede devolver los empates en otro orden y eso
+	// dispararía un aviso de cambio que no hubo (ver ListTaskappTasks).
+	slices.SortStableFunc(out, func(a, b model.TaskappTask) int {
+		return cmp.Or(cmp.Compare(a.ID, b.ID), cmp.Compare(boolInt(a.Ticket), boolInt(b.Ticket)))
+	})
 	return out, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

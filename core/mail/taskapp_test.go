@@ -343,3 +343,22 @@ func TestDisconnectTaskapp_ClearsAuthLatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, st.Connected)
 }
+
+// El orden de la API puede variar en los empates: la lista se ordena por ID
+// para no avisar cambios que no hubo.
+func TestListTaskappTasks_SortedNoSpuriousChange(t *testing.T) {
+	f := newFakeTaskapp(t)
+	c, n, _ := newTaskappCore(t, f)
+	connected(t, c)
+	f.flip.Store(true)
+	first, err := c.ListTaskappTasks(context.Background())
+	require.NoError(t, err)
+	require.Len(t, first.Tasks, 2)
+	assert.Equal(t, []int64{10, 11}, []int64{first.Tasks[0].ID, first.Tasks[1].ID})
+	before := len(n.matching(EventTaskappChanged))
+	f.flip.Store(false)
+	second, err := c.ListTaskappTasks(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, first.Tasks, second.Tasks)
+	assert.Len(t, n.matching(EventTaskappChanged), before, "misma lista, sin aviso")
+}
