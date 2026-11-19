@@ -317,3 +317,28 @@ func TestBackup_OldFileWithoutEvents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, res.EventsAdded)
 }
+
+// La foto de Taskapp del espejo viaja: tras restaurar, el primer refresco no
+// lo marca cambiado si en Taskapp no cambió nada.
+func TestBackup_RestoresTaskappSnapshot(t *testing.T) {
+	ctx := context.Background()
+	c, _, smtp, _, acc := meetCore(t)
+	mirror := createdWithBea(t, c, smtp, acc)
+	snap, err := c.store.TaskappSnapshot(ctx, mirror.ID)
+	require.NoError(t, err)
+	path := exportTo(t, c)
+	require.NoError(t, c.store.DeleteEvent(ctx, mirror.ID))
+
+	res, err := c.ImportBackup(ctx, path)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.EventsAdded)
+	restored := mirrorOf(t, c, 77)
+	got, err := c.store.TaskappSnapshot(ctx, restored.ID)
+	require.NoError(t, err)
+	assert.Equal(t, snap, got)
+
+	items := meetingItems(listRange(t, c))
+	require.Len(t, items, 1)
+	assert.Empty(t, items[0].TaskappChange)
+	assert.Empty(t, mirrorOf(t, c, 77).TaskappChange)
+}

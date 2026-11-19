@@ -63,7 +63,8 @@ type backupFile struct {
 }
 
 // backupEvent es un evento del calendario, con todos sus campos (el RawICS
-// también: en el modelo no viaja por JSON). La cuenta va por su dirección.
+// también: en el modelo no viaja por JSON) y, en un espejo de Taskapp, la
+// foto de la reunión. La cuenta va por su dirección.
 type backupEvent struct {
 	UID              string            `json:"uid"`
 	Kind             string            `json:"kind"`
@@ -88,6 +89,7 @@ type backupEvent struct {
 	RawICS           string            `json:"rawIcs"`
 	TaskappMeetingID int64             `json:"taskappMeetingId"`
 	TaskappChange    string            `json:"taskappChange"`
+	TaskappSnapshot  string            `json:"taskappSnapshot"`
 	Attendees        []model.Attendee  `json:"attendees"`
 	Exceptions       []backupException `json:"exceptions"`
 }
@@ -753,6 +755,11 @@ func (c *Core) backupEvents(ctx context.Context) ([]backupEvent, error) {
 			Status: e.Status, MyPartstat: e.MyPartstat, MyEmail: e.MyEmail, AliasReply: e.AliasReply, NeedsReview: e.NeedsReview,
 			RawICS: e.RawICS, TaskappMeetingID: e.TaskappMeetingID, TaskappChange: e.TaskappChange,
 			Attendees: nonNil(e.Attendees), Exceptions: []backupException{}}
+		if e.Kind == "taskapp" {
+			if be.TaskappSnapshot, err = c.store.TaskappSnapshot(ctx, e.ID); err != nil {
+				return nil, err
+			}
+		}
 		for _, x := range e.Exceptions {
 			be.Exceptions = append(be.Exceptions, backupException{RecurrenceAt: x.RecurrenceAt.UTC(), Cancelled: x.Cancelled,
 				Start: x.Start.UTC(), End: x.End.UTC(), Title: x.Title, Location: x.Location, Description: x.Description})
@@ -800,8 +807,14 @@ func (c *Core) importEvents(ctx context.Context, list []backupEvent, accByEmail 
 			res.EventsSkipped++
 			continue
 		}
-		if _, err := c.store.SaveEvent(ctx, e, seriesEnd(e)); err != nil {
+		saved, err := c.store.SaveEvent(ctx, e, seriesEnd(e))
+		if err != nil {
 			return err
+		}
+		if e.Kind == "taskapp" {
+			if err := c.store.SetTaskappState(ctx, saved.ID, be.TaskappSnapshot, e.TaskappChange); err != nil {
+				return err
+			}
 		}
 		uids[e.UID] = true
 		if e.TaskappMeetingID != 0 {
