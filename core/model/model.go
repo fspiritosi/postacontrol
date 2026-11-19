@@ -499,7 +499,21 @@ type BackupImport struct {
 	// Tareas locales (las de mismo título, fecha y hora se saltean).
 	TasksAdded   int `json:"tasksAdded"`
 	TasksSkipped int `json:"tasksSkipped"`
+	// Eventos del calendario (los de una UID que ya está se saltean).
+	EventsAdded   int `json:"eventsAdded"`
+	EventsSkipped int `json:"eventsSkipped"`
 }
+
+// ICSCalendar es un calendario de un archivo .ics (o de una entrada de un zip)
+// listo para importar.
+type ICSCalendar struct {
+	ID     string `json:"id"`     // ruta, o "ruta#entrada" para un zip
+	Name   string `json:"name"`   // X-WR-CALNAME, o el nombre del archivo
+	Events int    `json:"events"` // cantidad de series
+}
+
+// ICSImportResult cuenta lo que dejó importar .ics.
+type ICSImportResult struct{ Added, Updated, Skipped int }
 
 // TaskReminder es el aviso de una tarea próxima; At es su fecha y hora, no el
 // momento del aviso.

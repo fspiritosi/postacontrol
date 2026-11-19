@@ -58,6 +58,48 @@ type backupFile struct {
 	Templates []backupTemplate `json:"templates"`
 	// Tasks son las tareas locales (faltan en los respaldos viejos).
 	Tasks []backupTask `json:"tasks"`
+	// Events son los eventos del calendario (faltan en los respaldos viejos).
+	Events []backupEvent `json:"events"`
+}
+
+// backupEvent es un evento del calendario, con todos sus campos (el RawICS
+// también: en el modelo no viaja por JSON). La cuenta va por su dirección.
+type backupEvent struct {
+	UID              string            `json:"uid"`
+	Kind             string            `json:"kind"`
+	Title            string            `json:"title"`
+	Description      string            `json:"description"`
+	Notes            string            `json:"notes"`
+	Location         string            `json:"location"`
+	AllDay           bool              `json:"allDay"`
+	Start            time.Time         `json:"start"`
+	End              time.Time         `json:"end"`
+	TZID             string            `json:"tzid"`
+	RRule            string            `json:"rrule"`
+	RemindBefore     *int              `json:"remindBefore"`
+	AccountEmail     string            `json:"accountEmail"`
+	Organizer        model.Address     `json:"organizer"`
+	Sequence         int               `json:"sequence"`
+	Status           string            `json:"status"`
+	MyPartstat       string            `json:"myPartstat"`
+	MyEmail          string            `json:"myEmail"`
+	AliasReply       bool              `json:"aliasReply"`
+	NeedsReview      bool              `json:"needsReview"`
+	RawICS           string            `json:"rawIcs"`
+	TaskappMeetingID int64             `json:"taskappMeetingId"`
+	TaskappChange    string            `json:"taskappChange"`
+	Attendees        []model.Attendee  `json:"attendees"`
+	Exceptions       []backupException `json:"exceptions"`
+}
+
+type backupException struct {
+	RecurrenceAt time.Time `json:"recurrenceAt"`
+	Cancelled    bool      `json:"cancelled"`
+	Start        time.Time `json:"start"`
+	End          time.Time `json:"end"`
+	Title        string    `json:"title"`
+	Location     string    `json:"location"`
+	Description  string    `json:"description"`
 }
 
 type backupTask struct {
@@ -169,6 +211,12 @@ func (c *Core) buildBackup(ctx context.Context) (backupFile, error) {
 			RemindBefore: t.RemindBefore, SourceMessageID: t.SourceMessageID, SourceSubject: t.SourceSubject, DoneAt: t.DoneAt})
 	}
 
+	events, err := c.backupEvents(ctx)
+	if err != nil {
+		return b, err
+	}
+	b.Events = events
+
 	contacts, err := c.store.ListContacts(ctx)
 	if err != nil {
 		return b, err
@@ -275,6 +323,9 @@ func (c *Core) ImportBackup(ctx context.Context, src string) (model.BackupImport
 	if res.TasksAdded > 0 {
 		c.emit(EventTasksChanged, nil)
 	}
+	if res.EventsAdded > 0 {
+		c.emit(EventCalendarChanged, nil)
+	}
 	if err != nil {
 		return res, c.ctxOrUserError(ctx, err)
 	}
@@ -345,6 +396,9 @@ func (c *Core) applyBackup(ctx context.Context, b backupFile, res *model.BackupI
 		return err
 	}
 	if err := c.importTasks(ctx, b.Tasks, res); err != nil {
+		return err
+	}
+	if err := c.importEvents(ctx, b.Events, accByEmail, res); err != nil {
 		return err
 	}
 	// Las etiquetas restauradas vuelven a juntar sus correos desde el servidor.
@@ -673,6 +727,87 @@ func (c *Core) importTasks(ctx context.Context, list []backupTask, res *model.Ba
 		}
 		seen[k] = true
 		res.TasksAdded++
+	}
+	return nil
+}
+
+// backupEvents son todos los eventos del calendario, de cualquier tipo.
+func (c *Core) backupEvents(ctx context.Context) ([]backupEvent, error) {
+	all, err := c.store.AllEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accs, err := c.store.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	emails := map[int64]string{}
+	for _, a := range accs {
+		emails[a.ID] = a.Email
+	}
+	out := []backupEvent{}
+	for _, e := range all {
+		be := backupEvent{UID: e.UID, Kind: e.Kind, Title: e.Title, Description: e.Description, Notes: e.Notes,
+			Location: e.Location, AllDay: e.AllDay, Start: e.Start.UTC(), End: e.End.UTC(), TZID: e.TZID, RRule: e.RRule,
+			RemindBefore: e.RemindBefore, AccountEmail: emails[e.AccountID], Organizer: e.Organizer, Sequence: e.Sequence,
+			Status: e.Status, MyPartstat: e.MyPartstat, MyEmail: e.MyEmail, AliasReply: e.AliasReply, NeedsReview: e.NeedsReview,
+			RawICS: e.RawICS, TaskappMeetingID: e.TaskappMeetingID, TaskappChange: e.TaskappChange,
+			Attendees: nonNil(e.Attendees), Exceptions: []backupException{}}
+		for _, x := range e.Exceptions {
+			be.Exceptions = append(be.Exceptions, backupException{RecurrenceAt: x.RecurrenceAt.UTC(), Cancelled: x.Cancelled,
+				Start: x.Start.UTC(), End: x.End.UTC(), Title: x.Title, Location: x.Location, Description: x.Description})
+		}
+		out = append(out, be)
+	}
+	return out, nil
+}
+
+// importEvents suma los eventos cuya UID no está (y cuya reunión de Taskapp no
+// está ya en otro evento). Los demás se saltean, sin tocar lo que hay.
+func (c *Core) importEvents(ctx context.Context, list []backupEvent, accByEmail map[string]model.Account, res *model.BackupImport) error {
+	if len(list) == 0 {
+		return nil
+	}
+	c.calMu.Lock()
+	defer c.calMu.Unlock()
+	existing, err := c.store.AllEvents(ctx)
+	if err != nil {
+		return err
+	}
+	uids, meetings := map[string]bool{}, map[int64]bool{}
+	for _, e := range existing {
+		uids[e.UID] = true
+		if e.TaskappMeetingID != 0 {
+			meetings[e.TaskappMeetingID] = true
+		}
+	}
+	for _, be := range list {
+		if be.UID == "" || uids[be.UID] || (be.TaskappMeetingID != 0 && meetings[be.TaskappMeetingID]) {
+			res.EventsSkipped++
+			continue
+		}
+		e := model.CalendarEvent{UID: be.UID, Kind: be.Kind, Title: be.Title, Description: be.Description, Notes: be.Notes,
+			Location: be.Location, AllDay: be.AllDay, Start: be.Start.UTC(), End: be.End.UTC(), TZID: be.TZID, RRule: be.RRule,
+			RemindBefore: be.RemindBefore, AccountID: accByEmail[strings.ToLower(be.AccountEmail)].ID, Organizer: be.Organizer,
+			Sequence: be.Sequence, Status: be.Status, MyPartstat: be.MyPartstat, MyEmail: be.MyEmail, AliasReply: be.AliasReply,
+			NeedsReview: be.NeedsReview, RawICS: be.RawICS, TaskappMeetingID: be.TaskappMeetingID, TaskappChange: be.TaskappChange,
+			Attendees: nonNil(be.Attendees), Exceptions: []model.EventException{}}
+		for _, x := range be.Exceptions {
+			e.Exceptions = append(e.Exceptions, model.EventException{RecurrenceAt: x.RecurrenceAt.UTC(), Cancelled: x.Cancelled,
+				Start: x.Start.UTC(), End: x.End.UTC(), Title: x.Title, Location: x.Location, Description: x.Description})
+		}
+		if e.Kind != "local" && e.Kind != "invite" && e.Kind != "taskapp" || e.Status == "" {
+			res.EventsSkipped++
+			continue
+		}
+		if _, err := c.store.SaveEvent(ctx, e, seriesEnd(e)); err != nil {
+			return err
+		}
+		uids[e.UID] = true
+		if e.TaskappMeetingID != 0 {
+			meetings[e.TaskappMeetingID] = true
+		}
+		res.EventsAdded++
 	}
 	return nil
 }
