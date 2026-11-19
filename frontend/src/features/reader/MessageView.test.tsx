@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   TaskLinksForMessage: vi.fn(() => Promise.resolve([])),
+  InviteForMessage: vi.fn(() => Promise.resolve({ found: false })),
   GetMessage: vi.fn(),
   ListFolders: vi.fn(),
   ContactForEmail: vi.fn(),

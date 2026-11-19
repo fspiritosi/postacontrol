@@ -150,7 +150,7 @@ function Body({
   const compose = onCompose ?? ((id: number, mode: ComposeMode) => void composer.openFrom(id, mode));
   const to = message.to ?? [];
   // La primera invitación de calendario adjunta, si hay.
-  const invite = (message.attachments ?? []).find(isCalendar);
+  const calendarAttachment = (message.attachments ?? []).find(isCalendar);
   const actions: { mode: ComposeMode; label: string; icon: React.ReactNode }[] = inDrafts
     ? []
     : [
@@ -248,7 +248,7 @@ function Body({
 
         <SafeHtmlFrame html={message.html} text={message.text} allowRemote={allowRemote} accountId={message.accountId} />
       </div>
-      {invite && <InviteCard messageId={message.id} attachment={invite} />}
+      <InviteCard messageId={message.id} attachment={calendarAttachment} accountEmail={account?.email} />
       <AttachmentList messageId={message.id} attachments={message.attachments ?? []} />
     </div>
   );

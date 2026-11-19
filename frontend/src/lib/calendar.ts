@@ -56,7 +56,7 @@ export function toFcEvent(it: CalendarItem): EventInput {
 }
 
 // "viernes 20 de noviembre · 10:00 a 11:00" (o solo la fecha, en día completo).
-export function formatItemWhen(it: CalendarItem): string {
+export function formatItemWhen(it: Pick<CalendarItem, "start" | "end" | "allDay">): string {
   if (it.allDay) {
     const day = (iso: string) =>
       new Date(iso).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
