@@ -355,6 +355,9 @@ type Settings struct {
 	// TaskReminderMinutes es la anticipación por defecto del aviso de una
 	// tarea con hora; nil = 15.
 	TaskReminderMinutes *int `json:"taskReminderMinutes"`
+	// EventReminderMinutes es la anticipación por defecto del aviso de un
+	// evento; nil = 15.
+	EventReminderMinutes *int `json:"eventReminderMinutes"`
 	// TaskappAPIURL y TaskappWebURL son las direcciones de Taskapp; vacías =
 	// las de producción.
 	TaskappAPIURL string `json:"taskappApiUrl"`
@@ -624,4 +627,53 @@ type CalendarEvent struct {
 	TaskappChange    string           `json:"taskappChange"` // "", "changed", "cancelled" o "deleted"
 	Attendees        []Attendee       `json:"attendees"`
 	Exceptions       []EventException `json:"exceptions"`
+}
+
+// CalendarItem es una ocurrencia de lo que se muestra en el calendario.
+type CalendarItem struct {
+	Key           string    `json:"key"`    // "e:<id>:<inicio original unix>", "m:<reunión>" o "t:<tarea>"
+	Source        string    `json:"source"` // "local", "invite", "taskapp" o "task"
+	EventID       int64     `json:"eventId"`
+	MeetingID     int64     `json:"meetingId"`
+	TaskID        int64     `json:"taskId"`
+	Title         string    `json:"title"`
+	Location      string    `json:"location"`
+	Start         time.Time `json:"start"`
+	End           time.Time `json:"end"`
+	AllDay        bool      `json:"allDay"`
+	Recurring     bool      `json:"recurring"`
+	OccurrenceAt  time.Time `json:"occurrenceAt"` // inicio original (para "solo este")
+	Color         string    `json:"color"`        // color del proyecto (Taskapp)
+	ProjectName   string    `json:"projectName"`
+	Partstat      string    `json:"partstat"`
+	NeedsReview   bool      `json:"needsReview"`
+	Cancelled     bool      `json:"cancelled"`
+	Attendees     int       `json:"attendees"`
+	Confirmed     int       `json:"confirmed"`
+	TaskappChange string    `json:"taskappChange"`
+	URL           string    `json:"url"` // Taskapp
+}
+
+// CalendarRange es lo que se muestra en el calendario para un rango.
+type CalendarRange struct {
+	Items            []CalendarItem `json:"items"` // nunca nil, ordenado por Start
+	TaskappStale     bool           `json:"taskappStale"`
+	TaskappFetchedAt time.Time      `json:"taskappFetchedAt"`
+	TaskappError     string         `json:"taskappError"`
+}
+
+// EventSave es el pedido de guardar un evento.
+type EventSave struct {
+	Event        CalendarEvent `json:"event"`        // ID 0 = nuevo
+	Scope        string        `json:"scope"`        // "" = todo el evento o la serie, "this" o "following"
+	OccurrenceAt time.Time     `json:"occurrenceAt"` // la ocurrencia, si Scope != ""
+	Notify       bool          `json:"notify"`
+}
+
+// EventDelete es el pedido de borrar un evento o parte de una serie.
+type EventDelete struct {
+	ID           int64     `json:"id"`
+	Scope        string    `json:"scope"`
+	OccurrenceAt time.Time `json:"occurrenceAt"`
+	Notify       bool      `json:"notify"`
 }

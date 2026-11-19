@@ -112,3 +112,31 @@ func TestExpand_ZeroDurationAtFrom(t *testing.T) {
 		t.Errorf("start == to no debería entrar: %v", got)
 	}
 }
+
+func TestSeriesEnd(t *testing.T) {
+	start := utc(2026, 1, 1, 10, 0)
+	end := start.Add(time.Hour)
+	got, ok := SeriesEnd(start, end, false, "UTC", "FREQ=DAILY;COUNT=1000")
+	if want := start.AddDate(0, 0, 999).Add(time.Hour); !ok || !got.Equal(want) {
+		t.Errorf("COUNT=1000: %v %v, quería %v", got, ok, want)
+	}
+	if got.Location() != time.UTC {
+		t.Errorf("zona: %v", got.Location())
+	}
+	start = utc(2026, 11, 2, 10, 0)
+	end = start.Add(time.Hour)
+	got, ok = SeriesEnd(start, end, false, "UTC", "FREQ=DAILY;UNTIL=20261105T100000Z")
+	if want := utc(2026, 11, 5, 11, 0); !ok || !got.Equal(want) {
+		t.Errorf("UNTIL: %v %v, quería %v", got, ok, want)
+	}
+	day := utc(2026, 11, 20, 0, 0)
+	got, ok = SeriesEnd(day, day.Add(24*time.Hour), true, "", "FREQ=DAILY;UNTIL=20261122")
+	if want := utc(2026, 11, 23, 0, 0); !ok || !got.Equal(want) {
+		t.Errorf("día completo: %v %v, quería %v", got, ok, want)
+	}
+	for _, rule := range []string{"FREQ=WEEKLY;BYDAY=MO", "", "FREQ=NADA"} {
+		if got, ok := SeriesEnd(start, end, false, "UTC", rule); ok {
+			t.Errorf("%q: no tendría que terminar, dio %v", rule, got)
+		}
+	}
+}

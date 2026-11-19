@@ -42,15 +42,7 @@ func Expand(start, end time.Time, allDay bool, tzid, rule string, exdates []time
 		return single()
 	}
 
-	loc := time.Local
-	switch {
-	case allDay:
-		loc = time.UTC
-	case tzid != "":
-		if l, err := time.LoadLocation(tzid); err == nil {
-			loc = l
-		}
-	}
+	loc := ruleLocation(allDay, tzid)
 	opt, err := rrule.StrToROptionInLocation(rule, loc)
 	if err != nil {
 		return single()
@@ -80,4 +72,54 @@ func Expand(start, end time.Time, allDay bool, tzid, rule string, exdates []time
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Before(out[j]) })
 	return out
+}
+
+// ruleLocation es la zona en la que se expande una regla: UTC en día completo,
+// tzid si carga y, si no, time.Local.
+func ruleLocation(allDay bool, tzid string) *time.Location {
+	switch {
+	case allDay:
+		return time.UTC
+	case tzid != "":
+		if l, err := time.LoadLocation(tzid); err == nil {
+			return l
+		}
+	}
+	return time.Local
+}
+
+// SeriesEnd devuelve el fin (UTC) de la última ocurrencia de una serie con
+// UNTIL o COUNT. false si la regla no termina, no se entiende o tiene más
+// ocurrencias de las que se recorren (maxScan). No usa el tope de Expand.
+func SeriesEnd(start, end time.Time, allDay bool, tzid, rule string) (time.Time, bool) {
+	if rule == "" {
+		return time.Time{}, false
+	}
+	loc := ruleLocation(allDay, tzid)
+	opt, err := rrule.StrToROptionInLocation(rule, loc)
+	if err != nil || (opt.Count == 0 && opt.Until.IsZero()) {
+		return time.Time{}, false
+	}
+	opt.Dtstart = start.In(loc)
+	r, err := rrule.NewRRule(*opt)
+	if err != nil {
+		return time.Time{}, false
+	}
+	dur := end.Sub(start)
+	if dur < 0 {
+		dur = 0
+	}
+	last := start
+	next := r.Iterator()
+	for i := 0; ; i++ {
+		if i == maxScan {
+			return time.Time{}, false
+		}
+		t, ok := next()
+		if !ok {
+			break
+		}
+		last = t
+	}
+	return last.Add(dur).UTC(), true
 }
