@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"postacontrol/core/model"
@@ -15,9 +17,9 @@ import (
 	"postacontrol/core/taskapp"
 )
 
-// Reuniones de Taskapp en el calendario. Las del usuario se traen en cada
-// lectura (y cada tanto, en el fondo) y se guardan en una caché para cuando
-// Taskapp no responde. Una reunión creada desde acá con invitados de afuera
+// Reuniones de Taskapp en el calendario. El calendario las muestra desde una
+// caché, sin esperar a Taskapp; cada lectura dispara en el fondo un refresco
+// de su rango (y cada tanto hay una vuelta de fondo) que la actualiza. Una reunión creada desde acá con invitados de afuera
 // tiene además un "espejo": un evento local (Kind "taskapp") con esos
 // invitados, que son los que reciben el .ics. El espejo guarda la última
 // versión de la reunión que vieron los externos (la foto); si en Taskapp
@@ -42,7 +44,24 @@ const (
 	// La vuelta de fondo mira desde un día atrás hasta dos semanas adelante.
 	meetingRefreshBack  = 24 * time.Hour
 	meetingRefreshAhead = 14 * 24 * time.Hour
+
+	// meetingRefreshGap: como mucho un refresco por rango cada tanto.
+	meetingRefreshGap = 30 * time.Second
+	// meetingStaleAfter: una caché más vieja que esto se muestra como vieja.
+	meetingStaleAfter = 15 * time.Minute
+	// meetingFetchWait acota cada pedido de reuniones (uno por workspace).
+	meetingFetchWait = 10 * time.Second
+	// meetingRangeKeep: el estado de un rango sin refrescos hace este tiempo se olvida.
+	meetingRangeKeep = time.Hour
 )
+
+// meetRange es el estado de los refrescos de un rango [from, to).
+type meetRange struct {
+	running bool
+	started time.Time // cuándo se lanzó el último (reloj real)
+	lastErr string    // motivo del último fallo; "" si salió bien
+	lastOK  time.Time // c.now() del último refresco bueno
+}
 
 // Cambios de una reunión con espejo que todavía no se les avisaron a los externos.
 const (
@@ -152,8 +171,20 @@ func (c *Core) fetchMeetings(ctx context.Context, cl *taskapp.Client, from, to t
 	}
 	wide := from.Add(-meetingLookback)
 	byWS := make([][]taskapp.Meeting, len(ws))
+	errs := make([]error, len(ws))
+	var wg sync.WaitGroup
 	for i, w := range ws {
-		if byWS[i], err = cl.Meetings(ctx, w.ID, wide, to); err != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wctx, cancel := context.WithTimeout(ctx, meetingFetchWait)
+			defer cancel()
+			byWS[i], errs[i] = cl.Meetings(wctx, w.ID, wide, to)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
 			return nil, nil, err
 		}
 	}
@@ -206,46 +237,160 @@ func (c *Core) knownProjects() map[int64]taskapp.Project {
 	return projectsByID(c.taskappProjs)
 }
 
-// meetingsFor devuelve las reuniones del usuario que se superponen con
-// [from, to), más los espejos del rango cuya reunión no vino. Con una lectura
-// buena, además marca los cambios de los espejos. Si Taskapp no responde
-// sirve la caché (stale). Con el token rechazado no devuelve nada (ni la
-// caché ni los espejos) y sí el motivo; sin Taskapp conectado, nada y sin error.
+// meetingsFor devuelve, desde la caché y sin esperar a Taskapp, las
+// reuniones del usuario que se superponen con [from, to), más los espejos del
+// rango cuya reunión no está, y lanza en el fondo un refresco del rango (ver
+// requestMeetingRefresh). stale si el último refresco del rango falló o la
+// caché tiene más de meetingStaleAfter; errMsg es el motivo del último fallo.
+// Sin Taskapp conectado, nada; con el token rechazado, nada (ni la caché ni
+// los espejos) y el motivo, sin refrescar hasta reconectar.
 func (c *Core) meetingsFor(ctx context.Context, from, to time.Time) (items []model.CalendarItem, stale bool, at time.Time, errMsg string) {
-	cl, err := c.taskappClient(ctx)
-	if isTaskappDisconnected(err) {
-		return nil, false, time.Time{}, ""
-	}
-	if err != nil {
-		return nil, false, time.Time{}, err.Error()
-	}
-	var meetings []taskapp.Meeting
-	var projs map[int64]taskapp.Project
-	if mine, ps, ferr := c.fetchMeetings(ctx, cl, from.UTC(), to.UTC()); ferr == nil {
-		meetings, projs, at = mine, ps, c.now()
-		c.detectTaskappChanges(ctx, cl, mine, from, to)
-	} else {
-		if c.ctxErr(ctx) != nil {
+	if _, err := c.taskappClient(ctx); err != nil {
+		if isTaskappDisconnected(err) {
 			return nil, false, time.Time{}, ""
 		}
-		uerr := c.taskappErr(ferr)
-		if isTaskappAuth(uerr) {
-			return nil, false, time.Time{}, uerr.Error()
-		}
-		stale, projs, errMsg = true, c.knownProjects(), uerr.Error()
-		cached, oldest, cerr := c.store.MeetingsInRange(ctx, from, to)
-		if cerr != nil {
-			slog.Warn("no se pudo leer la caché de reuniones de Taskapp", "err", cerr)
-		}
-		at = oldest
-		for _, sm := range cached {
-			var m taskapp.Meeting
-			if json.Unmarshal([]byte(sm.JSON), &m) == nil {
-				meetings = append(meetings, m)
-			}
+		return nil, false, time.Time{}, err.Error()
+	}
+	cached, oldest, err := c.store.MeetingsInRange(ctx, from, to)
+	if err != nil && c.ctxErr(ctx) == nil {
+		slog.Warn("no se pudo leer la caché de reuniones de Taskapp", "err", err)
+	}
+	meetings := make([]taskapp.Meeting, 0, len(cached))
+	for _, sm := range cached {
+		var m taskapp.Meeting
+		if json.Unmarshal([]byte(sm.JSON), &m) == nil {
+			meetings = append(meetings, m)
 		}
 	}
-	return c.meetingRangeItems(ctx, meetings, projs, from, to), stale, at, errMsg
+	st := c.requestMeetingRefresh(from, to)
+	at = oldest
+	if at.IsZero() {
+		at = st.lastOK
+	}
+	stale = st.lastErr != "" || (!at.IsZero() && c.now().Sub(at) > meetingStaleAfter)
+	return c.meetingRangeItems(ctx, meetings, c.knownProjects(), from, to), stale, at, st.lastErr
+}
+
+func meetingRangeKey(from, to time.Time) string {
+	return strconv.FormatInt(from.Unix(), 10) + "-" + strconv.FormatInt(to.Unix(), 10)
+}
+
+// requestMeetingRefresh lanza en el fondo el refresco de [from, to), salvo
+// que ya haya uno andando para ese rango o el último haya salido hace menos
+// de meetingRefreshGap. Devuelve el estado del rango antes de lanzarlo. Al
+// terminar avisa a la UI si cambió la caché, alguna marca de los espejos o si
+// el rango pasó a fallar o se recuperó.
+func (c *Core) requestMeetingRefresh(from, to time.Time) meetRange {
+	key := meetingRangeKey(from, to)
+	c.meetMu.Lock()
+	defer c.meetMu.Unlock()
+	if c.meetRanges == nil {
+		c.meetRanges = map[string]*meetRange{}
+	}
+	for k, r := range c.meetRanges {
+		if k != key && !r.running && time.Since(r.started) > meetingRangeKeep {
+			delete(c.meetRanges, k)
+		}
+	}
+	r := c.meetRanges[key]
+	if r == nil {
+		r = &meetRange{}
+		c.meetRanges[key] = r
+	}
+	st := *r
+	if r.running || (!r.started.IsZero() && time.Since(r.started) < meetingRefreshGap) {
+		return st
+	}
+	r.running, r.started = true, time.Now()
+	c.meetWG.Add(1)
+	ok := c.spawn(func(life context.Context) {
+		defer c.meetWG.Done()
+		msg, changed := c.refreshMeetingRange(life, from, to)
+		c.meetMu.Lock()
+		r.running = false
+		failedBefore := r.lastErr != ""
+		if life.Err() == nil {
+			r.lastErr = msg
+			if msg == "" {
+				r.lastOK = c.now()
+			}
+		}
+		flipped := failedBefore != (r.lastErr != "")
+		c.meetMu.Unlock()
+		if changed || (flipped && life.Err() == nil) {
+			c.emit(EventCalendarChanged, nil)
+		}
+	})
+	if !ok {
+		r.running = false
+		c.meetWG.Done()
+	}
+	return st
+}
+
+// resetMeetingRefresh olvida los fallos y la espera entre refrescos de todos
+// los rangos (al conectar o desconectar Taskapp): la próxima lectura refresca.
+func (c *Core) resetMeetingRefresh() {
+	c.meetMu.Lock()
+	defer c.meetMu.Unlock()
+	for _, r := range c.meetRanges {
+		r.started, r.lastErr = time.Time{}, ""
+	}
+}
+
+// refreshMeetingRange trae de Taskapp las reuniones de [from, to), actualiza
+// la caché y marca los cambios de los espejos. Devuelve el motivo si falló y
+// si cambió algo de lo que se muestra (la caché del rango, los proyectos o
+// las marcas). Sin Taskapp conectado no hace nada.
+func (c *Core) refreshMeetingRange(ctx context.Context, from, to time.Time) (errMsg string, changed bool) {
+	cl, err := c.taskappClient(ctx)
+	if isTaskappDisconnected(err) {
+		return "", false
+	}
+	if err != nil {
+		return err.Error(), false
+	}
+	before, projsBefore := c.meetingCacheSig(ctx, from, to), projectsSig(c.knownProjects())
+	mine, _, err := c.fetchMeetings(ctx, cl, from.UTC(), to.UTC())
+	if err != nil {
+		if c.ctxErr(ctx) != nil {
+			return "", false
+		}
+		return c.taskappErr(err).Error(), false
+	}
+	marked := c.detectTaskappChanges(ctx, cl, mine, from, to)
+	return "", marked || c.meetingCacheSig(ctx, from, to) != before || projectsSig(c.knownProjects()) != projsBefore
+}
+
+// meetingCacheSig resume las reuniones de la caché en [from, to) (sin la
+// fecha de lectura), para saber si un refresco cambió algo.
+func (c *Core) meetingCacheSig(ctx context.Context, from, to time.Time) string {
+	ms, _, err := c.store.MeetingsInRange(ctx, from, to)
+	if err != nil {
+		return "?"
+	}
+	var b strings.Builder
+	for _, m := range ms {
+		b.WriteString(strconv.FormatInt(m.ID, 10))
+		b.WriteByte(':')
+		b.WriteString(m.JSON)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// projectsSig resume los proyectos (id, nombre y color) que pintan las reuniones.
+func projectsSig(ps map[int64]taskapp.Project) string {
+	ids := make([]int64, 0, len(ps))
+	for id := range ps {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	var b strings.Builder
+	for _, id := range ids {
+		fmt.Fprintf(&b, "%d|%s|%s\n", id, ps[id].Name, ps[id].Color)
+	}
+	return b.String()
 }
 
 // meetingRangeItems arma los ítems de las reuniones que se superponen con
@@ -368,8 +513,8 @@ func mirrorChange(m *taskapp.Meeting, snap string) string {
 // (pudo haberse movido fuera del rango), se pregunta por ella a Taskapp, sin
 // calMu: solo un 404 la da por borrada; si se encuentra, se guarda en la
 // caché (para avisar con sus datos nuevos); con otro error, el espejo queda
-// como estaba. Avisa a la UI solo si cambió alguna marca.
-func (c *Core) detectTaskappChanges(ctx context.Context, cl *taskapp.Client, mine []taskapp.Meeting, from, to time.Time) {
+// como estaba. Devuelve si cambió alguna marca.
+func (c *Core) detectTaskappChanges(ctx context.Context, cl *taskapp.Client, mine []taskapp.Meeting, from, to time.Time) bool {
 	byID := make(map[int64]taskapp.Meeting, len(mine))
 	for _, m := range mine {
 		byID[m.ID] = m
@@ -379,7 +524,7 @@ func (c *Core) detectTaskappChanges(ctx context.Context, cl *taskapp.Client, min
 		if c.ctxErr(ctx) == nil {
 			slog.Warn("no se pudieron revisar los cambios de las reuniones", "err", err)
 		}
-		return
+		return false
 	}
 	gone := map[int64]bool{}
 confirm:
@@ -400,7 +545,7 @@ confirm:
 			break confirm
 		default:
 			if c.ctxErr(ctx) != nil {
-				return
+				return false
 			}
 			slog.Warn("no se pudo confirmar la reunión en Taskapp", "meetingId", id, "err", err)
 		}
@@ -412,7 +557,7 @@ confirm:
 		if c.ctxErr(ctx) == nil {
 			slog.Warn("no se pudieron revisar los cambios de las reuniones", "err", err)
 		}
-		return
+		return false
 	}
 	marked := false
 	for _, e := range mirrorsToCheck(evs, from, to) {
@@ -437,9 +582,7 @@ confirm:
 		}
 		marked = true
 	}
-	if marked {
-		c.emit(EventCalendarChanged, nil)
-	}
+	return marked
 }
 
 // cacheMeeting guarda una reunión suelta en la caché.
@@ -731,7 +874,10 @@ func (c *Core) refreshMeetings(ctx context.Context) {
 		return
 	}
 	now := c.now()
-	_, _, _, msg := c.meetingsFor(ctx, now.Add(-meetingRefreshBack), now.Add(meetingRefreshAhead))
+	msg, changed := c.refreshMeetingRange(ctx, now.Add(-meetingRefreshBack), now.Add(meetingRefreshAhead))
+	if changed {
+		c.emit(EventCalendarChanged, nil)
+	}
 	if msg != "" && ctx.Err() == nil {
 		slog.Warn("no se pudieron traer las reuniones de Taskapp", "err", msg)
 	}

@@ -179,6 +179,13 @@ type Core struct {
 	// meetingMirrorHook es solo para tests: si devuelve error, el espejo de
 	// una reunión recién creada no se guarda (calendar_taskapp.go).
 	meetingMirrorHook func() error
+
+	// Refrescos de reuniones de Taskapp por rango (calendar_taskapp.go):
+	// meetMu protege meetRanges; meetWG cuenta los refrescos que lanzó
+	// ListCalendar y siguen andando.
+	meetMu     sync.Mutex
+	meetRanges map[string]*meetRange
+	meetWG     sync.WaitGroup
 }
 
 func New(cfg Config) (*Core, error) {

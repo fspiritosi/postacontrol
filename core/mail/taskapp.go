@@ -257,6 +257,7 @@ func (c *Core) ConnectTaskapp(ctx context.Context, open func(string) error) (mod
 	c.taskappMe = &me
 	c.taskappAuthFailed = false
 	c.taskappMu.Unlock()
+	c.resetMeetingRefresh()
 	c.emit(EventTaskappChanged, nil)
 	return c.statusOf(me), nil
 }
@@ -268,6 +269,7 @@ func (c *Core) DisconnectTaskapp(ctx context.Context) error {
 	}
 	c.forgetTaskapp()
 	c.setTaskappAuthFailed(false)
+	c.resetMeetingRefresh()
 	if err := c.store.ClearTaskappData(ctx); err != nil {
 		return c.ctxOrUserError(ctx, err)
 	}

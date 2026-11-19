@@ -116,8 +116,9 @@ func (c *Core) occurrences(e model.CalendarEvent, from, to time.Time) []occurren
 
 // ListCalendar devuelve lo que hay en [from, to): los eventos locales y las
 // invitaciones (salvo las rechazadas), las tareas locales pendientes con fecha
-// y las reuniones de Taskapp del usuario (ver meetingsFor; los espejos salen
-// en el ítem de su reunión, no aparte).
+// y las reuniones de Taskapp del usuario desde la caché, sin esperar a
+// Taskapp (ver meetingsFor; los espejos salen en el ítem de su reunión, no
+// aparte).
 func (c *Core) ListCalendar(ctx context.Context, from, to time.Time) (model.CalendarRange, error) {
 	evs, err := c.store.EventsInRange(ctx, from, to)
 	if err != nil {

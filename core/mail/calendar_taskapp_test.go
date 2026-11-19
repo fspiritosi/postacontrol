@@ -50,13 +50,14 @@ type meetTaskapp struct {
 	srv      *httptest.Server
 	mu       sync.Mutex
 	meetings []fakeMeeting
-	posts    []string // cuerpos de los POST /api/meetings
-	gets     int      // GET /api/meetings
-	down     bool     // /api/meetings corta la conexión sin responder
-	code     int      // /api/meetings responde con este código (0 = normal)
-	postDrop bool     // el POST corta la conexión sin responder
-	details  int      // GET /api/meetings/{id}
-	detailDn bool     // GET /api/meetings/{id} corta la conexión sin responder
+	posts    []string      // cuerpos de los POST /api/meetings
+	gets     int           // GET /api/meetings
+	down     bool          // /api/meetings corta la conexión sin responder
+	code     int           // /api/meetings responde con este código (0 = normal)
+	postDrop bool          // el POST corta la conexión sin responder
+	details  int           // GET /api/meetings/{id}
+	detailDn bool          // GET /api/meetings/{id} corta la conexión sin responder
+	hang     chan struct{} // si no es nil, GET /api/meetings no responde hasta que se cierre
 	nextID   int64
 }
 
@@ -123,6 +124,16 @@ func newMeetTaskapp(t *testing.T) *meetTaskapp {
 			_, _ = w.Write([]byte(`[{"id":7,"name":"Fabricio","email":"f@ej.com"},{"id":2,"name":"Ana","email":"ana@cc.com"}]`))
 		case r.URL.Path == "/api/meetings" && r.Method == "GET":
 			f.gets++
+			if hang := f.hang; hang != nil {
+				f.mu.Unlock()
+				select {
+				case <-hang:
+				case <-r.Context().Done():
+				}
+				f.mu.Lock()
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			if f.down {
 				drop(w)
 				return
@@ -234,9 +245,23 @@ var (
 	meetTo   = tu(2026, 12, 8, 0, 0)
 )
 
+// listRange lista [meetFrom, meetTo) con las reuniones ya refrescadas: ver listFresh.
 func listRange(t *testing.T, c *Core) model.CalendarRange {
 	t.Helper()
-	r, err := c.ListCalendar(context.Background(), meetFrom, meetTo)
+	return listFresh(t, c, meetFrom, meetTo)
+}
+
+// listFresh espera los refrescos en curso, deja que ListCalendar lance uno
+// nuevo del rango (sin la espera entre refrescos), lo espera y vuelve a
+// listar (esa segunda lectura ya no lanza otro).
+func listFresh(t *testing.T, c *Core, from, to time.Time) model.CalendarRange {
+	t.Helper()
+	c.meetWG.Wait()
+	c.resetMeetingRefresh()
+	_, err := c.ListCalendar(context.Background(), from, to)
+	require.NoError(t, err)
+	c.meetWG.Wait()
+	r, err := c.ListCalendar(context.Background(), from, to)
 	require.NoError(t, err)
 	return r
 }
@@ -534,8 +559,7 @@ func TestTaskappChange_OfflineNoFalseDelete(t *testing.T) {
 	// Un rango que no cubre la hora del espejo no dice nada de él.
 	f.set(func() { f.code = 0 })
 	f.remove(77)
-	_, err := c.ListCalendar(context.Background(), tu(2026, 12, 10, 0, 0), tu(2026, 12, 17, 0, 0))
-	require.NoError(t, err)
+	listFresh(t, c, tu(2026, 12, 10, 0, 0), tu(2026, 12, 17, 0, 0))
 	assert.Empty(t, mirrorOf(t, c, 77).TaskappChange)
 
 	items := meetingItems(listRange(t, c))
@@ -793,4 +817,94 @@ func TestCreateMeeting_SendFailedMessageContract(t *testing.T) {
 	msg := fmt.Sprintf(msgMeetingSendFailed, "motivo")
 	assert.Contains(t, msg, "no la vuelvas a crear")
 	assert.Equal(t, "La reunión se creó en Taskapp, pero no pudimos mandar la invitación a los invitados externos: motivo; no la vuelvas a crear.", msg)
+}
+
+// Con Taskapp colgado, el calendario vuelve enseguida con lo local y las
+// reuniones de la caché; el refresco queda andando en el fondo.
+func TestMeetings_ListDoesNotWaitForTaskapp(t *testing.T) {
+	c, f, _, _, acc := meetCore(t)
+	f.set(func() { f.meetings = []fakeMeeting{fm(1, 7, tu(2026, 12, 2, 13, 0))} })
+	require.Len(t, meetingItems(listRange(t, c)), 1)
+	_, err := c.SaveEvent(context.Background(), model.EventSave{Event: model.CalendarEvent{Title: "Local",
+		Start: tu(2026, 12, 2, 10, 0), End: tu(2026, 12, 2, 11, 0), AccountID: acc.ID}})
+	require.NoError(t, err)
+	hang := make(chan struct{})
+	t.Cleanup(func() { close(hang) })
+	f.set(func() { f.hang, f.gets = hang, 0 })
+	c.resetMeetingRefresh()
+
+	done := make(chan model.CalendarRange, 1)
+	go func() {
+		r, err := c.ListCalendar(context.Background(), meetFrom, meetTo)
+		assert.NoError(t, err)
+		done <- r
+	}()
+	var r model.CalendarRange
+	select {
+	case r = <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("ListCalendar esperó a Taskapp")
+	}
+	require.Len(t, r.Items, 2)
+	assert.Equal(t, "Local", r.Items[0].Title)
+	assert.Equal(t, "m:1", r.Items[1].Key)
+	require.Eventually(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.gets == 1
+	}, 5*time.Second, 5*time.Millisecond, "el refresco salió en el fondo")
+}
+
+// Dos lecturas seguidas del mismo rango lanzan un solo refresco: mientras
+// uno anda no sale otro, y después hay que esperar entre refrescos.
+func TestMeetings_OneRefreshPerRange(t *testing.T) {
+	c, f, _, _, _ := meetCore(t)
+	listRange(t, c)
+	hang := make(chan struct{})
+	f.set(func() { f.hang, f.gets = hang, 0 })
+	c.resetMeetingRefresh()
+	_, err := c.ListCalendar(context.Background(), meetFrom, meetTo)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.gets == 1
+	}, 5*time.Second, 5*time.Millisecond)
+	c.resetMeetingRefresh() // sin la espera: solo frena que haya uno andando
+	_, err = c.ListCalendar(context.Background(), meetFrom, meetTo)
+	require.NoError(t, err)
+	close(hang)
+	c.meetWG.Wait()
+	f.set(func() { assert.Equal(t, 1, f.gets, "uno en curso alcanza") })
+
+	f.set(func() { f.hang, f.gets = nil, 0 })
+	c.resetMeetingRefresh()
+	for range 2 {
+		_, err = c.ListCalendar(context.Background(), meetFrom, meetTo)
+		require.NoError(t, err)
+	}
+	c.meetWG.Wait()
+	_, err = c.ListCalendar(context.Background(), meetFrom, meetTo)
+	require.NoError(t, err)
+	c.meetWG.Wait()
+	f.set(func() { assert.Equal(t, 1, f.gets, "como mucho uno cada 30 s") })
+}
+
+// Un refresco que no cambia nada no avisa; la caché vieja se marca stale.
+func TestMeetings_QuietRefreshAndStaleCache(t *testing.T) {
+	c, f, _, n, _ := meetCore(t)
+	f.set(func() { f.meetings = []fakeMeeting{fm(1, 7, tu(2026, 12, 2, 13, 0))} })
+	first := listRange(t, c)
+	assert.False(t, first.TaskappStale)
+	before := len(n.matching(EventCalendarChanged))
+	listRange(t, c)
+	assert.Len(t, n.matching(EventCalendarChanged), before, "sin cambios no se avisa")
+
+	later := time.Now().Add(16 * time.Minute)
+	c.now = func() time.Time { return later }
+	r, err := c.ListCalendar(context.Background(), meetFrom, meetTo) // ya refrescado hace poco: no sale otro
+	require.NoError(t, err)
+	assert.True(t, r.TaskappStale, "la caché tiene más de 15 minutos")
+	assert.Empty(t, r.TaskappError)
+	assert.Len(t, meetingItems(r), 1)
 }
