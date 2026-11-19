@@ -472,3 +472,15 @@ func TestEvents_ChildrenOnlyOfReturned(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, []model.Attendee{{Email: "a@x.com"}}, got[0].Attendees)
 }
+
+func TestCachedMeeting_ByID(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	m := StoredMeeting{ID: 9, WorkspaceID: 3, Start: day(5), End: day(5).Add(time.Hour), JSON: `{"ID":9}`}
+	require.NoError(t, s.ReplaceMeetings(ctx, 3, day(1), day(30), []StoredMeeting{m}, time.Now()))
+	got, err := s.CachedMeeting(ctx, 9)
+	require.NoError(t, err)
+	assert.Equal(t, m, got)
+	_, err = s.CachedMeeting(ctx, 10)
+	assert.ErrorIs(t, err, ErrNotFound)
+}

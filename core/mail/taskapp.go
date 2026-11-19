@@ -197,7 +197,7 @@ func isTaskappUnreachable(err error) bool {
 }
 
 func (c *Core) statusOf(u taskapp.User) model.TaskappStatus {
-	return model.TaskappStatus{Connected: true, UserName: u.Name, UserEmail: u.Email}
+	return model.TaskappStatus{Connected: true, UserID: u.ID, UserName: u.Name, UserEmail: u.Email}
 }
 
 // ConnectTaskapp conecta con Taskapp desde el navegador. Una conexión nueva

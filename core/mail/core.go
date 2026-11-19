@@ -176,6 +176,9 @@ type Core struct {
 	inflight         map[string]struct{}
 	addLinkHook      func() error
 	afterCommentHook func()
+	// meetingMirrorHook es solo para tests: si devuelve error, el espejo de
+	// una reunión recién creada no se guarda (calendar_taskapp.go).
+	meetingMirrorHook func() error
 }
 
 func New(cfg Config) (*Core, error) {

@@ -115,7 +115,9 @@ func (c *Core) occurrences(e model.CalendarEvent, from, to time.Time) []occurren
 }
 
 // ListCalendar devuelve lo que hay en [from, to): los eventos locales y las
-// invitaciones (salvo las rechazadas) y las tareas locales pendientes con fecha.
+// invitaciones (salvo las rechazadas), las tareas locales pendientes con fecha
+// y las reuniones de Taskapp del usuario (ver meetingsFor; los espejos salen
+// en el ítem de su reunión, no aparte).
 func (c *Core) ListCalendar(ctx context.Context, from, to time.Time) (model.CalendarRange, error) {
 	evs, err := c.store.EventsInRange(ctx, from, to)
 	if err != nil {
@@ -155,13 +157,18 @@ func (c *Core) ListCalendar(ctx context.Context, from, to time.Time) (model.Cale
 			items = append(items, it)
 		}
 	}
+	meetings, stale, at, taskappErr := c.meetingsFor(ctx, from, to)
+	if cerr := c.ctxErr(ctx); cerr != nil {
+		return model.CalendarRange{}, cerr
+	}
+	items = append(items, meetings...)
 	sort.SliceStable(items, func(i, j int) bool {
 		if !items[i].Start.Equal(items[j].Start) {
 			return items[i].Start.Before(items[j].Start)
 		}
 		return items[i].Key < items[j].Key
 	})
-	return model.CalendarRange{Items: items}, nil
+	return model.CalendarRange{Items: items, TaskappStale: stale, TaskappFetchedAt: at, TaskappError: taskappErr}, nil
 }
 
 // taskItem arma el ítem de una tarea con fecha: con hora, un bloque de media

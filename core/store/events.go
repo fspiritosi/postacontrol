@@ -418,3 +418,19 @@ func (s *Store) MeetingsInRange(ctx context.Context, from, to time.Time) ([]Stor
 	}
 	return out, time.Unix(oldest, 0).UTC(), nil
 }
+
+// CachedMeeting devuelve la reunión de la caché; ErrNotFound si no está.
+func (s *Store) CachedMeeting(ctx context.Context, id int64) (StoredMeeting, error) {
+	var m StoredMeeting
+	var start, end int64
+	err := s.db.QueryRowContext(ctx, `SELECT id, workspace_id, start_at, end_at, json FROM taskapp_meetings WHERE id = ?`, id).
+		Scan(&m.ID, &m.WorkspaceID, &start, &end, &m.JSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StoredMeeting{}, ErrNotFound
+	}
+	if err != nil {
+		return StoredMeeting{}, err
+	}
+	m.Start, m.End = time.Unix(start, 0).UTC(), time.Unix(end, 0).UTC()
+	return m, nil
+}

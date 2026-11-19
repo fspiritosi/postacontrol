@@ -367,6 +367,7 @@ type Settings struct {
 // TaskappStatus dice si hay una cuenta de Taskapp conectada y de quién.
 type TaskappStatus struct {
 	Connected bool   `json:"connected"`
+	UserID    int64  `json:"userId"`
 	UserName  string `json:"userName"`
 	UserEmail string `json:"userEmail"`
 }
@@ -377,6 +378,35 @@ type TaskappProject struct {
 	WorkspaceID int64  `json:"workspaceId"`
 	Name        string `json:"name"`
 	Color       string `json:"color"`
+}
+
+// TaskappWorkspace es un workspace de Taskapp.
+type TaskappWorkspace struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// TaskappMember es un miembro de un workspace de Taskapp.
+type TaskappMember struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// TaskappMeetingCreate es el pedido de crear una reunión en Taskapp desde el
+// calendario; External son los invitados de afuera, que reciben un .ics.
+type TaskappMeetingCreate struct {
+	WorkspaceID int64     `json:"workspaceId"`
+	ProjectID   int64     `json:"projectId"` // 0 = sin proyecto
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Location    string    `json:"location"`
+	AllDay      bool      `json:"allDay"`
+	Start       time.Time `json:"start"`
+	End         time.Time `json:"end"`
+	AttendeeIDs []int64   `json:"attendeeIds"`
+	External    []Address `json:"external"`
+	AccountID   int64     `json:"accountId"` // cuenta que manda a los externos
 }
 
 // TaskappTask es una tarea o ticket pendiente asignado al usuario.
