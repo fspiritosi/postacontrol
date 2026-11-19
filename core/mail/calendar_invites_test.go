@@ -958,3 +958,60 @@ func TestInvite_SubDailyRuleIgnored(t *testing.T) {
 	assert.Empty(t, e.RRule)
 	assert.Len(t, december(t, c), 1)
 }
+
+// removedInvite deja una invitación cancelada y quitada del calendario (el
+// REQUEST con SEQUENCE 1 y el CANCEL con SEQUENCE 3 en la Entrada) y
+// devuelve el núcleo, el IMAP, la cuenta y la carpeta Archivo ya creada.
+func removedInvite(t *testing.T) (*Core, *testenv.IMAP, model.Account, int64) {
+	t.Helper()
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	imap.Deliver(t, "INBOX", inviteMail("request", orgFrom, sampleICS(t, "google-request.ics")))
+	imap.Deliver(t, "INBOX", inviteMail("cancel", orgFrom, sampleICS(t, "google-cancel.ics")))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+	open(t, c, inbox, "request")
+	open(t, c, inbox, "cancel")
+	require.NoError(t, c.RemoveCancelledEvent(context.Background(), inviteEvent(t, c).ID))
+	noEvents(t, c)
+	return c, imap, acc, folderID(t, c, acc.ID, "Archivo")
+}
+
+// Una copia del REQUEST original en otra carpeta no hace volver una
+// invitación cancelada y quitada.
+func TestInvite_RemovedNotRevivedByCopy(t *testing.T) {
+	c, imap, acc, archive := removedInvite(t)
+	imap.Deliver(t, "Archivo", inviteMail("request", orgFrom, sampleICS(t, "google-request.ics")))
+	imap.Deliver(t, "Archivo", inviteMail("update-viejo", orgFrom, sampleICS(t, "google-update.ics"))) // SEQUENCE 2 < 3
+	require.NoError(t, c.SyncFolder(context.Background(), archive))
+	_ = acc
+
+	copy := open(t, c, archive, "request")
+	older := open(t, c, archive, "update-viejo")
+
+	noEvents(t, c)
+	assert.Equal(t, "duplicate", outcome(t, c, copy))
+	assert.Equal(t, "outdated", outcome(t, c, older))
+}
+
+// Una invitación de verdad más nueva, después de quitarla, sí se crea.
+func TestInvite_NewerRequestAfterRemoval(t *testing.T) {
+	for name, ics := range map[string]func(string) string{
+		"más SEQUENCE": func(s string) string { return strings.Replace(s, "SEQUENCE:1", "SEQUENCE:4", 1) },
+		"mismo SEQUENCE y DTSTAMP posterior": func(s string) string {
+			s = strings.Replace(s, "SEQUENCE:1", "SEQUENCE:3", 1)
+			return strings.Replace(s, "DTSTAMP:20261117T120500Z", "DTSTAMP:20261120T090000Z", 1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, imap, _, archive := removedInvite(t)
+			imap.Deliver(t, "Archivo", inviteMail("de-nuevo", orgFrom, ics(sampleICS(t, "google-request.ics"))))
+			require.NoError(t, c.SyncFolder(context.Background(), archive))
+
+			id := open(t, c, archive, "de-nuevo")
+
+			assert.Equal(t, "created", outcome(t, c, id))
+			assert.Equal(t, "confirmed", inviteEvent(t, c).Status)
+		})
+	}
+}

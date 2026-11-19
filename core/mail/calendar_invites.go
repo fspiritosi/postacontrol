@@ -182,6 +182,11 @@ func (c *Core) applyRequest(ctx context.Context, d model.MessageDetail, cal ical
 		next.RRule, next.Exceptions = "", []model.EventException{}
 	}
 	if found := err == nil; !found {
+		// Una invitación quitada del calendario no vuelve por una copia del
+		// correo (otra carpeta): tiene que ser más nueva que lo ya visto.
+		if outcome, err := c.seenInvite(ctx, s); err != nil || outcome != "" {
+			return outcome, false, err
+		}
 		if eventPast(next, c.now()) {
 			return outcomePast, false, nil
 		}
@@ -226,6 +231,37 @@ func (c *Core) applyRequest(ctx context.Context, d model.MessageDetail, cal ical
 	}
 	_, err = c.store.SaveEvent(ctx, next, seriesEnd(next))
 	return outcomeUpdated, err == nil, err
+}
+
+// seenInvite compara el REQUEST de la serie s con los correos ya procesados
+// de esa UID (REQUEST y CANCEL): "duplicate" si es copia de un REQUEST visto
+// (misma SEQUENCE y DTSTAMP); "outdated" si no es más nuevo que el último
+// visto (SEQUENCE mayor o, con la misma, DTSTAMP posterior); "" si lo es (o
+// no se vio nada).
+func (c *Core) seenInvite(ctx context.Context, s icalx.Series) (string, error) {
+	recs, err := c.store.InviteRecordsByUID(ctx, recordUID(s))
+	if err != nil || len(recs) == 0 {
+		return "", err
+	}
+	m := s.Master
+	maxSeq, stamp, copied := -1, time.Time{}, false
+	for _, r := range recs {
+		var st time.Time
+		if cal, err := icalx.Parse([]byte(r.ICS)); err == nil && len(cal.Series) > 0 {
+			st = cal.Series[0].Master.DTStamp
+		}
+		copied = copied || (r.Method == "REQUEST" && r.Sequence == m.Sequence && st.Equal(m.DTStamp))
+		if r.Sequence > maxSeq || (r.Sequence == maxSeq && st.After(stamp)) {
+			maxSeq, stamp = r.Sequence, st
+		}
+	}
+	switch {
+	case copied:
+		return outcomeDuplicate, nil
+	case m.Sequence > maxSeq || (m.Sequence == maxSeq && m.DTStamp.After(stamp)):
+		return "", nil
+	}
+	return outcomeOutdated, nil
 }
 
 // storedStamp es el DTSTAMP del maestro del iCalendar guardado (cero si no hay).

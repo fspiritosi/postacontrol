@@ -366,6 +366,26 @@ func (s *Store) InviteSeen(ctx context.Context, uid string, sequence int, sender
 	return n > 0, err
 }
 
+// InviteRecordsByUID devuelve los registros de REQUEST y CANCEL con esa uid
+// (quedan aunque el evento se haya quitado).
+func (s *Store) InviteRecordsByUID(ctx context.Context, uid string) ([]InviteRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT message_id, method, uid, sequence, sender, ics, outcome FROM invite_messages
+ WHERE uid = ? AND method IN ('REQUEST','CANCEL') ORDER BY message_id`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []InviteRecord
+	for rows.Next() {
+		var r InviteRecord
+		if err := rows.Scan(&r.MessageID, &r.Method, &r.UID, &r.Sequence, &r.Sender, &r.ICS, &r.Outcome); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SaveInviteRecord(ctx context.Context, r InviteRecord) error {
 	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO invite_messages (message_id, method, uid, sequence, sender, ics, outcome, processed_at)
  VALUES (?,?,?,?,?,?,?,?)`, r.MessageID, r.Method, r.UID, r.Sequence, r.Sender, r.ICS, r.Outcome, time.Now().Unix())
