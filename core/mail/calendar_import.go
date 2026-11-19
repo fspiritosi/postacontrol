@@ -259,7 +259,7 @@ func (c *Core) importedEvent(s icalx.Series, accs []model.Account) (model.Calend
 				receiver = a.ID
 			}
 		}
-		setMyAttendee(&e, m.Attendees, accs, receiver)
+		setMyAttendee(&e, m.Attendees, accs, receiver, nil)
 		return e, nil
 	}
 	e.Kind = "local"

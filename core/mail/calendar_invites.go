@@ -37,6 +37,9 @@ const (
 	outcomeCancelled = "cancelled"
 	outcomeReply     = "reply"
 	outcomeNoEvent   = "noevent" // CANCEL o REPLY de un evento que no tenemos
+	// El .ics del correo no es una invitación (PUBLISH, ilegible): se anota
+	// para no volver a bajarlo, pero no muestra tarjeta.
+	outcomeNotInvite = "notinvite"
 )
 
 // ignoredInviteRoles son las carpetas cuyas invitaciones no se procesan.
@@ -53,23 +56,31 @@ func (c *Core) noteInvite(ctx context.Context, d model.MessageDetail, ics []byte
 }
 
 func (c *Core) processInvite(ctx context.Context, d model.MessageDetail, ics []byte) error {
+	sender := strings.ToLower(strings.TrimSpace(d.From.Email))
 	cal, err := icalx.Parse(ics)
-	if err != nil || len(cal.Series) == 0 {
-		slog.Debug("invitaciones: el calendario del correo no se puede leer", "mensaje", d.ID, "err", err)
-		return nil
+	method := cal.Method
+	if err == nil && len(cal.Series) == 0 {
+		err = errors.New("no trae eventos")
 	}
-	switch cal.Method {
-	case "REQUEST", "CANCEL", "REPLY":
-	default:
-		slog.Debug("invitaciones: el calendario del correo no es una invitación", "mensaje", d.ID, "method", cal.Method)
-		return nil
+	if err == nil && method != "REQUEST" && method != "CANCEL" && method != "REPLY" {
+		err = fmt.Errorf("método %q", method)
+	}
+	if err != nil {
+		slog.Debug("invitaciones: el calendario del correo no es una invitación", "mensaje", d.ID, "err", err)
+		return c.store.SaveInviteRecord(ctx, store.InviteRecord{MessageID: d.ID, Method: method, Sender: sender,
+			Outcome: outcomeNotInvite})
 	}
 	accs, err := c.store.ListAccounts(ctx)
 	if err != nil {
 		return err
 	}
-	if ignored, err := c.inviteIgnored(ctx, d, accs); err != nil || ignored {
+	if ignored, err := c.inviteFolderIgnored(ctx, d); err != nil || ignored {
 		return err
+	}
+	// Lo que manda una de las cuentas es una copia de lo propio; salvo una
+	// respuesta: la cuenta puede estar invitada a un evento de otra.
+	if method != "REPLY" && accountByEmail(accs, d.From.Email) != nil {
+		return nil
 	}
 
 	c.calMu.Lock()
@@ -78,12 +89,14 @@ func (c *Core) processInvite(ctx context.Context, d model.MessageDetail, ics []b
 		return err
 	}
 	m := cal.Series[0].Master
-	rec := store.InviteRecord{MessageID: d.ID, Method: cal.Method, UID: recordUID(cal.Series[0]), Sequence: m.Sequence,
-		Sender: strings.ToLower(strings.TrimSpace(d.From.Email)), ICS: string(cal.Raw)}
-	// Una respuesta nueva puede venir con la misma SEQUENCE (el invitado
-	// cambió de idea): las respuestas solo se cuidan por correo.
+	rec := store.InviteRecord{MessageID: d.ID, Method: method, UID: recordUID(cal.Series[0]), Sequence: m.Sequence,
+		Sender: sender, ICS: string(cal.Raw)}
+	// Un REQUEST repetido (el mismo correo en dos carpetas) lo descarta
+	// applyRequest por SEQUENCE y DTSTAMP. Una respuesta nueva puede venir con
+	// la misma SEQUENCE (el invitado cambió de idea): las respuestas solo se
+	// cuidan por correo.
 	seen := false
-	if cal.Method != "REPLY" {
+	if method == "CANCEL" {
 		if seen, err = c.store.InviteSeen(ctx, rec.UID, rec.Sequence, rec.Sender, rec.Method); err != nil {
 			return err
 		}
@@ -92,9 +105,9 @@ func (c *Core) processInvite(ctx context.Context, d model.MessageDetail, ics []b
 	switch {
 	case seen:
 		rec.Outcome = outcomeDuplicate
-	case cal.Method == "REQUEST":
+	case method == "REQUEST":
 		rec.Outcome, changed, err = c.applyRequest(ctx, d, cal, accs)
-	case cal.Method == "CANCEL":
+	case method == "CANCEL":
 		rec.Outcome, changed, err = c.applyCancel(ctx, cal.Series[0])
 	default:
 		rec.Outcome, changed, err = c.applyReply(ctx, m)
@@ -128,14 +141,14 @@ func recordUID(s icalx.Series) string {
 	return s.Master.UID + "#" + strings.Join(parts, ",")
 }
 
-// inviteIgnored dice si la invitación del correo no se procesa: está en
-// Enviados, Borradores, Papelera o Spam, o la manda una de las cuentas.
-func (c *Core) inviteIgnored(ctx context.Context, d model.MessageDetail, accs []model.Account) (bool, error) {
+// inviteFolderIgnored dice si la invitación del correo no se procesa por la
+// carpeta: Enviados, Borradores, Papelera o Spam.
+func (c *Core) inviteFolderIgnored(ctx context.Context, d model.MessageDetail) (bool, error) {
 	f, _, err := c.store.GetFolder(ctx, d.FolderID)
 	if err != nil {
 		return false, err
 	}
-	return ignoredInviteRoles[f.Role] || accountByEmail(accs, d.From.Email) != nil, nil
+	return ignoredInviteRoles[f.Role], nil
 }
 
 // accountByEmail es la cuenta con esa dirección (sin distinguir mayúsculas).
@@ -164,11 +177,15 @@ func (c *Core) applyRequest(ctx context.Context, d model.MessageDetail, cal ical
 		return "", false, err
 	}
 	next := seriesEvent(s, cal.Raw)
+	if subDailyRule(next.RRule) {
+		slog.Info("invitaciones: se ignora una repetición de menos de un día", "uid", m.UID, "rrule", next.RRule)
+		next.RRule, next.Exceptions = "", []model.EventException{}
+	}
 	if found := err == nil; !found {
 		if eventPast(next, c.now()) {
 			return outcomePast, false, nil
 		}
-		setMyAttendee(&next, m.Attendees, accs, d.AccountID)
+		setMyAttendee(&next, m.Attendees, accs, d.AccountID, append(append([]model.Address(nil), d.To...), d.Cc...))
 		_, err := c.store.SaveEvent(ctx, next, seriesEnd(next))
 		return outcomeCreated, err == nil, err
 	}
@@ -176,14 +193,26 @@ func (c *Core) applyRequest(ctx context.Context, d model.MessageDetail, cal ical
 		return outcomeOwn, false, nil
 	}
 	// Las ocurrencias sueltas valen con la misma SEQUENCE de la serie (cada
-	// una es de otra ocurrencia); la serie entera tiene que ser más nueva.
+	// una es de otra ocurrencia); la serie entera tiene que ser más nueva o,
+	// con la misma SEQUENCE, tener un DTSTAMP posterior (RFC 5546 §2.1.5).
 	occurrences := !m.RecurrenceID.IsZero() && prev.RRule != ""
-	if m.Sequence < prev.Sequence || (m.Sequence == prev.Sequence && !occurrences) {
+	if m.Sequence < prev.Sequence {
 		return outcomeOutdated, false, nil
+	}
+	if m.Sequence == prev.Sequence && !occurrences {
+		switch stamp := storedStamp(prev); {
+		case m.DTStamp.Equal(stamp):
+			return outcomeDuplicate, false, nil
+		case !m.DTStamp.After(stamp):
+			return outcomeOutdated, false, nil
+		}
 	}
 	if occurrences {
 		next = withOverrides(prev, s.Overrides)
 		next.Sequence = max(prev.Sequence, m.Sequence)
+		if sameInvite(prev, next) { // la misma ocurrencia otra vez
+			return outcomeDuplicate, false, nil
+		}
 	} else {
 		next.ID, next.Notes, next.RemindBefore = prev.ID, prev.Notes, prev.RemindBefore
 		next.AccountID, next.MyEmail, next.AliasReply = prev.AccountID, prev.MyEmail, prev.AliasReply
@@ -197,6 +226,39 @@ func (c *Core) applyRequest(ctx context.Context, d model.MessageDetail, cal ical
 	}
 	_, err = c.store.SaveEvent(ctx, next, seriesEnd(next))
 	return outcomeUpdated, err == nil, err
+}
+
+// storedStamp es el DTSTAMP del maestro del iCalendar guardado (cero si no hay).
+func storedStamp(e model.CalendarEvent) time.Time {
+	cal, err := icalx.Parse([]byte(e.RawICS))
+	if err != nil || len(cal.Series) == 0 {
+		return time.Time{}
+	}
+	return cal.Series[0].Master.DTStamp
+}
+
+// sameInvite dice si sumar ocurrencias no cambió nada de la invitación.
+func sameInvite(a, b model.CalendarEvent) bool {
+	return a.Sequence == b.Sequence && a.NeedsReview == b.NeedsReview && a.MyPartstat == b.MyPartstat &&
+		slices.EqualFunc(a.Exceptions, b.Exceptions, func(x, y model.EventException) bool {
+			return x.RecurrenceAt.Equal(y.RecurrenceAt) && x.Cancelled == y.Cancelled && x.Start.Equal(y.Start) &&
+				x.End.Equal(y.End) && x.Title == y.Title && x.Location == y.Location && x.Description == y.Description
+		})
+}
+
+// subDailyRule dice si la regla se repite más de una vez por día
+// (FREQ=SECONDLY, MINUTELY u HOURLY).
+func subDailyRule(rule string) bool {
+	for _, part := range strings.Split(rule, ";") {
+		k, v, _ := strings.Cut(part, "=")
+		if strings.EqualFold(strings.TrimSpace(k), "FREQ") {
+			switch strings.ToUpper(strings.TrimSpace(v)) {
+			case "SECONDLY", "MINUTELY", "HOURLY":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // withOverrides suma a la serie las ocurrencias cambiadas. Si alguna cambió
@@ -229,15 +291,28 @@ func withOverrides(e model.CalendarEvent, ovs []icalx.VEvent) model.CalendarEven
 }
 
 // setMyAttendee elige con qué cuenta se responde: la del primer ATTENDEE que
-// coincide con una cuenta o, si ninguno, la que recibió el correo (alias).
-func setMyAttendee(e *model.CalendarEvent, atts []icalx.Attendee, accs []model.Account, receiver int64) {
+// coincide con una cuenta; si ninguno, la que recibió el correo, con la
+// dirección del ATTENDEE que figura entre los destinatarios del correo
+// (recipients: To y Cc) o, si tampoco, con la de la cuenta (AliasReply).
+func setMyAttendee(e *model.CalendarEvent, atts []icalx.Attendee, accs []model.Account, receiver int64, recipients []model.Address) {
+	partstat := func(a icalx.Attendee) string {
+		if a.Partstat == "" {
+			return "NEEDS-ACTION"
+		}
+		return a.Partstat
+	}
 	for _, a := range atts {
 		if acc := accountByEmail(accs, a.Email); acc != nil {
-			e.AccountID, e.MyEmail, e.MyPartstat = acc.ID, acc.Email, a.Partstat
-			if e.MyPartstat == "" {
-				e.MyPartstat = "NEEDS-ACTION"
-			}
+			e.AccountID, e.MyEmail, e.MyPartstat = acc.ID, acc.Email, partstat(a)
 			return
+		}
+	}
+	for _, a := range atts {
+		for _, r := range recipients {
+			if a.Email != "" && strings.EqualFold(strings.TrimSpace(r.Email), a.Email) {
+				e.AccountID, e.MyEmail, e.MyPartstat = receiver, a.Email, partstat(a)
+				return
+			}
 		}
 	}
 	e.AccountID, e.AliasReply, e.MyPartstat = receiver, true, "NEEDS-ACTION"
@@ -360,7 +435,8 @@ func (c *Core) applyReply(ctx context.Context, m icalx.VEvent) (string, bool, er
 
 // InviteForMessage arma la tarjeta de invitación del correo. Un correo sin
 // registro que tiene un .ics adjunto de hasta 1 MB (los cacheados antes de
-// que se miraran las invitaciones) se procesa ahora.
+// que se miraran las invitaciones) se procesa ahora. Un .ics que no es una
+// invitación no muestra tarjeta.
 func (c *Core) InviteForMessage(ctx context.Context, messageID int64) (model.MessageInvite, error) {
 	rec, ok, err := c.store.InviteRecord(ctx, messageID)
 	if err != nil {
@@ -378,6 +454,9 @@ func (c *Core) InviteForMessage(ctx context.Context, messageID int64) (model.Mes
 			return model.MessageInvite{}, nil
 		}
 	}
+	if rec.Outcome == outcomeNotInvite {
+		return model.MessageInvite{}, nil
+	}
 	return c.inviteView(ctx, rec)
 }
 
@@ -392,11 +471,7 @@ func (c *Core) noteLegacyInvite(ctx context.Context, messageID int64) (bool, err
 	if !ok {
 		return false, nil
 	}
-	accs, err := c.store.ListAccounts(ctx)
-	if err != nil {
-		return false, c.ctxOrUserError(ctx, err)
-	}
-	ignored, err := c.inviteIgnored(ctx, d, accs)
+	ignored, err := c.inviteFolderIgnored(ctx, d)
 	if err != nil {
 		return false, c.ctxOrUserError(ctx, err)
 	}
@@ -481,7 +556,7 @@ func (c *Core) RespondInvite(ctx context.Context, eventID int64, partstat string
 	if err != nil {
 		return model.RespondResult{}, &UserError{Code: "invalid", Msg: msgNotInvite, Err: err}
 	}
-	ics, err := icalx.BuildReply(orig, e.UID, me, partstat, c.now())
+	ics, err := icalx.BuildReply(orig, e.UID, me, partstat, e.Sequence, c.now())
 	if err != nil {
 		return model.RespondResult{}, &UserError{Code: "invalid", Msg: msgNotInvite, Err: err}
 	}

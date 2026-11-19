@@ -188,7 +188,7 @@ func readSample(t *testing.T, name string) Calendar {
 func TestBuildReply_OnlyMyAttendee(t *testing.T) {
 	orig := readSample(t, "google-request.ics")
 	uid := orig.Series[0].Master.UID
-	data, err := BuildReply(orig, uid, "Fabricio@Example.com", "ACCEPTED", now0)
+	data, err := BuildReply(orig, uid, "Fabricio@Example.com", "ACCEPTED", orig.Series[0].Master.Sequence, now0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestBuildReply_OnlyMyAttendee(t *testing.T) {
 func TestBuildReply_KeepsVTimezone(t *testing.T) {
 	orig := readSample(t, "outlook-request.ics")
 	uid := orig.Series[0].Master.UID
-	data, err := BuildReply(orig, uid, orig.Series[0].Master.Attendees[0].Email, "TENTATIVE", now0)
+	data, err := BuildReply(orig, uid, orig.Series[0].Master.Attendees[0].Email, "TENTATIVE", 0, now0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestBuildReply_Errors(t *testing.T) {
 		{uid, "", "ACCEPTED"},
 		{uid, "a@b.com", "NEEDS-ACTION"},
 	} {
-		if _, err := BuildReply(orig, c.uid, c.att, c.ps, now0); err == nil {
+		if _, err := BuildReply(orig, c.uid, c.att, c.ps, 1, now0); err == nil {
 			t.Errorf("%+v debería fallar", c)
 		}
 	}
@@ -265,5 +265,46 @@ func TestBuild_NormalizesLineBreaks(t *testing.T) {
 	m := cal.Series[0].Master
 	if m.Description != "a\nb" || m.Summary != "x\ny" || m.Location != "l1\nl2" {
 		t.Errorf("got %q %q %q", m.Description, m.Summary, m.Location)
+	}
+}
+
+// Una invitación a una sola ocurrencia trae solo el VEVENT con RECURRENCE-ID:
+// la respuesta es a esa ocurrencia.
+func TestBuildReply_OnlyOccurrence(t *testing.T) {
+	data := ics("METHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:serie@x\r\nRECURRENCE-ID:20261210T150000Z\r\n" +
+		"DTSTART:20261210T180000Z\r\nDTEND:20261210T190000Z\r\nDTSTAMP:20261118T100000Z\r\nSEQUENCE:2\r\n" +
+		"ORGANIZER:mailto:org@example.com\r\nATTENDEE;CN=Yo;PARTSTAT=NEEDS-ACTION:mailto:yo@example.com\r\n" +
+		"SUMMARY:Movida\r\nEND:VEVENT\r\n")
+	orig, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := BuildReply(orig, "serie@x", "yo@example.com", "ACCEPTED", 2, now0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "RECURRENCE-ID:20261210T150000Z") {
+		t.Errorf("falta la ocurrencia:\n%s", out)
+	}
+	cal, err := Parse(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := cal.Series[0].Master
+	if !r.RecurrenceID.Equal(utc(2026, 12, 10, 15, 0)) || len(r.Attendees) != 1 || r.Attendees[0].Name != "Yo" {
+		t.Errorf("reply: %+v", r)
+	}
+}
+
+// La respuesta lleva la SEQUENCE actual del evento, no la del original (que
+// puede haber quedado vieja tras sumar ocurrencias cambiadas).
+func TestBuildReply_UsesGivenSequence(t *testing.T) {
+	orig := readSample(t, "google-request.ics")
+	out, err := BuildReply(orig, orig.Series[0].Master.UID, "fabricio@example.com", "DECLINED", 4, now0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if txt := string(out); !strings.Contains(txt, "SEQUENCE:4") || strings.Contains(txt, "SEQUENCE:1") {
+		t.Errorf("SEQUENCE:\n%s", txt)
 	}
 }

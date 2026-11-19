@@ -55,8 +55,13 @@ func sampleICS(t *testing.T, name string) string {
 // inviteMail es un correo de from con asunto subject y el iCalendar ics como
 // parte text/calendar en línea.
 func inviteMail(subject, from, ics string) []byte {
+	return inviteMailTo(subject, from, meEmail, ics)
+}
+
+// inviteMailTo es inviteMail con otro destinatario (To).
+func inviteMailTo(subject, from, to, ics string) []byte {
 	ics = strings.ReplaceAll(strings.ReplaceAll(ics, "\r\n", "\n"), "\n", "\r\n")
-	return []byte("From: " + from + "\r\nTo: " + meEmail + "\r\nSubject: " + subject +
+	return []byte("From: " + from + "\r\nTo: " + to + "\r\nSubject: " + subject +
 		"\r\nDate: Wed, 18 Nov 2026 12:00:00 +0000\r\nMessage-ID: <" + subject + "@ej.com>\r\n" +
 		"MIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n" +
 		"--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nInvitación\r\n" +
@@ -476,9 +481,7 @@ func TestInvite_GarbageIgnored(t *testing.T) {
 
 	for _, s := range []string{"roto", "vacio"} {
 		id := open(t, c, inbox, s)
-		_, ok, err := c.store.InviteRecord(context.Background(), id)
-		require.NoError(t, err)
-		assert.False(t, ok, s)
+		assert.Equal(t, "notinvite", outcome(t, c, id), s)
 		assert.False(t, inviteFor(t, c, id).Found, s)
 	}
 	noEvents(t, c)
@@ -534,9 +537,11 @@ func TestRespond_SendsReplyFromMatchingAccount(t *testing.T) {
 	assert.Equal(t, "ACCEPTED", items[0].Partstat)
 }
 
+// Llegó por una lista (ni las cuentas ni los destinatarios figuran como
+// invitados): se responde desde la cuenta que lo recibió, con aviso.
 func TestRespond_AliasWarns(t *testing.T) {
 	c, imap, smtp, _, acc := receiverCore(t, testUser)
-	imap.Deliver(t, "INBOX", calendarMail(t, "google-request.eml"))
+	imap.Deliver(t, "INBOX", inviteMailTo("Reunión de proyecto", orgFrom, "equipo@ej.com", sampleICS(t, "google-request.ics")))
 	syncAll(t, c, acc)
 	open(t, c, folderID(t, c, acc.ID, "INBOX"), "Reunión de proyecto")
 
@@ -769,4 +774,187 @@ func TestInvite_AllDayTodayNotPast(t *testing.T) {
 	assert.False(t, inviteFor(t, c, id).Past)
 	c.now = func() time.Time { return tu(2026, 11, 20, 3, 0).In(art) } // medianoche en Buenos Aires
 	assert.True(t, inviteFor(t, c, id).Past)
+}
+
+// secondAccount suma una cuenta con la dirección email (entra con otro usuario).
+func secondAccount(t *testing.T, c *Core, imap *testenv.IMAP, smtp *testenv.SMTP, user, email string) model.Account {
+	t.Helper()
+	imap.AddUser(t, user, testPass)
+	smtp.AddUser(user, testPass)
+	in := inputFor(imap, smtp, testPass)
+	in.Account.Email, in.Account.Username, in.Account.DisplayName = email, user, "Fabricio Gmail"
+	acc, err := c.AddAccount(context.Background(), in)
+	require.NoError(t, err)
+	return acc
+}
+
+// La respuesta de una cuenta propia (el Gmail invitado desde otra cuenta) se anota.
+func TestInvite_ReplyFromOwnAccount(t *testing.T) {
+	c, imap, smtp, _, acc := receiverCore(t, meEmail)
+	const gmail = "fabri@gmail.example"
+	secondAccount(t, c, imap, smtp, "otro@ej.com", gmail)
+	ctx := context.Background()
+	saved, err := c.store.SaveEvent(ctx, model.CalendarEvent{UID: sampleUID, Kind: "local", Title: "Reunion de proyecto",
+		Status: "confirmed", Start: tu(2026, 12, 3, 15, 0), End: tu(2026, 12, 3, 16, 0), AccountID: acc.ID, Sequence: 1,
+		Organizer: model.Address{Email: meEmail},
+		Attendees: []model.Attendee{{Email: gmail, Partstat: "NEEDS-ACTION"}}}, nil)
+	require.NoError(t, err)
+	reply := strings.ReplaceAll(sampleICS(t, "reply-accepted.ics"), "mailto:otra@examp\n le.com", "mailto:"+gmail)
+	require.Contains(t, reply, gmail)
+	imap.Deliver(t, "INBOX", inviteMail("respuesta", "Fabricio <"+gmail+">", reply))
+	syncAll(t, c, acc)
+
+	id := open(t, c, folderID(t, c, acc.ID, "INBOX"), "respuesta")
+
+	assert.Equal(t, "reply", outcome(t, c, id))
+	e, err := c.store.GetEvent(ctx, saved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "ACCEPTED", e.Attendees[0].Partstat)
+}
+
+// Invitado con un alias que llega a la cuenta: se responde con el alias, sin aviso.
+func TestInvite_AliasFromRecipients(t *testing.T) {
+	c, imap, smtp, _, acc := receiverCore(t, testUser)
+	const alias = "ventas@ej.com"
+	ics := strings.ReplaceAll(sampleICS(t, "google-request.ics"), "mailto:fabricio@example.com", "mailto:Ventas@Ej.com")
+	imap.Deliver(t, "INBOX", inviteMailTo("alias", orgFrom, "Ventas <VENTAS@ej.com>", ics))
+	syncAll(t, c, acc)
+	open(t, c, folderID(t, c, acc.ID, "INBOX"), "alias")
+
+	e := inviteEvent(t, c)
+	assert.Equal(t, alias, e.MyEmail)
+	assert.Equal(t, acc.ID, e.AccountID)
+	assert.False(t, e.AliasReply)
+	assert.Equal(t, "NEEDS-ACTION", e.MyPartstat)
+
+	res, err := c.RespondInvite(context.Background(), e.ID, "ACCEPTED")
+	require.NoError(t, err)
+	assert.Empty(t, res.Warning)
+	m := readMail(t, waitMails(t, smtp, 1)[0])
+	assert.Contains(t, m.From, testUser)
+	assert.Contains(t, m.ICS, "mailto:"+alias)
+	assert.NotContains(t, m.ICS, "mailto:"+testUser)
+}
+
+// Una invitación a una sola ocurrencia de una serie que no tenemos se puede responder.
+func TestRespond_SingleOccurrenceInvite(t *testing.T) {
+	c, imap, smtp, _, acc := receiverCore(t, meEmail)
+	one := occurrenceOf(t, sampleICS(t, "google-request.ics"), requestTimes, "1",
+		"20261210T150000Z", "20261210T180000Z", "20261210T190000Z", "2")
+	imap.Deliver(t, "INBOX", inviteMail("una", orgFrom, one))
+	syncAll(t, c, acc)
+	open(t, c, folderID(t, c, acc.ID, "INBOX"), "una")
+
+	e := inviteEvent(t, c)
+	_, err := c.RespondInvite(context.Background(), e.ID, "ACCEPTED")
+	require.NoError(t, err)
+	m := readMail(t, waitMails(t, smtp, 1)[0])
+	assert.Contains(t, m.ICS, "RECURRENCE-ID:20261210T150000Z")
+	assert.Contains(t, m.ICS, "SEQUENCE:2")
+	assert.Equal(t, "ACCEPTED", inviteEvent(t, c).MyPartstat)
+}
+
+// Tras sumar una ocurrencia cambiada con SEQUENCE más nueva, la respuesta va
+// con la SEQUENCE del evento (no la del original guardado).
+func TestRespond_UsesCurrentSequence(t *testing.T) {
+	c, imap, smtp, _, acc := receiverCore(t, meEmail)
+	imap.Deliver(t, "INBOX", inviteMail("serie", orgFrom, weeklySeries(t)))
+	imap.Deliver(t, "INBOX", inviteMail("mueve-10", orgFrom, occurrenceOf(t, sampleICS(t, "google-request.ics"),
+		requestTimes, "1", "20261210T150000Z", "20261210T180000Z", "20261210T190000Z", "2")))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+	open(t, c, inbox, "serie")
+	open(t, c, inbox, "mueve-10")
+
+	e := inviteEvent(t, c)
+	require.Equal(t, 2, e.Sequence)
+	_, err := c.RespondInvite(context.Background(), e.ID, "ACCEPTED")
+	require.NoError(t, err)
+	m := readMail(t, waitMails(t, smtp, 1)[0])
+	assert.Contains(t, m.ICS, "SEQUENCE:2")
+	assert.NotContains(t, m.ICS, "SEQUENCE:1")
+}
+
+// Un cambio con la misma SEQUENCE se aplica si su DTSTAMP es posterior (RFC 5546).
+func TestInvite_SameSequenceNewerDTStamp(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	req := sampleICS(t, "google-request.ics")
+	renamed := strings.Replace(strings.Replace(req, "DTSTAMP:20261117T120500Z", "DTSTAMP:20261118T090000Z", 1),
+		"SUMMARY:Reunion de proyecto", "SUMMARY:Reunion renombrada", 1)
+	older := strings.Replace(strings.Replace(req, "DTSTAMP:20261117T120500Z", "DTSTAMP:20261116T090000Z", 1),
+		"SUMMARY:Reunion de proyecto", "SUMMARY:Titulo viejo", 1)
+	imap.Deliver(t, "INBOX", inviteMail("request", orgFrom, req))
+	imap.Deliver(t, "INBOX", inviteMail("renombra", orgFrom, renamed))
+	imap.Deliver(t, "INBOX", inviteMail("anterior", orgFrom, older))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+
+	open(t, c, inbox, "request")
+	ren := open(t, c, inbox, "renombra")
+	old := open(t, c, inbox, "anterior")
+
+	e := inviteEvent(t, c)
+	assert.Equal(t, "Reunion renombrada", e.Title)
+	assert.Equal(t, 1, e.Sequence)
+	assert.Equal(t, "updated", outcome(t, c, ren))
+	assert.Equal(t, "outdated", outcome(t, c, old))
+}
+
+// El mismo correo de una ocurrencia en dos carpetas no vuelve a cambiar nada.
+func TestInvite_SameOccurrenceMailTwice(t *testing.T) {
+	c, imap, _, n, acc := receiverCore(t, meEmail)
+	require.NoError(t, imap.User.Create("Archivo", nil))
+	mueve := inviteMail("mueve-10", orgFrom, occurrenceOf(t, sampleICS(t, "google-request.ics"),
+		requestTimes, "1", "20261210T150000Z", "20261210T180000Z", "20261210T190000Z", "2"))
+	imap.Deliver(t, "INBOX", inviteMail("serie", orgFrom, weeklySeries(t)))
+	imap.Deliver(t, "INBOX", mueve)
+	imap.Deliver(t, "Archivo", mueve)
+	syncAll(t, c, acc)
+	inbox, archive := folderID(t, c, acc.ID, "INBOX"), folderID(t, c, acc.ID, "Archivo")
+	require.NoError(t, c.SyncFolder(context.Background(), archive))
+
+	open(t, c, inbox, "serie")
+	open(t, c, inbox, "mueve-10")
+	before := inviteEvent(t, c)
+	changed := len(n.matching(EventCalendarChanged))
+	second := open(t, c, archive, "mueve-10")
+
+	assert.Equal(t, "duplicate", outcome(t, c, second))
+	assert.Len(t, n.matching(EventCalendarChanged), changed)
+	after := inviteEvent(t, c)
+	assert.Equal(t, before.Exceptions, after.Exceptions)
+	all, err := c.store.AllEvents(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+}
+
+// Un .ics que no es iTIP queda registrado para no volver a bajarlo, sin tarjeta.
+func TestInvite_PublishRecordedAsNotInvite(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	pub := strings.Replace(sampleICS(t, "google-request.ics"), "METHOD:REQUEST", "METHOD:PUBLISH", 1)
+	imap.Deliver(t, "INBOX", inviteMail("publica", orgFrom, pub))
+	syncAll(t, c, acc)
+
+	id := open(t, c, folderID(t, c, acc.ID, "INBOX"), "publica")
+
+	assert.Equal(t, "notinvite", outcome(t, c, id))
+	inv := inviteFor(t, c, id)
+	assert.False(t, inv.Found)
+	noEvents(t, c)
+}
+
+// Una repetición de menos de un día (cada hora) se ignora: queda un solo evento.
+func TestInvite_SubDailyRuleIgnored(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	hourly := strings.Replace(sampleICS(t, "google-request.ics"), "DTEND:20261203T160000Z",
+		"DTEND:20261203T160000Z\nRRULE:FREQ=HOURLY;COUNT=500", 1)
+	imap.Deliver(t, "INBOX", inviteMail("cada-hora", orgFrom, hourly))
+	syncAll(t, c, acc)
+
+	id := open(t, c, folderID(t, c, acc.ID, "INBOX"), "cada-hora")
+
+	assert.Equal(t, "created", outcome(t, c, id))
+	e := inviteEvent(t, c)
+	assert.Empty(t, e.RRule)
+	assert.Len(t, december(t, c), 1)
 }

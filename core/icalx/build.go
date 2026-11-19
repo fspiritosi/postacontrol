@@ -190,9 +190,11 @@ func setTime(c *ical.Component, name string, t time.Time, allDay bool, loc *time
 }
 
 // BuildReply arma la respuesta (METHOD:REPLY) de attendee a la invitación orig
-// para el evento uid. Copia horas y VTIMEZONE del original y deja solo al
-// invitado que responde.
-func BuildReply(orig Calendar, uid, attendee, partstat string, now time.Time) ([]byte, error) {
+// para el evento uid, con la SEQUENCE actual del evento. Copia horas y
+// VTIMEZONE del original y deja solo al invitado que responde. Si el original
+// es de una sola ocurrencia (sin maestro), responde a la primera, con su
+// RECURRENCE-ID.
+func BuildReply(orig Calendar, uid, attendee, partstat string, sequence int, now time.Time) ([]byte, error) {
 	partstat = strings.ToUpper(strings.TrimSpace(partstat))
 	switch partstat {
 	case "ACCEPTED", "TENTATIVE", "DECLINED":
@@ -208,17 +210,26 @@ func BuildReply(orig Calendar, uid, attendee, partstat string, now time.Time) ([
 		return nil, fmt.Errorf("icalx: iCalendar original inválido: %w", err)
 	}
 
-	var master *ical.Component
+	var master, first *ical.Component
 	var zones []*ical.Component
 	for _, c := range src.Children {
 		switch c.Name {
 		case "VTIMEZONE":
 			zones = append(zones, c)
 		case "VEVENT":
-			if master == nil && textProp(c, "UID") == uid && c.Props.Get("RECURRENCE-ID") == nil {
+			if textProp(c, "UID") != uid {
+				continue
+			}
+			if first == nil {
+				first = c
+			}
+			if master == nil && c.Props.Get("RECURRENCE-ID") == nil {
 				master = c
 			}
 		}
+	}
+	if master == nil {
+		master = first
 	}
 	if master == nil {
 		return nil, fmt.Errorf("icalx: el evento %q no está en el original", uid)
@@ -233,6 +244,9 @@ func BuildReply(orig Calendar, uid, attendee, partstat string, now time.Time) ([
 		ev.Props[name] = append([]ical.Prop(nil), props...)
 	}
 	ev.Props.SetDateTime("DTSTAMP", now.UTC())
+	seq := ical.NewProp("SEQUENCE")
+	seq.Value = strconv.Itoa(sequence)
+	ev.Props.Set(seq)
 	var cn string
 	for _, p := range master.Props.Values("ATTENDEE") {
 		if cleanEmail(p.Value) == email {

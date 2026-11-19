@@ -268,3 +268,13 @@ func TestParse_ExDateMultiple(t *testing.T) {
 		t.Errorf("exdates=%v", ex)
 	}
 }
+
+func TestParse_DTStamp(t *testing.T) {
+	cal, err := Parse(leer(t, "google-request.ics"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cal.Series[0].Master.DTStamp; !got.Equal(utc(2026, 11, 17, 12, 5)) {
+		t.Errorf("DTSTAMP = %v", got)
+	}
+}

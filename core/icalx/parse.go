@@ -30,6 +30,7 @@ type VEvent struct {
 	RRule                          string // sin "RRULE:"; "" = no se repite
 	ExDates                        []time.Time
 	RecurrenceID                   time.Time // cero en el maestro
+	DTStamp                        time.Time // en UTC; cero si falta o no se entiende
 	Organizer                      model.Address
 	Attendees                      []Attendee
 }
@@ -179,6 +180,11 @@ func parseEvent(c *ical.Component, vtz map[string]*ical.Component, floating *tim
 				return ev, err
 			}
 			ev.ExDates = append(ev.ExDates, t)
+		}
+	}
+	if p := c.Props.Get("DTSTAMP"); p != nil {
+		if t, _, _, err := parseTime(p, vtz, time.UTC); err == nil {
+			ev.DTStamp = t
 		}
 	}
 	if p := c.Props.Get("RECURRENCE-ID"); p != nil {
