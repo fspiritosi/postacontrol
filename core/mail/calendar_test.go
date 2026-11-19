@@ -64,7 +64,7 @@ func requireUserMsg(t *testing.T, err error, code, msg string) {
 }
 
 func TestSaveEvent_Validations(t *testing.T) {
-	c, _, _, _ := newTestCore(t)
+	c, imap, smtp, _ := newTestCore(t)
 	ctx := context.Background()
 	base := func() model.CalendarEvent {
 		return model.CalendarEvent{Title: "Reunión", Start: tu(2026, 11, 20, 13, 0), End: tu(2026, 11, 20, 14, 0)}
@@ -110,7 +110,10 @@ func TestSaveEvent_Validations(t *testing.T) {
 	})
 
 	t.Run("invitado con nombre", func(t *testing.T) {
+		acc, err := c.AddAccount(ctx, inputFor(imap, smtp, testPass))
+		require.NoError(t, err)
 		e := base()
+		e.AccountID = acc.ID
 		e.Attendees = []model.Attendee{{Email: "  Ana <Ana@Ej.com> "}}
 		saved, err := c.SaveEvent(ctx, model.EventSave{Event: e})
 		require.NoError(t, err)

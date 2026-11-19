@@ -301,8 +301,126 @@ func effectiveScope(prev model.CalendarEvent, scope string, at time.Time) (strin
 	return scope, nil
 }
 
-// SaveEvent da de alta un evento local (ID 0) o lo edita: entero, solo una
+// eventEdit es lo que deja un alta, una edición o un borrado, todavía sin
+// guardar. Sin updated ni created, se borra prev entero.
+type eventEdit struct {
+	prev    model.CalendarEvent  // el evento como estaba (cero en un alta)
+	updated *model.CalendarEvent // prev con los cambios (mismo ID)
+	created *model.CalendarEvent // el alta, o la serie nueva que deja "following"
+	when    time.Time            // inicio de la ocurrencia que cambia ("this"); cero = el del evento
+}
+
+// accountID es la cuenta desde la que se avisa a los invitados.
+func (ed eventEdit) accountID() int64 {
+	switch {
+	case ed.created != nil:
+		return ed.created.AccountID
+	case ed.updated != nil:
+		return ed.updated.AccountID
+	}
+	return ed.prev.AccountID
+}
+
+// planCreate prepara el alta de un evento local ya validado.
+func planCreate(e model.CalendarEvent) eventEdit {
+	e.UID = uuid.NewString() + "@postacontrol"
+	e.Kind, e.Status, e.Sequence = "local", "confirmed", 0
+	if e.TZID == "" {
+		e.TZID = localTZID()
+	}
+	e.Exceptions = []model.EventException{}
+	return eventEdit{created: &e}
+}
+
+// planSave prepara la edición de un evento local ya validado: entero, solo una
 // ocurrencia ("this") o desde una ocurrencia en adelante ("following").
+func (c *Core) planSave(ctx context.Context, e model.CalendarEvent, scope string, at time.Time) (eventEdit, error) {
+	prev, err := c.localEvent(ctx, e.ID)
+	if err != nil {
+		return eventEdit{}, err
+	}
+	if scope, err = effectiveScope(prev, scope, at); err != nil {
+		return eventEdit{}, err
+	}
+	ed := eventEdit{prev: prev}
+	switch scope {
+	case "this":
+		next := prev
+		next.Exceptions = withException(prev.Exceptions, model.EventException{RecurrenceAt: at, Start: e.Start, End: e.End,
+			Title: e.Title, Location: e.Location, Description: e.Description})
+		ed.updated, ed.when = &next, e.Start
+	case "following":
+		next, cut := splitSeries(prev, e, at), cutSeries(prev, at)
+		ed.created, ed.updated = &next, &cut
+	default:
+		next := edited(prev, e)
+		next.Exceptions = shiftExceptions(prev.Exceptions, next.Start.Sub(prev.Start))
+		next.Exceptions = validExceptions(next, next.Exceptions)
+		ed.updated = &next
+	}
+	return ed, nil
+}
+
+// planDelete prepara el borrado de un evento local entero, de una ocurrencia
+// ("this") o desde una ocurrencia en adelante ("following").
+func (c *Core) planDelete(ctx context.Context, req model.EventDelete) (eventEdit, error) {
+	prev, err := c.localEvent(ctx, req.ID)
+	if err != nil {
+		return eventEdit{}, err
+	}
+	at := req.OccurrenceAt.UTC()
+	scope, err := effectiveScope(prev, req.Scope, at)
+	if err != nil {
+		return eventEdit{}, err
+	}
+	ed := eventEdit{prev: prev}
+	switch scope {
+	case "this":
+		next := prev
+		next.Exceptions = withException(prev.Exceptions, model.EventException{RecurrenceAt: at, Cancelled: true,
+			Start: at, End: at.Add(prev.End.Sub(prev.Start))})
+		ed.updated, ed.when = &next, at
+	case "following":
+		cut := cutSeries(prev, at)
+		ed.updated = &cut
+	}
+	return ed, nil
+}
+
+// applyEdit guarda lo preparado y deja en ed lo que quedó guardado. Con una
+// serie cortada, primero el alta y después el corte: si algo falla, a lo sumo
+// queda una ocurrencia repetida, nunca se pierde una.
+func (c *Core) applyEdit(ctx context.Context, ed *eventEdit) error {
+	if ed.created == nil && ed.updated == nil {
+		if err := c.store.DeleteEvent(ctx, ed.prev.ID); err != nil {
+			return c.ctxOrUserError(ctx, err)
+		}
+		return nil
+	}
+	if ed.created != nil {
+		saved, err := c.saveEvent(ctx, *ed.created)
+		if err != nil {
+			return err
+		}
+		ed.created = &saved
+	}
+	if ed.updated != nil {
+		saved, err := c.saveEvent(ctx, *ed.updated)
+		if err != nil {
+			if ed.created != nil {
+				_ = c.store.DeleteEvent(context.WithoutCancel(ctx), ed.created.ID)
+			}
+			return err
+		}
+		ed.updated = &saved
+	}
+	return nil
+}
+
+// SaveEvent da de alta un evento local (ID 0) o lo edita: entero, solo una
+// ocurrencia ("this") o desde una ocurrencia en adelante ("following"). Un
+// alta con invitados les manda la invitación; una edición, si req.Notify, les
+// avisa lo que cambió.
 func (c *Core) SaveEvent(ctx context.Context, req model.EventSave) (model.CalendarEvent, error) {
 	e := req.Event
 	if err := validateEvent(&e); err != nil {
@@ -310,50 +428,28 @@ func (c *Core) SaveEvent(ctx context.Context, req model.EventSave) (model.Calend
 	}
 	c.calMu.Lock()
 	defer c.calMu.Unlock()
-	var saved model.CalendarEvent
-	var err error
+	var ed eventEdit
 	if e.ID == 0 {
-		saved, err = c.createEvent(ctx, e)
+		ed = planCreate(e)
 	} else {
-		saved, err = c.updateEvent(ctx, e, req.Scope, req.OccurrenceAt.UTC())
+		var err error
+		if ed, err = c.planSave(ctx, e, req.Scope, req.OccurrenceAt.UTC()); err != nil {
+			return model.CalendarEvent{}, err
+		}
 	}
+	acc, notices, err := c.prepareNotices(ctx, &ed, req.Notify || e.ID == 0)
 	if err != nil {
+		return model.CalendarEvent{}, err
+	}
+	if err := c.applyEdit(ctx, &ed); err != nil {
 		return model.CalendarEvent{}, err
 	}
 	c.emit(EventCalendarChanged, nil)
-	return saved, nil
-}
-
-func (c *Core) createEvent(ctx context.Context, e model.CalendarEvent) (model.CalendarEvent, error) {
-	e.UID = uuid.NewString() + "@postacontrol"
-	e.Kind, e.Status, e.Sequence = "local", "confirmed", 0
-	if e.TZID == "" {
-		e.TZID = localTZID()
+	err = c.sendNotices(ctx, &ed, acc, notices, msgInviteSendFailed)
+	if ed.created != nil {
+		return *ed.created, err
 	}
-	e.Exceptions = []model.EventException{}
-	return c.saveEvent(ctx, e)
-}
-
-func (c *Core) updateEvent(ctx context.Context, e model.CalendarEvent, scope string, at time.Time) (model.CalendarEvent, error) {
-	prev, err := c.localEvent(ctx, e.ID)
-	if err != nil {
-		return model.CalendarEvent{}, err
-	}
-	if scope, err = effectiveScope(prev, scope, at); err != nil {
-		return model.CalendarEvent{}, err
-	}
-	switch scope {
-	case "this":
-		prev.Exceptions = withException(prev.Exceptions, model.EventException{RecurrenceAt: at, Start: e.Start, End: e.End,
-			Title: e.Title, Location: e.Location, Description: e.Description})
-		return c.saveEvent(ctx, prev)
-	case "following":
-		return c.splitSeries(ctx, prev, e, at)
-	}
-	next := edited(prev, e)
-	next.Exceptions = shiftExceptions(prev.Exceptions, next.Start.Sub(prev.Start))
-	next.Exceptions = validExceptions(next, next.Exceptions)
-	return c.saveEvent(ctx, next)
+	return *ed.updated, err
 }
 
 // edited aplica sobre prev los campos que se cambian desde el editor; la
@@ -443,10 +539,11 @@ func cutSeries(e model.CalendarEvent, at time.Time) model.CalendarEvent {
 	return e
 }
 
-// splitSeries corta la serie en at y crea otra, con otro UID, que empieza en
-// la ocurrencia con los campos nuevos. Si la regla no cambió, la nueva sigue
-// con la misma (con las repeticiones que le quedaban, si tenía COUNT).
-func (c *Core) splitSeries(ctx context.Context, prev, e model.CalendarEvent, at time.Time) (model.CalendarEvent, error) {
+// splitSeries arma la serie, con otro UID, que empieza en la ocurrencia at
+// con los campos nuevos (la vieja se corta con cutSeries). Si la regla no
+// cambió, la nueva sigue con la misma (con las repeticiones que le quedaban,
+// si tenía COUNT).
+func splitSeries(prev, e model.CalendarEvent, at time.Time) model.CalendarEvent {
 	next := edited(prev, e)
 	next.ID, next.UID, next.Status, next.Sequence = 0, uuid.NewString()+"@postacontrol", "confirmed", 0
 	if e.RRule == prev.RRule {
@@ -463,51 +560,32 @@ func (c *Core) splitSeries(ctx context.Context, prev, e model.CalendarEvent, at 
 		}
 	}
 	next.Exceptions = validExceptions(next, shiftExceptions(moved, next.Start.Sub(at)))
-
-	// Primero el alta y después el corte: si algo falla, a lo sumo queda una
-	// ocurrencia repetida, nunca se pierde una.
-	saved, err := c.saveEvent(ctx, next)
-	if err != nil {
-		return model.CalendarEvent{}, err
-	}
-	if _, err := c.saveEvent(ctx, cutSeries(prev, at)); err != nil {
-		_ = c.store.DeleteEvent(context.WithoutCancel(ctx), saved.ID)
-		return model.CalendarEvent{}, err
-	}
-	return saved, nil
+	return next
 }
 
 // DeleteEvent borra un evento local entero, solo una ocurrencia ("this") o
-// desde una ocurrencia en adelante ("following").
+// desde una ocurrencia en adelante ("following"). Con req.Notify les avisa a
+// los invitados: la cancelación o la serie que queda.
 func (c *Core) DeleteEvent(ctx context.Context, req model.EventDelete) error {
 	c.calMu.Lock()
 	defer c.calMu.Unlock()
-	prev, err := c.localEvent(ctx, req.ID)
+	ed, err := c.planDelete(ctx, req)
 	if err != nil {
 		return err
 	}
-	at := req.OccurrenceAt.UTC()
-	scope, err := effectiveScope(prev, req.Scope, at)
+	acc, notices, err := c.prepareNotices(ctx, &ed, req.Notify)
 	if err != nil {
 		return err
 	}
-	switch scope {
-	case "this":
-		prev.Exceptions = withException(prev.Exceptions, model.EventException{RecurrenceAt: at, Cancelled: true,
-			Start: at, End: at.Add(prev.End.Sub(prev.Start))})
-		_, err = c.saveEvent(ctx, prev)
-	case "following":
-		_, err = c.saveEvent(ctx, cutSeries(prev, at))
-	default:
-		if err = c.store.DeleteEvent(ctx, prev.ID); err != nil {
-			err = c.ctxOrUserError(ctx, err)
-		}
-	}
-	if err != nil {
+	if err := c.applyEdit(ctx, &ed); err != nil {
 		return err
 	}
 	c.emit(EventCalendarChanged, nil)
-	return nil
+	failed := msgInviteSendFailed
+	if ed.updated == nil {
+		failed = msgCancelSendFailed
+	}
+	return c.sendNotices(ctx, &ed, acc, notices, failed)
 }
 
 // localTZID es el nombre IANA de la zona local, o "" si no se sabe: en Linux

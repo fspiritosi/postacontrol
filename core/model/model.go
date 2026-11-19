@@ -677,3 +677,11 @@ type EventDelete struct {
 	OccurrenceAt time.Time `json:"occurrenceAt"`
 	Notify       bool      `json:"notify"`
 }
+
+// SavePreview dice, antes de guardar o borrar un evento, si hay que avisarles
+// a los invitados y a cuántos se agrega o se quita.
+type SavePreview struct {
+	NotifyNeeded bool `json:"notifyNeeded"` // hay invitados y cambió algo que les importa
+	Added        int  `json:"added"`
+	Removed      int  `json:"removed"`
+}
