@@ -266,10 +266,21 @@ func (s *Store) TaskappCache(ctx context.Context) (json string, at time.Time, ok
 	return json, time.Unix(ts, 0), true, nil
 }
 
-// ClearTaskappData borra la caché; los vínculos se conservan.
+// ClearTaskappData borra la caché de tareas y de reuniones; los vínculos y
+// los eventos se conservan.
 func (s *Store) ClearTaskappData(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM taskapp_cache`)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM taskapp_cache`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM taskapp_meetings`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // TaskLinkSource devuelve el Message-ID del correo que originó el vínculo

@@ -569,3 +569,51 @@ type TaskappCreate struct {
 	Priority        string `json:"priority"` // none|low|medium|high|urgent
 	DueDate         string `json:"dueDate"`  // solo tarea
 }
+
+// Attendee es un invitado de un evento.
+type Attendee struct {
+	Email    string `json:"email"` // minúscula
+	Name     string `json:"name"`
+	Partstat string `json:"partstat"` // NEEDS-ACTION, ACCEPTED, TENTATIVE o DECLINED
+}
+
+// EventException modifica o cancela una ocurrencia de una serie.
+type EventException struct {
+	RecurrenceAt time.Time `json:"recurrenceAt"` // inicio original de la ocurrencia
+	Cancelled    bool      `json:"cancelled"`
+	Start        time.Time `json:"start"`
+	End          time.Time `json:"end"`
+	Title        string    `json:"title"`
+	Location     string    `json:"location"`
+	Description  string    `json:"description"`
+}
+
+// CalendarEvent es un evento del calendario (local, invitación o espejo de Taskapp).
+type CalendarEvent struct {
+	ID               int64            `json:"id"`
+	UID              string           `json:"uid"`
+	Kind             string           `json:"kind"` // "local", "invite" o "taskapp" (espejo de externos)
+	Title            string           `json:"title"`
+	Description      string           `json:"description"` // viaja a los invitados
+	Notes            string           `json:"notes"`       // privadas, nunca salen
+	Location         string           `json:"location"`
+	AllDay           bool             `json:"allDay"`
+	Start            time.Time        `json:"start"`
+	End              time.Time        `json:"end"` // exclusivo
+	TZID             string           `json:"tzid"`
+	RRule            string           `json:"rrule"`
+	RemindBefore     *int             `json:"remindBefore"` // nil = el de Configuración
+	AccountID        int64            `json:"accountId"`    // cuenta que manda o responde; 0 = ninguna
+	Organizer        Address          `json:"organizer"`
+	Sequence         int              `json:"sequence"`
+	Status           string           `json:"status"`     // "confirmed" o "cancelled"
+	MyPartstat       string           `json:"myPartstat"` // solo en "invite"
+	MyEmail          string           `json:"myEmail"`
+	AliasReply       bool             `json:"aliasReply"` // ninguna cuenta coincide con el ATTENDEE
+	NeedsReview      bool             `json:"needsReview"`
+	RawICS           string           `json:"-"`
+	TaskappMeetingID int64            `json:"taskappMeetingId"`
+	TaskappChange    string           `json:"taskappChange"` // "", "changed", "cancelled" o "deleted"
+	Attendees        []Attendee       `json:"attendees"`
+	Exceptions       []EventException `json:"exceptions"`
+}

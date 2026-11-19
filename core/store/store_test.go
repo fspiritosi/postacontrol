@@ -68,7 +68,7 @@ func TestOpen_MigratesAndIsIdempotent(t *testing.T) {
 	defer s.Close()
 	var v int
 	require.NoError(t, s.db.QueryRow("PRAGMA user_version").Scan(&v))
-	assert.Equal(t, len(migrations), v)
+	assert.Equal(t, 18, v)
 	var fk int
 	require.NoError(t, s.db.QueryRow("PRAGMA foreign_keys").Scan(&fk))
 	assert.Equal(t, 1, fk)
