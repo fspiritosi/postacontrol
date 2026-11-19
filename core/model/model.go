@@ -685,3 +685,30 @@ type SavePreview struct {
 	Added        int  `json:"added"`
 	Removed      int  `json:"removed"`
 }
+
+// MessageInvite es lo que muestra la tarjeta de invitación de un correo.
+type MessageInvite struct {
+	Found       bool      `json:"found"`
+	Method      string    `json:"method"`  // REQUEST, CANCEL o REPLY
+	EventID     int64     `json:"eventId"` // 0 si no quedó en el calendario
+	Title       string    `json:"title"`
+	Location    string    `json:"location"`
+	Organizer   Address   `json:"organizer"`
+	Start       time.Time `json:"start"`
+	End         time.Time `json:"end"`
+	AllDay      bool      `json:"allDay"`
+	Recurring   bool      `json:"recurring"`
+	Partstat    string    `json:"partstat"`
+	NeedsReview bool      `json:"needsReview"`
+	Cancelled   bool      `json:"cancelled"`
+	Past        bool      `json:"past"`
+	Outdated    bool      `json:"outdated"` // el calendario tiene una versión más nueva
+	AliasReply  bool      `json:"aliasReply"`
+	ReplyFrom   Address   `json:"replyFrom"` // en un REPLY: quién respondió
+	ReplyStatus string    `json:"replyStatus"`
+}
+
+// RespondResult es lo que deja responder una invitación.
+type RespondResult struct {
+	Warning string `json:"warning"`
+}

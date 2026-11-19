@@ -43,6 +43,9 @@ func (c *Core) GetMessage(ctx context.Context, messageID int64) (model.MessageDe
 		if err := c.store.SetBody(ctx, messageID, row); err != nil {
 			return model.MessageDetail{}, c.ctxOrUserError(ctx, err)
 		}
+		if len(row.Calendar) > 0 {
+			c.noteInvite(ctx, d, row.Calendar)
+		}
 		d.HTML, d.Text, d.HasRemoteImages, d.Attachments = row.HTML, row.Text, row.HasRemoteImages, row.Attachments
 		if row.Snippet != "" {
 			d.Snippet = row.Snippet
@@ -240,14 +243,7 @@ func fetchCalendar(conn *imapx.Conn, uid uint32, plan mimex.PartPlan, multipart 
 		}
 		return []byte(txt)
 	}
-	for _, a := range plan.Attachments {
-		mt := strings.ToLower(a.MIMEType)
-		if mt != "text/calendar" && mt != "application/ics" && !strings.HasSuffix(strings.ToLower(a.Filename), ".ics") {
-			continue
-		}
-		if a.Size > maxCalendarSize {
-			continue
-		}
+	if a, ok := calendarAttachment(plan.Attachments); ok {
 		hdr, body, err := fetchPart(conn, uid, a.Part, multipart)
 		if err != nil {
 			return nil
@@ -259,6 +255,21 @@ func fetchCalendar(conn *imapx.Conn, uid uint32, plan mimex.PartPlan, multipart 
 		return raw
 	}
 	return nil
+}
+
+// calendarAttachment es el primer adjunto de calendario (por tipo o por
+// extensión .ics) de hasta maxCalendarSize.
+func calendarAttachment(atts []model.Attachment) (model.Attachment, bool) {
+	for _, a := range atts {
+		mt := strings.ToLower(a.MIMEType)
+		if mt != "text/calendar" && mt != "application/ics" && !strings.HasSuffix(strings.ToLower(a.Filename), ".ics") {
+			continue
+		}
+		if a.Size <= maxCalendarSize {
+			return a, true
+		}
+	}
+	return model.Attachment{}, false
 }
 
 // markSeen marca \Seen en el servidor y refleja el cambio en la caché.
