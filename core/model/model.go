@@ -196,6 +196,12 @@ type ReplyContext struct {
 	References []string `json:"references"`
 }
 
+// CalendarPart es la invitación iMIP que viaja con un correo.
+type CalendarPart struct {
+	Method string `json:"method"`
+	ICS    string `json:"ics"`
+}
+
 type SendRequest struct {
 	AccountID int64         `json:"accountId"`
 	To        []Address     `json:"to"`
@@ -220,6 +226,8 @@ type SendRequest struct {
 	// SendAt programa el envío para esa hora (segundos unix); 0 o una hora
 	// que ya pasó = ahora.
 	SendAt int64 `json:"sendAt,omitempty"`
+	// Calendar, si viene, manda el correo como invitación (parte text/calendar).
+	Calendar *CalendarPart `json:"calendar,omitempty"`
 }
 
 // Draft es un borrador autoguardado del redactor: se sube a la carpeta

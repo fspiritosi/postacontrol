@@ -81,6 +81,9 @@ func (c *Core) buildOutgoing(ctx context.Context, acc model.Account, req model.S
 		Date:      time.Now(),
 		MessageID: mimex.NewMessageID(acc.Email),
 	}
+	if req.Calendar != nil {
+		out.Calendar = &mimex.OutCalendar{Method: req.Calendar.Method, Data: []byte(req.Calendar.ICS)}
+	}
 	if forDraft {
 		out.IncludeBcc = true
 		if req.DraftMessageID != "" {

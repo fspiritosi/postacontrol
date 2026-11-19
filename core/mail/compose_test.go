@@ -441,3 +441,37 @@ func TestQuotedHTML_ZeroDateOmitsDate(t *testing.T) {
 	q := quotedHTML("reply", d)
 	assert.True(t, strings.HasPrefix(q, "<p>Bea &lt;bea@ej.com&gt; escribió:</p>"), q)
 }
+
+func TestQueueSend_CalendarPartTravels(t *testing.T) {
+	c, imap, smtp, n := newTestCore(t)
+	acc, _ := setupSynced(t, imap, smtp, c)
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n"
+	cal := &model.CalendarPart{Method: "REQUEST", ICS: ics}
+
+	// Primero falla (destinatario rechazado) y queda en la bandeja de salida.
+	id, err := c.QueueSend(context.Background(), model.SendRequest{
+		AccountID: acc.ID, To: addrs(testenv.RejectedRecipient), Subject: "Reunión", BodyHTML: "<p>x</p>", Calendar: cal,
+	})
+	require.NoError(t, err)
+	waitSendFinished(t, n, id)
+	require.Len(t, outbox(t, c), 1)
+	stored := outbox(t, c)[0].Request
+	require.NotNil(t, stored.Calendar, "la parte sobrevive al JSON de la bandeja de salida")
+	assert.Equal(t, *cal, *stored.Calendar)
+
+	// El reintento desde la bandeja de salida la lleva.
+	stored.To = addrs("d@x")
+	stored.DraftID = id
+	_, err = c.QueueSend(context.Background(), stored)
+	require.NoError(t, err)
+	n.mu.Lock()
+	n.events = nil
+	n.mu.Unlock()
+	ev := waitSendFinished(t, n, id)
+	assert.Equal(t, true, ev["ok"])
+
+	envs := smtp.Received()
+	require.Len(t, envs, 1)
+	assert.Equal(t, ics, envelopePart(t, envs[0], "text/calendar"))
+	assert.Contains(t, string(envs[0].Data), "method=REQUEST")
+}

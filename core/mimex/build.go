@@ -28,6 +28,13 @@ type OutInline struct {
 	Data          []byte
 }
 
+// OutCalendar es la invitación (iMIP) que viaja en un mensaje saliente: el
+// .ics va como parte text/calendar y también como adjunto invite.ics.
+type OutCalendar struct {
+	Method string // REQUEST, REPLY, CANCEL...
+	Data   []byte
+}
+
 // Outgoing describe un mensaje saliente.
 type Outgoing struct {
 	From                model.Address
@@ -42,6 +49,8 @@ type Outgoing struct {
 	// IncludeBcc escribe el encabezado Bcc. Solo para borradores: en un correo
 	// que se envía, Bcc nunca va en el mensaje.
 	IncludeBcc bool
+	// Calendar, si no es nil, arma el correo como una invitación iMIP.
+	Calendar *OutCalendar
 }
 
 // NewMessageID genera un Message-ID "<uuid@dominio-del-from>".
@@ -119,6 +128,9 @@ func Build(o Outgoing) ([]byte, error) {
 		h.Set("References", strings.Join(o.References, " "))
 	}
 
+	if o.Calendar != nil {
+		return buildWithCalendar(h, o)
+	}
 	if len(o.Inline) > 0 {
 		return buildWithInline(h, o)
 	}
@@ -241,6 +253,65 @@ func buildWithInline(h gomail.Header, o Outgoing) ([]byte, error) {
 			// Igual que en Build: RFC 2231 para nombres no ASCII.
 			"Content-Disposition": mime.FormatMediaType("attachment", map[string]string{"filename": a.Filename}),
 		}
+		if err := writePart(mw, mt, "base64", extra, a.Data); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// buildWithCalendar arma una invitación iMIP:
+//
+//	mixed > alternative > text/plain, text/html, text/calendar
+//	      > application/ics (invite.ics), otros adjuntos
+//
+// Los clientes que entienden iMIP usan la parte text/calendar; el resto ve el
+// adjunto invite.ics.
+func buildWithCalendar(h gomail.Header, o Outgoing) ([]byte, error) {
+	if len(o.Inline) > 0 {
+		return nil, fmt.Errorf("mimex: una invitación no lleva imágenes en línea")
+	}
+	var buf bytes.Buffer
+	h.Set("Content-Type", "multipart/mixed")
+	mw, err := message.CreateWriter(&buf, h.Header)
+	if err != nil {
+		return nil, err
+	}
+	var ah message.Header
+	ah.Set("Content-Type", "multipart/alternative")
+	alt, err := mw.CreatePart(ah)
+	if err != nil {
+		return nil, err
+	}
+	calType := mime.FormatMediaType("text/calendar", map[string]string{"charset": "UTF-8", "method": o.Calendar.Method})
+	for _, p := range []struct {
+		ctype, cte string
+		data       []byte
+	}{
+		{"text/plain; charset=utf-8", "base64", []byte(o.Text)},
+		{"text/html; charset=utf-8", "base64", []byte(o.HTML)},
+		{calType, "base64", o.Calendar.Data},
+	} {
+		if err := writePart(alt, p.ctype, p.cte, nil, p.data); err != nil {
+			return nil, err
+		}
+	}
+	if err := alt.Close(); err != nil {
+		return nil, err
+	}
+	icsExtra := map[string]string{"Content-Disposition": mime.FormatMediaType("attachment", map[string]string{"filename": "invite.ics"})}
+	if err := writePart(mw, mime.FormatMediaType("application/ics", map[string]string{"name": "invite.ics"}), "base64", icsExtra, o.Calendar.Data); err != nil {
+		return nil, err
+	}
+	for _, a := range o.Attachments {
+		mt := a.MIMEType
+		if mt == "" {
+			mt = "application/octet-stream"
+		}
+		extra := map[string]string{"Content-Disposition": mime.FormatMediaType("attachment", map[string]string{"filename": a.Filename})}
 		if err := writePart(mw, mt, "base64", extra, a.Data); err != nil {
 			return nil, err
 		}

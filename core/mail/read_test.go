@@ -334,3 +334,65 @@ func TestAttachmentData_BadIndex(t *testing.T) {
 		assert.Equal(t, "not_found", ue.Code)
 	}
 }
+
+func calendarMail(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "icalx", "testdata", name))
+	require.NoError(t, err)
+	return raw
+}
+
+func fetchBodyOf(t *testing.T, c *Core, id int64) store.BodyRow {
+	t.Helper()
+	d, _, err := c.store.GetMessage(context.Background(), id)
+	require.NoError(t, err)
+	row, err := c.fetchBody(context.Background(), d)
+	require.NoError(t, err)
+	return row
+}
+
+func TestFetchBody_Calendar(t *testing.T) {
+	c, imap, smtp, _ := newTestCore(t)
+	imap.Deliver(t, "INBOX", calendarMail(t, "google-request.eml"))
+	imap.Deliver(t, "INBOX", calendarMail(t, "outlook-request.eml"))
+	imap.Deliver(t, "INBOX", mailWith("sinics", "text/plain; charset=utf-8", "hola\r\n"))
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n"
+	big := strings.Repeat("A", 1<<20+10)
+	imap.Deliver(t, "INBOX", mailWith("grande", "multipart/mixed; boundary=b",
+		"--b\r\nContent-Type: text/plain\r\n\r\nhola\r\n"+
+			"--b\r\nContent-Type: text/calendar; name=\"x.ics\"\r\nContent-Disposition: attachment; filename=\"x.ics\"\r\n\r\n"+big+"\r\n--b--\r\n"))
+	imap.Deliver(t, "INBOX", mailWith("adjunto", "multipart/mixed; boundary=b",
+		"--b\r\nContent-Type: text/plain\r\n\r\nhola\r\n"+
+			"--b\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"Evento.ICS\"\r\n"+
+			"Content-Transfer-Encoding: base64\r\n\r\n"+base64.StdEncoding.EncodeToString([]byte(ics))+"\r\n--b--\r\n"))
+	_, inboxID := setupSynced(t, imap, smtp, c)
+
+	bySubject := map[string]model.MessageSummary{}
+	for _, m := range listAll(t, c, inboxID) {
+		switch {
+		case strings.Contains(m.Subject, "Reunión de proyecto"):
+			bySubject["google"] = m
+		case strings.Contains(m.Subject, "Seguimiento Outlook"):
+			bySubject["outlook"] = m
+		default:
+			bySubject[m.Subject] = m
+		}
+	}
+	require.Len(t, bySubject, 5)
+
+	gs := fetchBodyOf(t, c, bySubject["google"].ID)
+	assert.Contains(t, string(gs.Calendar), "BEGIN:VCALENDAR")
+	assert.Contains(t, string(gs.Calendar), "METHOD:REQUEST")
+	assert.Len(t, gs.Attachments, 1, "invite.ics sigue como adjunto")
+
+	ol := fetchBodyOf(t, c, bySubject["outlook"].ID)
+	assert.Contains(t, string(ol.Calendar), "METHOD:REQUEST")
+	assert.Empty(t, ol.Attachments)
+
+	// El que no tiene invitación no trae nada.
+	assert.Empty(t, fetchBodyOf(t, c, bySubject["sinics"].ID).Calendar)
+	// Un .ics adjunto de más de 1 MB no se baja.
+	assert.Empty(t, fetchBodyOf(t, c, bySubject["grande"].ID).Calendar)
+	// Un adjunto .ics (por extensión) se baja y decodifica.
+	assert.Equal(t, ics, string(fetchBodyOf(t, c, bySubject["adjunto"].ID).Calendar))
+}

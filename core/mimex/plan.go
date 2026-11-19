@@ -24,6 +24,9 @@ type PartPlan struct {
 	TextPart, HTMLPart []int
 	Inline             []InlinePart
 	Attachments        []model.Attachment
+	// Calendar es la primera parte text/calendar que no es adjunto (una
+	// invitación iMIP en línea); nil si no hay. No entra en Attachments.
+	Calendar []int
 }
 
 // Plan recorre la BODYSTRUCTURE y reparte las partes. En multipart/alternative
@@ -62,6 +65,10 @@ func (p *PartPlan) visitSingle(b *imap.BodyStructureSinglePart, path []int, inAl
 	switch {
 	case isAttachment:
 		p.addAttachment(b, path, name)
+	case mt == "text/calendar":
+		if p.Calendar == nil {
+			p.Calendar = path
+		}
 	case isText && name == "" && (mt == "text/plain" || mt == "text/html"):
 		dst := &p.TextPart
 		if mt == "text/html" {
