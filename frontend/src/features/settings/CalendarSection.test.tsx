@@ -58,9 +58,22 @@ describe("CalendarSection", () => {
     expect(screen.getByRole("checkbox", { name: /Feriados/ })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Cumpleaños/ })).not.toBeChecked();
     expect(screen.getByText("3 eventos")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Importar 1 calendarios" }));
+    await user.click(screen.getByRole("button", { name: "Importar 1 calendario" }));
     expect(svc.ImportICS).toHaveBeenCalledWith(["a"]);
     expect(await screen.findByText("Se importaron 3 eventos (1 actualizados, 2 ya estaban)")).toBeInTheDocument();
+  });
+
+  it("usa plural con varios calendarios y singular con un evento", async () => {
+    vi.mocked(svc.PickICSFiles).mockResolvedValue(["/x/a.ics"]);
+    vi.mocked(svc.PreviewICSImport).mockResolvedValue([
+      { id: "a", name: "Trabajo", events: 1 },
+      { id: "b", name: "Casa", events: 2 },
+    ]);
+    vi.mocked(svc.ImportICS).mockResolvedValue({ added: 1, updated: 0, skipped: 0 });
+    const user = setup();
+    await user.click(screen.getByRole("button", { name: "Importar .ics" }));
+    await user.click(await screen.findByRole("button", { name: "Importar 2 calendarios" }));
+    expect(await screen.findByText("Se importó 1 evento (0 actualizados, 0 ya estaban)")).toBeInTheDocument();
   });
 
   it("si el selector devuelve una lista vacía no pasa nada", async () => {

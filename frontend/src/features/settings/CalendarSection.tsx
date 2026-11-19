@@ -56,7 +56,7 @@ export function CalendarSection() {
     try {
       const ids = calendars.filter((c) => checked.has(c.id)).map((c) => c.id);
       const r = await svc.ImportICS(ids);
-      setResult(`Se importaron ${r.added} eventos (${r.updated} actualizados, ${r.skipped} ya estaban)`);
+      setResult(`${r.added === 1 ? "Se importó 1 evento" : `Se importaron ${r.added} eventos`} (${r.updated} actualizados, ${r.skipped} ya estaban)`);
       setCalendars([]);
       setChecked(new Set());
     } catch (e) {
@@ -124,7 +124,7 @@ export function CalendarSection() {
               ))}
             </ul>
             <Button type="button" size="sm" disabled={busy || checked.size === 0} onClick={() => void run()}>
-              Importar {checked.size} calendarios
+              Importar {checked.size} {checked.size === 1 ? "calendario" : "calendarios"}
             </Button>
           </div>
         ) : null}

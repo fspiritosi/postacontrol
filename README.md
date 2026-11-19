@@ -104,7 +104,9 @@ en el servidor si no se lo pedís.
 - Vista Calendario: semana laboral por defecto, y día, semana, mes o agenda.
 - Eventos con repetición y aviso de escritorio antes de que empiecen.
 - Invitaciones por correo: mandalas, recibilas y respondé desde el correo
-  (Aceptar, Tal vez, Rechazar). Compatibles con Google Calendar y Outlook.
+  (Aceptar, Tal vez, Rechazar). Usan el formato estándar (iCalendar/iMIP) que
+  entienden Google Calendar y Outlook; la prueba con cuentas reales todavía
+  está pendiente.
 - Las tareas con fecha aparecen en el calendario.
 - Reuniones de Taskapp: verlas y crearlas, con invitados externos y aviso
   cuando alguien cambia la hora en Taskapp.
