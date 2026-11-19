@@ -933,20 +933,19 @@ func TestMeetings_People(t *testing.T) {
 	assert.Equal(t, 1, items[0].Attendees, "el conteo sigue siendo de los externos")
 }
 
-// La descripción de Taskapp es HTML: a los externos les llega como texto.
+// La descripción escrita en el formulario llega tal cual a los externos (solo
+// con el escape de iCalendar); la que viene de Taskapp es HTML y les llega
+// como texto.
 func TestMeetingExternals_DescriptionAsText(t *testing.T) {
 	c, f, smtp, _, acc := meetCore(t)
 	req := createReq(acc, model.Address{Name: "Bea", Email: "bea@cliente.com"})
-	req.Description = "<p>Hola <b>equipo</b></p>"
+	req.Description = "línea 1\nlínea 2 & <b>"
 	_, err := c.CreateTaskappMeeting(context.Background(), req)
 	require.NoError(t, err)
 	m := readMail(t, waitMails(t, smtp, 1)[0])
-	for _, part := range []string{m.ICS, m.HTML, m.Text} {
-		assert.NotContains(t, part, "<b>")
-		assert.NotContains(t, part, "&lt;b&gt;")
-	}
-	assert.Contains(t, m.ICS, "DESCRIPTION:Hola equipo")
-	assert.Equal(t, "Hola equipo", mirrorOf(t, c, 77).Description)
+	assert.Contains(t, m.ICS, "DESCRIPTION:línea 1\\nlínea 2 & <b>")
+	assert.Equal(t, "línea 1\nlínea 2 & <b>", mirrorOf(t, c, 77).Description)
+	assert.Contains(t, m.Text, "línea 2 & <b>")
 
 	f.edit(77, func(fm *fakeMeeting) { fm.Description = "<p>Nuevo &amp; <i>mejor</i></p>" })
 	listRange(t, c)

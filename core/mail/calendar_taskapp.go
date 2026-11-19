@@ -625,7 +625,7 @@ func (c *Core) cacheMeeting(ctx context.Context, m taskapp.Meeting) {
 // invitación desde req.AccountID. Una vez que sale el POST no se corta si el
 // usuario cancela (como CreateTaskappItem): la reunión nunca se crea dos veces.
 func (c *Core) CreateTaskappMeeting(ctx context.Context, req model.TaskappMeetingCreate) (model.CalendarItem, error) {
-	e := model.CalendarEvent{Kind: "taskapp", Title: req.Title, Description: meetingText(req.Description), Location: req.Location,
+	e := model.CalendarEvent{Kind: "taskapp", Title: req.Title, Description: req.Description, Location: req.Location,
 		AllDay: req.AllDay, Start: req.Start, End: req.End, Status: "confirmed", AccountID: req.AccountID}
 	for _, a := range req.External {
 		e.Attendees = append(e.Attendees, model.Attendee{Email: a.Email, Name: a.Name})
@@ -666,7 +666,7 @@ func (c *Core) CreateTaskappMeeting(ctx context.Context, req model.TaskappMeetin
 	}
 	postCtx, cancelPost := bg(taskappCreateWait)
 	created, err := cl.CreateMeeting(postCtx, taskapp.NewMeeting{WorkspaceID: req.WorkspaceID, ProjectID: req.ProjectID,
-		Title: e.Title, Description: req.Description, Location: e.Location, Start: e.Start, End: e.End, AllDay: e.AllDay,
+		Title: e.Title, Description: e.Description, Location: e.Location, Start: e.Start, End: e.End, AllDay: e.AllDay,
 		AttendeeIDs: req.AttendeeIDs})
 	cancelPost()
 	if err != nil {
@@ -704,9 +704,10 @@ func (c *Core) CreateTaskappMeeting(ctx context.Context, req model.TaskappMeetin
 	return item, nil
 }
 
-// meetingText pasa a texto la descripción de una reunión (Taskapp la guarda
-// como HTML) para el espejo, el .ics y el correo a los externos. Un texto sin
-// marcas queda como está (conserva sus saltos de línea).
+// meetingText pasa a texto la descripción de una reunión leída de Taskapp
+// (que la guarda como HTML) para el espejo, el .ics y el correo a los
+// externos. Un texto sin marcas queda como está (conserva sus saltos de
+// línea). La que se escribe en el formulario no pasa por acá.
 func meetingText(desc string) string {
 	if !strings.ContainsAny(desc, "<&") {
 		return desc
