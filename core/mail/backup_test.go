@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,4 +267,78 @@ func TestBackup_IncludesLocalTasks(t *testing.T) {
 	assert.Equal(t, 2, res.TasksSkipped)
 	list, _ = dst.ListLocalTasks(ctx, true)
 	assert.Len(t, list, 2)
+}
+
+func TestBackup_EventsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	src, _, _, _, _ := receiverCore(t, meEmail)
+	p := writeFile(t, "g.ics", sampleICS(t, "google-export.ics"))
+	_, err := src.ImportICS(ctx, []string{p})
+	require.NoError(t, err)
+	e := eventOf(t, src, "organiza-otro-planificacion@google.com")
+	e.Notes, e.RemindBefore = "mis notas", ip(30)
+	_, err = src.store.SaveEvent(ctx, e, seriesEnd(e))
+	require.NoError(t, err)
+	path := exportTo(t, src)
+
+	dst, _, _, n, _ := receiverCore(t, meEmail)
+	res, err := dst.ImportBackup(ctx, path)
+	require.NoError(t, err)
+	assert.Equal(t, 5, res.EventsAdded)
+	assert.Equal(t, 0, res.EventsSkipped)
+	assert.Len(t, n.matching(EventCalendarChanged), 1)
+
+	norm := func(c *Core) []model.CalendarEvent {
+		all, err := c.store.AllEvents(ctx)
+		require.NoError(t, err)
+		for i := range all {
+			all[i].ID = 0
+		}
+		slices.SortFunc(all, func(a, b model.CalendarEvent) int { return strings.Compare(a.UID, b.UID) })
+		return all
+	}
+	want, got := norm(src), norm(dst)
+	require.Len(t, got, 5)
+	assert.Equal(t, want, got)
+	assert.NotEmpty(t, got[0].RawICS+got[1].RawICS+got[2].RawICS+got[3].RawICS+got[4].RawICS, "el RawICS viaja")
+
+	res, err = dst.ImportBackup(ctx, path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.EventsAdded)
+	assert.Equal(t, 5, res.EventsSkipped)
+	assert.Len(t, n.matching(EventCalendarChanged), 1, "no se avisa si no se sumó nada")
+}
+
+func TestBackup_OldFileWithoutEvents(t *testing.T) {
+	dst, _, _, _ := newTestCore(t)
+	p := filepath.Join(t.TempDir(), "viejo.json")
+	require.NoError(t, os.WriteFile(p, []byte(`{"app":"`+backupApp+`","kind":"`+backupKind+`","version":1}`), 0o600))
+	res, err := dst.ImportBackup(context.Background(), p)
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.EventsAdded)
+}
+
+// La foto de Taskapp del espejo viaja: tras restaurar, el primer refresco no
+// lo marca cambiado si en Taskapp no cambió nada.
+func TestBackup_RestoresTaskappSnapshot(t *testing.T) {
+	ctx := context.Background()
+	c, _, smtp, _, acc := meetCore(t)
+	mirror := createdWithBea(t, c, smtp, acc)
+	snap, err := c.store.TaskappSnapshot(ctx, mirror.ID)
+	require.NoError(t, err)
+	path := exportTo(t, c)
+	require.NoError(t, c.store.DeleteEvent(ctx, mirror.ID))
+
+	res, err := c.ImportBackup(ctx, path)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.EventsAdded)
+	restored := mirrorOf(t, c, 77)
+	got, err := c.store.TaskappSnapshot(ctx, restored.ID)
+	require.NoError(t, err)
+	assert.Equal(t, snap, got)
+
+	items := meetingItems(listRange(t, c))
+	require.Len(t, items, 1)
+	assert.Empty(t, items[0].TaskappChange)
+	assert.Empty(t, mirrorOf(t, c, 77).TaskappChange)
 }

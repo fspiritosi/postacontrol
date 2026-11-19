@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"postacontrol/core/mail"
 )
 
 // En Linux el filtro del diálogo (gtk_file_filter_add_pattern) distingue
@@ -62,6 +64,26 @@ func TestOpenTaskInTaskapp_RejectsOtherHosts(t *testing.T) {
 	for _, l := range bad {
 		if err := checkTaskappURL(l, web); err == nil || err.Error() != "Ese enlace no es de Taskapp." {
 			t.Errorf("%q debería rechazarse, err=%v", l, err)
+		}
+	}
+}
+
+func TestPickICSFiles_SinAppDevuelveErrorClaro(t *testing.T) {
+	s := &MailService{}
+	paths, err := s.PickICSFiles(context.Background())
+	var ue *mail.UserError
+	if !errors.As(err, &ue) || ue.Msg == "" {
+		t.Fatalf("esperaba un UserError con mensaje, got %v", err)
+	}
+	if paths != nil {
+		t.Fatalf("sin app no debería devolver archivos: %v", paths)
+	}
+}
+
+func TestIcsPatterns_BothCases(t *testing.T) {
+	for _, want := range []string{"*.ics", "*.ICS", "*.zip", "*.ZIP"} {
+		if !strings.Contains(icsPatterns, want) {
+			t.Errorf("icsPatterns no incluye %s: %q", want, icsPatterns)
 		}
 	}
 }

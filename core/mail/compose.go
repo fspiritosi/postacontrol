@@ -34,9 +34,17 @@ var monthsES = [...]string{"enero", "febrero", "marzo", "abril", "mayo", "junio"
 	"agosto", "septiembre", "octubre", "noviembre", "diciembre"}
 
 // formatDateES formatea "2 de enero de 2026, 15:04" en hora local.
-func formatDateES(t time.Time) string {
-	t = t.Local()
-	return fmt.Sprintf("%d de %s de %d, %02d:%02d", t.Day(), monthsES[t.Month()-1], t.Year(), t.Hour(), t.Minute())
+func formatDateES(t time.Time) string { return formatDateIn(t, time.Local) }
+
+// formatDateIn formatea "2 de enero de 2026, 15:04" en la zona loc.
+func formatDateIn(t time.Time, loc *time.Location) string {
+	t = t.In(loc)
+	return fmt.Sprintf("%s, %02d:%02d", dateES(t), t.Hour(), t.Minute())
+}
+
+// dateES formatea "2 de enero de 2026" con la fecha de t, sin convertirla.
+func dateES(t time.Time) string {
+	return fmt.Sprintf("%d de %s de %d", t.Day(), monthsES[t.Month()-1], t.Year())
 }
 
 func addrHTML(a model.Address) string {

@@ -33,7 +33,7 @@ const link = (over = {}) => ({
 });
 
 function setup(connected = true, draftOver = {}) {
-  vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected, userName: "", userEmail: "" });
+  vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected, userId: 0, userName: "", userEmail: "" });
   vi.mocked(svc.TaskappDraftFor).mockResolvedValue(draft(draftOver));
   vi.mocked(svc.TaskappProjects).mockResolvedValue([
     { id: 1, workspaceId: 1, name: "Web", color: "#f00" },

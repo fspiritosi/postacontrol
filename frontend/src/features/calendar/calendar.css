@@ -1,0 +1,74 @@
+/* FullCalendar con los colores de la app: los tokens ya cambian en oscuro
+   (.dark), así que estas variables siguen el tema sin reglas aparte. */
+.fc {
+  --fc-border-color: var(--border);
+  --fc-page-bg-color: var(--background);
+  --fc-neutral-bg-color: var(--muted);
+  --fc-neutral-text-color: var(--muted-foreground);
+  --fc-today-bg-color: var(--unread);
+  --fc-now-indicator-color: var(--destructive);
+  --fc-non-business-color: var(--muted);
+  --fc-highlight-color: var(--unread);
+  --fc-event-bg-color: var(--primary);
+  --fc-event-border-color: var(--primary);
+  --fc-event-text-color: var(--primary-foreground);
+  --fc-list-event-hover-bg-color: var(--muted);
+  --fc-small-font-size: 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: var(--foreground);
+}
+
+.fc .fc-col-header-cell-cushion,
+.fc .fc-daygrid-day-number,
+.fc .fc-list-day-text,
+.fc .fc-list-day-side-text {
+  color: var(--foreground);
+  text-decoration: none;
+}
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-timegrid-axis-cushion {
+  color: var(--muted-foreground);
+}
+.fc .fc-list-day-cap,
+.fc .fc-list-day th {
+  background: var(--muted);
+}
+.fc .fc-event {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+/* Por origen y estado */
+.fc .ev-local {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+.fc .ev-taskapp {
+  background: var(--secondary);
+  border-color: var(--border);
+  color: var(--secondary-foreground);
+}
+.fc .ev-task {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border: 1px dashed var(--muted-foreground);
+}
+.fc .ev-invite-pending {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid oklch(0.705 0.19 55);
+  border-left-width: 3px;
+}
+.fc .ev-cancelled .fc-event-title,
+.fc .ev-cancelled .fc-event-time {
+  text-decoration: line-through;
+}
+.fc .ev-cancelled {
+  opacity: 0.6;
+}
+.fc .ev-selected {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}

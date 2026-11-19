@@ -229,3 +229,41 @@ func TestPlan_AlternativePicksLastHTML(t *testing.T) {
 	assert.Equal(t, []int{1}, p.TextPart)
 	assert.Equal(t, []int{3}, p.HTMLPart)
 }
+
+func TestPlan_InlineCalendar(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "icalx", "testdata", "google-request.eml"))
+	require.NoError(t, err)
+	p := planOf(t, raw)
+	assert.Equal(t, []int{1, 3}, p.Calendar)
+	assert.Equal(t, []int{1, 1}, p.TextPart)
+	assert.Equal(t, []int{1, 2}, p.HTMLPart)
+	require.Len(t, p.Attachments, 1)
+	assert.Equal(t, "invite.ics", p.Attachments[0].Filename)
+	assert.Equal(t, []int{2}, p.Attachments[0].Part)
+}
+
+func TestPlan_OutlookOnlyInline(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "icalx", "testdata", "outlook-request.eml"))
+	require.NoError(t, err)
+	p := planOf(t, raw)
+	assert.NotNil(t, p.Calendar)
+	assert.Empty(t, p.Attachments)
+}
+
+// planOf entrega raw a un IMAP en memoria y devuelve el Plan de su BODYSTRUCTURE.
+func planOf(t *testing.T, raw []byte) mimex.PartPlan {
+	t.Helper()
+	tlsc := testenv.NewTLS(t)
+	srv := testenv.StartIMAP(t, tlsc, user, pass)
+	srv.Deliver(t, "INBOX", raw)
+	c, err := imapx.Dial(context.Background(), srv.Settings, user, pass, tlsc.Client)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	_, err = c.Select("INBOX")
+	require.NoError(t, err)
+	uids, err := c.AllUIDs()
+	require.NoError(t, err)
+	bs, err := c.FetchStructure(uids[0])
+	require.NoError(t, err)
+	return mimex.Plan(bs)
+}

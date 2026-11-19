@@ -34,8 +34,12 @@ const (
 	EventDraftsChanged = "mail:drafts-changed" // data: nil
 	// EventTasksChanged: hubo un alta, un cambio o una baja de tareas locales.
 	EventTasksChanged = "mail:tasks-changed" // data: nil
+	// EventCalendarChanged: hubo un alta, un cambio o una baja de eventos del calendario.
+	EventCalendarChanged = "mail:calendar-changed" // data: nil
 	// EventTaskReminder: llegó la hora de avisar de una tarea.
 	EventTaskReminder = "mail:task-reminder" // data: model.TaskReminder
+	// EventCalendarReminder: llegó la hora de avisar de un evento o una reunión.
+	EventCalendarReminder = "mail:calendar-reminder" // data: model.EventReminder
 	// EventTaskappChanged: se conectó o desconectó Taskapp, o hay una lista nueva.
 	EventTaskappChanged = "mail:taskapp-changed" // data: nil
 	// EventTaskappAuth: Taskapp rechazó el token; hay que reconectar.

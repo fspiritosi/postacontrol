@@ -1,5 +1,6 @@
 import {
   ArchiveRestoreIcon,
+  CalendarIcon,
   FilterIcon,
   ListChecksIcon,
   type LucideIcon,
@@ -20,6 +21,7 @@ import type { RuleDraft, SettingsSection } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { AccountsSection } from "./AccountsSection";
 import { BackupSection } from "./BackupSection";
+import { CalendarSection } from "./CalendarSection";
 import { LabelsSection } from "./LabelsSection";
 import { RulesSection } from "./RulesSection";
 import { TaskappSection } from "./TaskappSection";
@@ -33,6 +35,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
   { id: "labels", label: "Etiquetas", icon: TagIcon },
   { id: "rules", label: "Reglas", icon: FilterIcon },
   { id: "taskapp", label: "Taskapp", icon: ListChecksIcon },
+  { id: "calendar", label: "Calendario", icon: CalendarIcon },
   { id: "backup", label: "Respaldo", icon: ArchiveRestoreIcon },
 ];
 
@@ -114,6 +117,7 @@ export function SettingsDialog({ open, onOpenChange, focusSection, ruleDraft }: 
           {section === "labels" ? <LabelsSection /> : null}
           {section === "rules" ? <RulesSection draft={draft} onDraftDone={() => setDraft(null)} /> : null}
           {section === "taskapp" ? <TaskappSection /> : null}
+          {section === "calendar" ? <CalendarSection /> : null}
           {section === "backup" ? <BackupSection /> : null}
         </div>
       </DialogContent>

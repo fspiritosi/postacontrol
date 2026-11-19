@@ -1,4 +1,4 @@
-import { CheckSquareIcon, ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon, UsersIcon } from "lucide-react";
+import { CalendarIcon, CheckSquareIcon, ClockArrowUpIcon, InboxIcon, PlusIcon, SettingsIcon, StarIcon, UsersIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Account } from "../../../bindings/postacontrol/core/model/models";
 import { Button } from "@/components/ui/button";
@@ -117,6 +117,27 @@ function TasksRow({ state }: { state: ShellState }) {
         <CheckSquareIcon />
       </span>
       <span className="min-w-0 flex-1 truncate">Tareas</span>
+    </button>
+  );
+}
+
+// El calendario: debajo de Tareas.
+function CalendarRow({ state }: { state: ShellState }) {
+  const active = state.view?.kind === "calendar";
+  return (
+    <button
+      type="button"
+      onClick={() => state.selectView({ kind: "calendar" })}
+      aria-current={active ? "true" : undefined}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-left text-sm transition-colors hover:bg-sidebar-accent",
+        active && "bg-sidebar-accent font-medium",
+      )}
+    >
+      <span className="text-muted-foreground [&>svg]:size-4">
+        <CalendarIcon />
+      </span>
+      <span className="min-w-0 flex-1 truncate">Calendario</span>
     </button>
   );
 }
@@ -265,6 +286,7 @@ export function FolderSidebar({
         ))}
         <ContactsRow state={state} />
         <TasksRow state={state} />
+        <CalendarRow state={state} />
       </nav>
       <div className="space-y-0.5 border-t p-2">
         <Button variant="ghost" className="w-full justify-start" onClick={() => setAddOpen(true)}>

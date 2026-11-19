@@ -32,3 +32,12 @@ export const ORPHAN_MESSAGE_FRAGMENT = "no la vuelvas a crear";
 export function isOrphanError(e: unknown): boolean {
   return errorMessage(e).includes(ORPHAN_MESSAGE_FRAGMENT);
 }
+
+// Contrato con Go: msgInviteSendFailed y msgCancelSendFailed de
+// core/mail/calendar_send.go (el evento ya se guardó o se borró y solo falló
+// el correo); lo cubre un test allá.
+export const SEND_PARTIAL_FRAGMENT = "pero no pudimos mandar";
+
+export function isSendPartialError(e: unknown): boolean {
+  return errorMessage(e).includes(SEND_PARTIAL_FRAGMENT);
+}

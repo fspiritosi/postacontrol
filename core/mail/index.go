@@ -273,6 +273,9 @@ func (c *Core) indexOne(ctx context.Context, d model.MessageDetail) (storeFailed
 		}
 		return true, c.ctxOrUserError(ctx, err)
 	}
+	if len(row.Calendar) > 0 {
+		c.noteInvite(ctx, d, row.Calendar)
+	}
 	return false, nil
 }
 

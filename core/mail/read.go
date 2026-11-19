@@ -43,6 +43,9 @@ func (c *Core) GetMessage(ctx context.Context, messageID int64) (model.MessageDe
 		if err := c.store.SetBody(ctx, messageID, row); err != nil {
 			return model.MessageDetail{}, c.ctxOrUserError(ctx, err)
 		}
+		if len(row.Calendar) > 0 {
+			c.noteInvite(ctx, d, row.Calendar)
+		}
 		d.HTML, d.Text, d.HasRemoteImages, d.Attachments = row.HTML, row.Text, row.HasRemoteImages, row.Attachments
 		if row.Snippet != "" {
 			d.Snippet = row.Snippet
@@ -207,6 +210,7 @@ func (c *Core) fetchBody(ctx context.Context, d model.MessageDetail) (store.Body
 		}
 
 		row = store.BodyRow{Attachments: plan.Attachments}
+		row.Calendar = fetchCalendar(conn, d.UID, plan, multipart)
 		if html != "" {
 			row.HTML, row.HasRemoteImages = htmlx.Sanitize(html)
 		}
@@ -218,6 +222,54 @@ func (c *Core) fetchBody(ctx context.Context, d model.MessageDetail) (store.Body
 		return nil
 	})
 	return row, err
+}
+
+// maxCalendarSize es el tamaño máximo de un .ics adjunto que se baja al abrir
+// el correo.
+const maxCalendarSize = 1 << 20
+
+// fetchCalendar baja el .ics del correo: la parte text/calendar en línea o, si
+// no hay, el primer adjunto de calendario. Un error no es fatal: sin ICS el
+// correo se muestra igual.
+func fetchCalendar(conn *imapx.Conn, uid uint32, plan mimex.PartPlan, multipart bool) []byte {
+	if plan.Calendar != nil {
+		hdr, body, err := fetchPart(conn, uid, plan.Calendar, multipart)
+		if err != nil {
+			return nil
+		}
+		txt, err := mimex.DecodeText(hdr, body)
+		if err != nil {
+			return nil
+		}
+		return []byte(txt)
+	}
+	if a, ok := calendarAttachment(plan.Attachments); ok {
+		hdr, body, err := fetchPart(conn, uid, a.Part, multipart)
+		if err != nil {
+			return nil
+		}
+		raw, err := mimex.DecodeBinary(hdr, body)
+		if err != nil {
+			return nil
+		}
+		return raw
+	}
+	return nil
+}
+
+// calendarAttachment es el primer adjunto de calendario (por tipo o por
+// extensión .ics) de hasta maxCalendarSize.
+func calendarAttachment(atts []model.Attachment) (model.Attachment, bool) {
+	for _, a := range atts {
+		mt := strings.ToLower(a.MIMEType)
+		if mt != "text/calendar" && mt != "application/ics" && !strings.HasSuffix(strings.ToLower(a.Filename), ".ics") {
+			continue
+		}
+		if a.Size <= maxCalendarSize {
+			return a, true
+		}
+	}
+	return model.Attachment{}, false
 }
 
 // markSeen marca \Seen en el servidor y refleja el cambio en la caché.

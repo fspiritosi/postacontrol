@@ -49,21 +49,21 @@ const state = (): ShellState => ({
   selectThread: vi.fn(),
   contactId: null,
   selectContact: vi.fn(),
-  openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+  openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
   marked: { keys: [], anchor: null }, markedThreads: { keys: [], anchor: null },
   setMarked: vi.fn(), setMarkedThreads: vi.fn(), clearMarks: vi.fn(),
   labelFilter: null, setLabelFilter: vi.fn(),
 });
 
 function renderRail(s: ShellState, unifiedRows: UnifiedRole[] = [], onOpenSettings = vi.fn()) {
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={new QueryClient()}>
       <TooltipProvider>
         <SidebarRail accounts={[fabri, trabajo]} state={s} unifiedRows={unifiedRows} onOpenSettings={onOpenSettings} />
       </TooltipProvider>
     </QueryClientProvider>,
   );
-  return { onOpenSettings };
+  return { onOpenSettings, unmount };
 }
 
 describe("SidebarRail", () => {
@@ -163,6 +163,18 @@ describe("SidebarRail", () => {
     renderRail(s, ["inbox", "flagged"]);
     await user.click(screen.getByRole("button", { name: "Todas las cuentas · Destacados" }));
     expect(s.selectView).toHaveBeenCalledWith({ kind: "unified", role: "flagged" });
+  });
+
+  it("Calendario selecciona la vista y queda activo", async () => {
+    const user = userEvent.setup();
+    const s = state();
+    const { unmount } = renderRail(s);
+    expect(screen.getByRole("button", { name: "Calendario" }).getAttribute("aria-current")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Calendario" }));
+    expect(s.selectView).toHaveBeenCalledWith({ kind: "calendar" });
+    unmount();
+    renderRail({ ...state(), view: { kind: "calendar" } });
+    expect(screen.getByRole("button", { name: "Calendario" }).getAttribute("aria-current")).toBe("true");
   });
 
   it("Contactos y Configuración", async () => {

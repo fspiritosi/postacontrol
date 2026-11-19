@@ -41,6 +41,9 @@ func (c *Core) StartScheduler(ctx context.Context, every time.Duration) {
 			if err := c.fireDueReminders(ctx, now); err != nil && ctx.Err() == nil {
 				slog.Warn("no se pudieron revisar los avisos de tareas", "err", err)
 			}
+			if err := c.fireEventReminders(ctx, now); err != nil && ctx.Err() == nil {
+				slog.Warn("no se pudieron revisar los avisos de eventos", "err", err)
+			}
 			select {
 			case <-ctx.Done():
 				return

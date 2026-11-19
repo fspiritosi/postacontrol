@@ -44,7 +44,7 @@ describe("TaskPanel", () => {
     vi.clearAllMocks();
     vi.mocked(svc.GetSettings).mockResolvedValue(SETTINGS as never);
     vi.mocked(svc.OpenTaskInTaskapp).mockResolvedValue();
-    vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected: true, userName: "", userEmail: "" });
+    vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected: true, userId: 0, userName: "", userEmail: "" });
     vi.mocked(svc.ListTaskappTasks).mockResolvedValue({
       tasks: [remoteTask()], fetchedAt: "", stale: false, error: "",
     } as never);

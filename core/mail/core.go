@@ -57,6 +57,9 @@ type Core struct {
 	// settingsMu serializa leer-y-guardar la fila única de configuración
 	// (SetSettings, SetBackground, ClearBackground) y el borrado del fondo viejo.
 	settingsMu sync.Mutex
+	// calMu serializa leer-modificar-guardar de los eventos del calendario
+	// (SaveEvent, DeleteEvent), así dos pedidos seguidos no se pisan las excepciones.
+	calMu sync.Mutex
 
 	// Ciclo de vida: las goroutines propias (sincronización inicial y
 	// periódica) usan ctx y se registran en wg. Close cancela y espera.
@@ -173,6 +176,16 @@ type Core struct {
 	inflight         map[string]struct{}
 	addLinkHook      func() error
 	afterCommentHook func()
+	// meetingMirrorHook es solo para tests: si devuelve error, el espejo de
+	// una reunión recién creada no se guarda (calendar_taskapp.go).
+	meetingMirrorHook func() error
+
+	// Refrescos de reuniones de Taskapp por rango (calendar_taskapp.go):
+	// meetMu protege meetRanges; meetWG cuenta los refrescos que lanzó
+	// ListCalendar y siguen andando.
+	meetMu     sync.Mutex
+	meetRanges map[string]*meetRange
+	meetWG     sync.WaitGroup
 }
 
 func New(cfg Config) (*Core, error) {

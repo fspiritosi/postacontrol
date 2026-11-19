@@ -374,3 +374,37 @@ describe("RichEditor: plantillas", () => {
     expect(await screen.findByRole("option", { name: "Plantilla: Presupuesto" })).toBeInTheDocument();
   });
 });
+
+describe("RichEditor: al desmontar", () => {
+  // El menú flotante de tiptap no cancela su temporizador al destruirse: si
+  // vence cuando el entorno ya no tiene `document` global (fin de un archivo
+  // de tests, ventana cerrándose), shouldShow no tiene que usarlo.
+  it("el menú flotante no usa el document global después de desmontar", async () => {
+    const errors: unknown[] = [];
+    const onError = (e: ErrorEvent) => {
+      errors.push(e.error);
+      e.preventDefault();
+    };
+    const onUncaught = (e: unknown) => errors.push(e);
+    window.addEventListener("error", onError);
+    process.on("uncaughtException", onUncaught);
+    const user = userEvent.setup();
+    const { unmount } = render(<RichEditor content="<p>hola</p>" onChange={vi.fn()} />);
+    const body = await screen.findByLabelText("Cuerpo del mensaje");
+    act(() => body.focus());
+    await user.keyboard("{Control>}a{/Control}");
+    unmount();
+    // tiptap destruye el editor 1 ms después de desmontar; el temporizador del
+    // menú (250 ms) sigue vivo y es el que vence sin document.
+    await new Promise((r) => setTimeout(r, 20));
+    vi.stubGlobal("document", undefined);
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+    } finally {
+      vi.unstubAllGlobals();
+      window.removeEventListener("error", onError);
+      process.off("uncaughtException", onUncaught);
+    }
+    expect(errors).toEqual([]);
+  });
+});

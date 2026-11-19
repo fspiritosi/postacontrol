@@ -63,7 +63,8 @@ func (c *Core) setSettingsLocked(ctx context.Context, st model.Settings) (apiCha
 	default:
 		return false, false, &UserError{Code: "invalid", Msg: "Tema desconocido."}
 	}
-	if st.TaskReminderMinutes != nil && !validRemindMinutes(*st.TaskReminderMinutes) {
+	if (st.TaskReminderMinutes != nil && !validRemindMinutes(*st.TaskReminderMinutes)) ||
+		(st.EventReminderMinutes != nil && !validRemindMinutes(*st.EventReminderMinutes)) {
 		return false, false, &UserError{Code: "invalid", Msg: msgBadReminder}
 	}
 	if !validTaskappURL(st.TaskappAPIURL) || !validTaskappURL(st.TaskappWebURL) {

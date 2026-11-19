@@ -312,3 +312,69 @@ func TestBuild_NoInlineUnchanged(t *testing.T) {
 	assert.Equal(t, "multipart/alternative[text/plain,text/html]", mimeTree(t, bytes.NewReader(raw)))
 	assert.NotContains(t, string(raw), "multipart/related")
 }
+
+func TestBuild_CalendarStructure(t *testing.T) {
+	o := baseOutgoing()
+	ics := []byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n")
+	o.Calendar = &OutCalendar{Method: "REQUEST", Data: ics}
+	raw, err := Build(o)
+	require.NoError(t, err)
+	assert.Equal(t, "multipart/mixed", topType(t, raw))
+
+	// Estructura cruda: alternative con las tres partes, todas en base64.
+	msg, err := message.Read(bytes.NewReader(raw))
+	require.NoError(t, err)
+	mr := msg.MultipartReader()
+	require.NotNil(t, mr)
+	alt, err := mr.NextPart()
+	require.NoError(t, err)
+	ct, _, _ := alt.Header.ContentType()
+	assert.Equal(t, "multipart/alternative", ct)
+	ar := alt.MultipartReader()
+	require.NotNil(t, ar)
+	var types []string
+	for {
+		p, err := ar.NextPart()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		ct, params, _ := p.Header.ContentType()
+		types = append(types, ct)
+		assert.Equal(t, "base64", strings.ToLower(p.Header.Get("Content-Transfer-Encoding")))
+		if ct == "text/calendar" {
+			assert.Equal(t, "REQUEST", params["method"])
+			assert.Equal(t, "UTF-8", params["charset"])
+			b, _ := io.ReadAll(p.Body)
+			assert.Equal(t, ics, b)
+		}
+	}
+	assert.Equal(t, []string{"text/plain", "text/html", "text/calendar"}, types)
+
+	att, err := mr.NextPart()
+	require.NoError(t, err)
+	ct, params, _ := att.Header.ContentType()
+	assert.Equal(t, "application/ics", ct)
+	assert.Equal(t, "invite.ics", params["name"])
+	disp, dparams, _ := att.Header.ContentDisposition()
+	assert.Equal(t, "attachment", disp)
+	assert.Equal(t, "invite.ics", dparams["filename"])
+	assert.Equal(t, "base64", strings.ToLower(att.Header.Get("Content-Transfer-Encoding")))
+	b, _ := io.ReadAll(att.Body)
+	assert.Equal(t, ics, b)
+	_, err = mr.NextPart()
+	assert.Equal(t, io.EOF, err)
+}
+
+func TestBuild_CalendarWithExtraAttachmentAndInline(t *testing.T) {
+	o := baseOutgoing()
+	o.Calendar = &OutCalendar{Method: "CANCEL", Data: []byte("x")}
+	o.Attachments = []OutAttachment{{Filename: "a.txt", MIMEType: "text/plain", Data: []byte("hola")}}
+	raw, err := Build(o)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `filename=a.txt`)
+
+	o.Inline = []OutInline{{CID: "x", MIMEType: "image/png", Data: []byte("p")}}
+	_, err = Build(o)
+	assert.ErrorContains(t, err, "imágenes en línea")
+}

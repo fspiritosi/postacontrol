@@ -50,7 +50,8 @@ export function useFolderSyncing(folderId: number | null): boolean {
 }
 
 // Lo que depende de la conexión con Taskapp.
-export const TASKAPP_KEYS = ["taskapp-status", "taskapp-tasks", "task-links"];
+// Las reuniones del calendario también salen de Taskapp.
+export const TASKAPP_KEYS = ["taskapp-status", "taskapp-tasks", "task-links", "taskapp-workspaces", "taskapp-members", "calendar"];
 
 const REJECTED_CREDENTIALS = "El servidor rechazó el usuario o la contraseña.";
 
@@ -71,7 +72,7 @@ export function requestPassword(accountId: number): void {
 
 // Pedido de abrir Configuración, opcionalmente en una sección. Lo escucha la
 // barra lateral, que es quien tiene el diálogo.
-export type SettingsSection = "general" | "reading" | "compose" | "accounts" | "labels" | "rules" | "backup" | "taskapp";
+export type SettingsSection = "general" | "reading" | "compose" | "accounts" | "labels" | "rules" | "backup" | "taskapp" | "calendar";
 const settingsListeners = new Set<(section?: SettingsSection) => void>();
 
 export function onSettingsRequest(cb: (section?: SettingsSection) => void): () => void {
@@ -134,6 +135,22 @@ export function onOpenTask(cb: (r: OpenTaskRequest) => void): () => void {
 
 export function requestOpenTask(r: OpenTaskRequest): void {
   openTaskListeners.forEach((l) => l(r));
+}
+
+// Pedido de abrir un evento del calendario (al tocar su aviso): key es el
+// identificador de la ocurrencia y at su inicio (ISO). Lo escucha MailShell.
+export type OpenEventRequest = { key: string; at: string };
+const openEventListeners = new Set<(r: OpenEventRequest) => void>();
+
+export function onOpenEvent(cb: (r: OpenEventRequest) => void): () => void {
+  openEventListeners.add(cb);
+  return () => {
+    openEventListeners.delete(cb);
+  };
+}
+
+export function requestOpenEvent(r: OpenEventRequest): void {
+  openEventListeners.forEach((l) => l(r));
 }
 
 // Archivos soltados sobre el redactor (ya preparados por Go) o el motivo por
@@ -350,16 +367,25 @@ export function useMailEvents(queryClient: QueryClient): void {
       Events.On("app:open-task", (ev) => {
         requestOpenTask(ev.data as OpenTaskRequest);
       }),
+      Events.On("app:open-event", (ev) => {
+        requestOpenEvent(ev.data as OpenEventRequest);
+      }),
+      Events.On("mail:calendar-changed", () => {
+        for (const key of ["calendar", "event", "invite"]) {
+          void queryClient.invalidateQueries({ queryKey: [key] });
+        }
+      }),
       Events.On("mail:tasks-changed", () => {
         void queryClient.invalidateQueries({ queryKey: ["local-tasks"] });
       }),
       Events.On("mail:taskapp-changed", () => {
-        for (const key of ["taskapp-tasks", "taskapp-status", "task-links"]) {
+        for (const key of TASKAPP_KEYS) {
           void queryClient.invalidateQueries({ queryKey: [key] });
         }
       }),
       Events.On("mail:taskapp-auth", () => {
         void queryClient.invalidateQueries({ queryKey: ["taskapp-status"] });
+        void queryClient.invalidateQueries({ queryKey: ["calendar"] });
         toast.error("Taskapp rechazó la conexión.", {
           id: "taskapp-auth",
           duration: Infinity,

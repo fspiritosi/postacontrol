@@ -1,3 +1,4 @@
+import { CalendarView } from "@/features/calendar/CalendarView";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -72,6 +73,9 @@ export default function App() {
           ) : (
             <MessageList accounts={all} state={s} />
           )
+        }
+        full={(s) =>
+          s.view?.kind === "calendar" ? <CalendarView state={s} /> : null
         }
         reader={(s) =>
           s.view?.kind === "contacts" ? (

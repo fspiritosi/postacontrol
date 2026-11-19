@@ -196,6 +196,12 @@ type ReplyContext struct {
 	References []string `json:"references"`
 }
 
+// CalendarPart es la invitación iMIP que viaja con un correo.
+type CalendarPart struct {
+	Method string `json:"method"`
+	ICS    string `json:"ics"`
+}
+
 type SendRequest struct {
 	AccountID int64         `json:"accountId"`
 	To        []Address     `json:"to"`
@@ -220,6 +226,8 @@ type SendRequest struct {
 	// SendAt programa el envío para esa hora (segundos unix); 0 o una hora
 	// que ya pasó = ahora.
 	SendAt int64 `json:"sendAt,omitempty"`
+	// Calendar, si viene, manda el correo como invitación (parte text/calendar).
+	Calendar *CalendarPart `json:"calendar,omitempty"`
 }
 
 // Draft es un borrador autoguardado del redactor: se sube a la carpeta
@@ -347,6 +355,9 @@ type Settings struct {
 	// TaskReminderMinutes es la anticipación por defecto del aviso de una
 	// tarea con hora; nil = 15.
 	TaskReminderMinutes *int `json:"taskReminderMinutes"`
+	// EventReminderMinutes es la anticipación por defecto del aviso de un
+	// evento; nil = 15.
+	EventReminderMinutes *int `json:"eventReminderMinutes"`
 	// TaskappAPIURL y TaskappWebURL son las direcciones de Taskapp; vacías =
 	// las de producción.
 	TaskappAPIURL string `json:"taskappApiUrl"`
@@ -356,6 +367,7 @@ type Settings struct {
 // TaskappStatus dice si hay una cuenta de Taskapp conectada y de quién.
 type TaskappStatus struct {
 	Connected bool   `json:"connected"`
+	UserID    int64  `json:"userId"`
 	UserName  string `json:"userName"`
 	UserEmail string `json:"userEmail"`
 }
@@ -366,6 +378,35 @@ type TaskappProject struct {
 	WorkspaceID int64  `json:"workspaceId"`
 	Name        string `json:"name"`
 	Color       string `json:"color"`
+}
+
+// TaskappWorkspace es un workspace de Taskapp.
+type TaskappWorkspace struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// TaskappMember es un miembro de un workspace de Taskapp.
+type TaskappMember struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// TaskappMeetingCreate es el pedido de crear una reunión en Taskapp desde el
+// calendario; External son los invitados de afuera, que reciben un .ics.
+type TaskappMeetingCreate struct {
+	WorkspaceID int64     `json:"workspaceId"`
+	ProjectID   int64     `json:"projectId"` // 0 = sin proyecto
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Location    string    `json:"location"`
+	AllDay      bool      `json:"allDay"`
+	Start       time.Time `json:"start"`
+	End         time.Time `json:"end"`
+	AttendeeIDs []int64   `json:"attendeeIds"`
+	External    []Address `json:"external"`
+	AccountID   int64     `json:"accountId"` // cuenta que manda a los externos
 }
 
 // TaskappTask es una tarea o ticket pendiente asignado al usuario.
@@ -458,6 +499,24 @@ type BackupImport struct {
 	// Tareas locales (las de mismo título, fecha y hora se saltean).
 	TasksAdded   int `json:"tasksAdded"`
 	TasksSkipped int `json:"tasksSkipped"`
+	// Eventos del calendario (los de una UID que ya está se saltean).
+	EventsAdded   int `json:"eventsAdded"`
+	EventsSkipped int `json:"eventsSkipped"`
+}
+
+// ICSCalendar es un calendario de un archivo .ics (o de una entrada de un zip)
+// listo para importar.
+type ICSCalendar struct {
+	ID     string `json:"id"`     // ruta, o "ruta#entrada" para un zip
+	Name   string `json:"name"`   // X-WR-CALNAME, o el nombre del archivo
+	Events int    `json:"events"` // cantidad de series
+}
+
+// ICSImportResult cuenta lo que dejó importar .ics.
+type ICSImportResult struct {
+	Added   int `json:"added"`
+	Updated int `json:"updated"`
+	Skipped int `json:"skipped"`
 }
 
 // TaskReminder es el aviso de una tarea próxima; At es su fecha y hora, no el
@@ -466,6 +525,15 @@ type TaskReminder struct {
 	TaskID int64     `json:"taskId"`
 	Title  string    `json:"title"`
 	At     time.Time `json:"at"`
+}
+
+// EventReminder es el aviso de un evento o reunión próximos; At es el inicio de
+// la ocurrencia (el movido, si se movió), no el momento del aviso.
+type EventReminder struct {
+	Key    string    `json:"key"` // la Key del CalendarItem
+	Title  string    `json:"title"`
+	At     time.Time `json:"at"`
+	AllDay bool      `json:"allDay"`
 }
 
 // AutoBackupInfo es el estado del respaldo automático: la carpeta elegida
@@ -568,4 +636,140 @@ type TaskappCreate struct {
 	DescriptionHTML string `json:"descriptionHtml"`
 	Priority        string `json:"priority"` // none|low|medium|high|urgent
 	DueDate         string `json:"dueDate"`  // solo tarea
+}
+
+// Attendee es un invitado de un evento.
+type Attendee struct {
+	Email    string `json:"email"` // minúscula
+	Name     string `json:"name"`
+	Partstat string `json:"partstat"` // NEEDS-ACTION, ACCEPTED, TENTATIVE o DECLINED
+}
+
+// EventException modifica o cancela una ocurrencia de una serie.
+type EventException struct {
+	RecurrenceAt time.Time `json:"recurrenceAt"` // inicio original de la ocurrencia
+	Cancelled    bool      `json:"cancelled"`
+	Start        time.Time `json:"start"`
+	End          time.Time `json:"end"`
+	Title        string    `json:"title"`
+	Location     string    `json:"location"`
+	Description  string    `json:"description"`
+}
+
+// CalendarEvent es un evento del calendario (local, invitación o espejo de Taskapp).
+type CalendarEvent struct {
+	ID               int64            `json:"id"`
+	UID              string           `json:"uid"`
+	Kind             string           `json:"kind"` // "local", "invite" o "taskapp" (espejo de externos)
+	Title            string           `json:"title"`
+	Description      string           `json:"description"` // viaja a los invitados
+	Notes            string           `json:"notes"`       // privadas, nunca salen
+	Location         string           `json:"location"`
+	AllDay           bool             `json:"allDay"`
+	Start            time.Time        `json:"start"`
+	End              time.Time        `json:"end"` // exclusivo
+	TZID             string           `json:"tzid"`
+	RRule            string           `json:"rrule"`
+	RemindBefore     *int             `json:"remindBefore"` // nil = el de Configuración
+	AccountID        int64            `json:"accountId"`    // cuenta que manda o responde; 0 = ninguna
+	Organizer        Address          `json:"organizer"`
+	Sequence         int              `json:"sequence"`
+	Status           string           `json:"status"`     // "confirmed" o "cancelled"
+	MyPartstat       string           `json:"myPartstat"` // solo en "invite"
+	MyEmail          string           `json:"myEmail"`
+	AliasReply       bool             `json:"aliasReply"` // ninguna cuenta coincide con el ATTENDEE
+	NeedsReview      bool             `json:"needsReview"`
+	RawICS           string           `json:"-"`
+	TaskappMeetingID int64            `json:"taskappMeetingId"`
+	TaskappChange    string           `json:"taskappChange"` // "", "changed", "cancelled" o "deleted"
+	Attendees        []Attendee       `json:"attendees"`
+	Exceptions       []EventException `json:"exceptions"`
+}
+
+// CalendarItem es una ocurrencia de lo que se muestra en el calendario.
+type CalendarItem struct {
+	Key           string    `json:"key"`    // "e:<id>:<inicio original unix>", "m:<reunión>" o "t:<tarea>"
+	Source        string    `json:"source"` // "local", "invite", "taskapp" o "task"
+	EventID       int64     `json:"eventId"`
+	MeetingID     int64     `json:"meetingId"`
+	TaskID        int64     `json:"taskId"`
+	Title         string    `json:"title"`
+	Location      string    `json:"location"`
+	Start         time.Time `json:"start"`
+	End           time.Time `json:"end"`
+	AllDay        bool      `json:"allDay"`
+	Recurring     bool      `json:"recurring"`
+	OccurrenceAt  time.Time `json:"occurrenceAt"` // inicio original (para "solo este")
+	Color         string    `json:"color"`        // color del proyecto (Taskapp)
+	ProjectName   string    `json:"projectName"`
+	Partstat      string    `json:"partstat"`
+	NeedsReview   bool      `json:"needsReview"`
+	Cancelled     bool      `json:"cancelled"`
+	Attendees     int       `json:"attendees"`
+	Confirmed     int       `json:"confirmed"`
+	TaskappChange string    `json:"taskappChange"`
+	URL           string    `json:"url"` // Taskapp
+	// People son las personas con su respuesta: los invitados de un evento
+	// local o de una invitación; en una reunión de Taskapp, sus asistentes y
+	// después los externos del espejo. Vacío en una tarea; nunca nil.
+	People []Attendee `json:"people"`
+}
+
+// CalendarRange es lo que se muestra en el calendario para un rango.
+type CalendarRange struct {
+	Items            []CalendarItem `json:"items"` // nunca nil, ordenado por Start
+	TaskappStale     bool           `json:"taskappStale"`
+	TaskappFetchedAt time.Time      `json:"taskappFetchedAt"`
+	TaskappError     string         `json:"taskappError"`
+}
+
+// EventSave es el pedido de guardar un evento.
+type EventSave struct {
+	Event        CalendarEvent `json:"event"`        // ID 0 = nuevo
+	Scope        string        `json:"scope"`        // "" = todo el evento o la serie, "this" o "following"
+	OccurrenceAt time.Time     `json:"occurrenceAt"` // la ocurrencia, si Scope != ""
+	Notify       bool          `json:"notify"`
+}
+
+// EventDelete es el pedido de borrar un evento o parte de una serie.
+type EventDelete struct {
+	ID           int64     `json:"id"`
+	Scope        string    `json:"scope"`
+	OccurrenceAt time.Time `json:"occurrenceAt"`
+	Notify       bool      `json:"notify"`
+}
+
+// SavePreview dice, antes de guardar o borrar un evento, si hay que avisarles
+// a los invitados y a cuántos se agrega o se quita.
+type SavePreview struct {
+	NotifyNeeded bool `json:"notifyNeeded"` // hay invitados y cambió algo que les importa
+	Added        int  `json:"added"`
+	Removed      int  `json:"removed"`
+}
+
+// MessageInvite es lo que muestra la tarjeta de invitación de un correo.
+type MessageInvite struct {
+	Found       bool      `json:"found"`
+	Method      string    `json:"method"`  // REQUEST, CANCEL o REPLY
+	EventID     int64     `json:"eventId"` // 0 si no quedó en el calendario
+	Title       string    `json:"title"`
+	Location    string    `json:"location"`
+	Organizer   Address   `json:"organizer"`
+	Start       time.Time `json:"start"`
+	End         time.Time `json:"end"`
+	AllDay      bool      `json:"allDay"`
+	Recurring   bool      `json:"recurring"`
+	Partstat    string    `json:"partstat"`
+	NeedsReview bool      `json:"needsReview"`
+	Cancelled   bool      `json:"cancelled"`
+	Past        bool      `json:"past"`
+	Outdated    bool      `json:"outdated"` // el calendario tiene una versión más nueva
+	AliasReply  bool      `json:"aliasReply"`
+	ReplyFrom   Address   `json:"replyFrom"` // en un REPLY: quién respondió
+	ReplyStatus string    `json:"replyStatus"`
+}
+
+// RespondResult es lo que deja responder una invitación.
+type RespondResult struct {
+	Warning string `json:"warning"`
 }

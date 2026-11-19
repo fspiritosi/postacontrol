@@ -28,6 +28,9 @@ type BodyRow struct {
 	HTML, Text, Snippet string
 	HasRemoteImages     bool
 	Attachments         []model.Attachment
+	// Calendar es el .ics del correo (en línea o el primer adjunto de
+	// calendario de hasta 1 MB). No se guarda: se baja al abrir el correo.
+	Calendar []byte
 }
 
 // UpsertHeaders guarda el lote en una sola transacción: o entra todo o no entra nada.

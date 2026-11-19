@@ -238,3 +238,37 @@ func TestNotificationOpensMessage_TaskReminderFalse(t *testing.T) {
 		t.Error("el aviso de tarea no abre un mensaje")
 	}
 }
+
+func TestEventReminderNotification_Body(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 11, 16, 8, 0, 0, 0, loc)
+	at := time.Date(2026, 11, 16, 10, 0, 0, 0, loc)
+
+	hoy := EventReminderNotification(model.EventReminder{Key: "e:3:100", Title: "Reunión", At: at}, now, loc)
+	if hoy.ID != "event-reminder-e:3:100" || hoy.Title != "Recordatorio: Reunión" || hoy.Body != "Hoy a las 10:00" {
+		t.Errorf("hoy: %+v", hoy)
+	}
+	if hoy.Data["kind"] != "event-reminder" || hoy.Data["key"] != "e:3:100" || hoy.Data["at"] != at.Format(time.RFC3339) {
+		t.Errorf("data: %+v", hoy.Data)
+	}
+
+	otro := EventReminderNotification(model.EventReminder{Key: "m:5", Title: "x", At: time.Date(2026, 11, 19, 9, 5, 0, 0, loc)}, now, loc)
+	if otro.Body != "Jue 19/11 a las 09:05" {
+		t.Errorf("otro día: %q", otro.Body)
+	}
+
+	dia := EventReminderNotification(model.EventReminder{Key: "e:1:1", Title: "x", AllDay: true, At: time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)}, now, loc)
+	if dia.Body != "Hoy" {
+		t.Errorf("día completo hoy: %q", dia.Body)
+	}
+	dia2 := EventReminderNotification(model.EventReminder{Key: "e:1:1", Title: "x", AllDay: true, At: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)}, now, loc)
+	if dia2.Body != "Vie 20/11" {
+		t.Errorf("día completo otro día: %q", dia2.Body)
+	}
+}
+
+func TestNotificationOpensMessage_EventReminderFalse(t *testing.T) {
+	if notificationOpensMessage(map[string]interface{}{"kind": "event-reminder"}) {
+		t.Error("el aviso de evento no abre un mensaje")
+	}
+}

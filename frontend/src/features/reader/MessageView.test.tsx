@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
   TaskLinksForMessage: vi.fn(() => Promise.resolve([])),
+  InviteForMessage: vi.fn(() => Promise.resolve({ found: false })),
   GetMessage: vi.fn(),
   ListFolders: vi.fn(),
   ContactForEmail: vi.fn(),
@@ -60,7 +61,7 @@ function setup(role: string, labels: number[] = [], over: Partial<MessageDetail>
     selectThread: vi.fn(),
     contactId: null,
     selectContact: vi.fn(),
-    openContact, taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+    openContact, taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
   } as unknown as ShellState;
   const client = new QueryClient();
   render(

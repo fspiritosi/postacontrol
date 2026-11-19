@@ -17,7 +17,7 @@ export function taskShellState(taskKey: string | null = null): ShellState {
     openContact: vi.fn(),
     taskKey,
     selectTask: vi.fn(),
-    openTask: vi.fn(),
+    openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
     marked: { keys: [], anchor: null },
     markedThreads: { keys: [], anchor: null },
     setMarked: vi.fn(),
@@ -30,7 +30,7 @@ export function taskShellState(taskKey: string | null = null): ShellState {
 
 export const SETTINGS = {
   unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false,
-  autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+  autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
   threadedList: false, readingPane: "right", background: "",
 };
 

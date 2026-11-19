@@ -342,12 +342,14 @@ export function RichEditor({
           </>
         )}
       </div>
+      {/* El documento del editor y no el global: el temporizador del menú de
+          tiptap no se cancela al destruirse y puede vencer sin document. */}
       <BubbleMenu
         ref={bubbleRef}
         editor={editor}
         options={{ placement: "top" }}
         shouldShow={({ state, view }) =>
-          showBubble({ state }) && (view.hasFocus() || (bubbleRef.current?.contains(document.activeElement) ?? false))
+          showBubble({ state }) && (view.hasFocus() || (bubbleRef.current?.contains(view.dom.ownerDocument.activeElement) ?? false))
         }
       >
         <div role="toolbar" aria-label="Formato del texto" className="flex gap-1 rounded-md bg-popover p-1 shadow-md ring-1 ring-foreground/10">
@@ -365,7 +367,7 @@ export function RichEditor({
         editor={editor}
         options={{ placement: "top" }}
         shouldShow={({ state, view }) =>
-          showImageBubble({ state }) && (view.hasFocus() || (imageBubbleRef.current?.contains(document.activeElement) ?? false))
+          showImageBubble({ state }) && (view.hasFocus() || (imageBubbleRef.current?.contains(view.dom.ownerDocument.activeElement) ?? false))
         }
       >
         <div role="toolbar" aria-label="Ubicación de la imagen" className="flex gap-1 rounded-md bg-popover p-1 shadow-md ring-1 ring-foreground/10">

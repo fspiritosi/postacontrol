@@ -33,6 +33,10 @@ describe("viewIsValid", () => {
   it("pasa para las tareas", () => {
     expect(viewIsValid({ kind: "tasks" }, [], false)).toBe(true);
   });
+
+  it("pasa para el calendario", () => {
+    expect(viewIsValid({ kind: "calendar" }, [], false)).toBe(true);
+  });
 });
 
 describe("defaultView", () => {
@@ -71,6 +75,11 @@ describe("loadView / saveView", () => {
   it("guarda y vuelve a leer las tareas", () => {
     saveView({ kind: "tasks" });
     expect(loadView()).toEqual({ kind: "tasks" });
+  });
+
+  it("guarda y vuelve a leer el calendario", () => {
+    saveView({ kind: "calendar" });
+    expect(loadView()).toEqual({ kind: "calendar" });
   });
 
   it("no guarda la Bandeja de salida: al reabrir se vuelve a la vista anterior", () => {

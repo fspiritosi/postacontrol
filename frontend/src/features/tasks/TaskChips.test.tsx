@@ -32,7 +32,7 @@ const link = (over = {}) => ({
 function setup(links: unknown[], connected = true) {
   vi.mocked(svc.TaskLinksForMessage).mockResolvedValue(links as never);
   vi.mocked(svc.OpenTaskInTaskapp).mockResolvedValue(undefined);
-  vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected, userName: "", userEmail: "" });
+  vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected, userId: 0, userName: "", userEmail: "" });
   vi.mocked(svc.TaskappDraftFor).mockResolvedValue({ messageId: 9, title: "Nuevo", descriptionHtml: "", projectId: 0, oversize: false });
   vi.mocked(svc.TaskappProjects).mockResolvedValue([]);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

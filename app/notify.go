@@ -23,6 +23,10 @@ const EventOpenMessage = "app:open-message"
 // aviso de una tarea. data: {taskId}.
 const EventOpenTask = "app:open-task"
 
+// EventOpenEvent lo emite la app al frontend cuando el usuario hace clic en el
+// aviso de un evento o una reunión. Datos: {"key": string, "at": RFC3339}.
+const EventOpenEvent = "app:open-event"
+
 // La notificación de un solo correo nuevo trae botones para no tener que
 // abrir la app (en Linux los muestra el servidor de notificaciones).
 const (
@@ -137,11 +141,43 @@ func TaskReminderNotification(r model.TaskReminder, now time.Time, loc *time.Loc
 	}
 }
 
+// notifKindEventReminder marca en Data el aviso de un evento o una reunión.
+const notifKindEventReminder = "event-reminder"
+
+// EventReminderNotification arma el aviso de un evento o una reunión. El cuerpo
+// dice "Hoy a las HH:MM" o el día y la hora; en un día completo, "Hoy" o el
+// día (la fecha es la de At en UTC, sin convertir).
+func EventReminderNotification(r model.EventReminder, now time.Time, loc *time.Location) notifications.NotificationOptions {
+	at, now := r.At.In(loc), now.In(loc)
+	if r.AllDay {
+		at = r.At.UTC()
+	}
+	var body string
+	today := at.Format("2006-01-02") == now.Format("2006-01-02")
+	switch {
+	case r.AllDay && today:
+		body = "Hoy"
+	case r.AllDay:
+		body = fmt.Sprintf("%s %s", diasCortos[at.Weekday()], at.Format("02/01"))
+	case today:
+		body = "Hoy a las " + at.Format("15:04")
+	default:
+		body = fmt.Sprintf("%s %s a las %s", diasCortos[at.Weekday()], at.Format("02/01"), at.Format("15:04"))
+	}
+	return notifications.NotificationOptions{
+		ID:    "event-reminder-" + r.Key,
+		Title: "Recordatorio: " + r.Title,
+		Body:  escapeBody(body),
+		Data:  map[string]interface{}{"kind": notifKindEventReminder, "key": r.Key, "at": r.At.Format(time.RFC3339)},
+	}
+}
+
 // notificationOpensMessage dice si tocar la notificación abre un mensaje (la
 // de correo nuevo) o solo muestra la ventana (la de un envío que falló o la
 // de una tarea, que abre la tarea por su cuenta).
 func notificationOpensMessage(data map[string]interface{}) bool {
-	return data["kind"] != notifKindSendFailed && data["kind"] != notifKindTaskReminder
+	return data["kind"] != notifKindSendFailed && data["kind"] != notifKindTaskReminder &&
+		data["kind"] != notifKindEventReminder
 }
 
 // bodyEscaper escapa lo que el cuerpo de una notificación de freedesktop
@@ -223,6 +259,15 @@ func (h *notifyHub) sendFinished(data any) {
 	}
 }
 
+func (h *notifyHub) eventReminder(r model.EventReminder) {
+	if h == nil {
+		return
+	}
+	if d := h.p.Load(); d != nil {
+		go d.handleEventReminder(r)
+	}
+}
+
 func (h *notifyHub) taskReminder(r model.TaskReminder) {
 	if h == nil {
 		return
@@ -254,6 +299,12 @@ func SetupNotifications(app *application.App, svc *MailService, d *Desktop, noti
 		n.desktop.ShowWindow()
 		if r.Response.UserInfo["kind"] == notifKindTaskReminder {
 			n.app.Event.Emit(EventOpenTask, map[string]any{"taskId": toInt64(r.Response.UserInfo["taskId"])})
+			return
+		}
+		if r.Response.UserInfo["kind"] == notifKindEventReminder {
+			n.app.Event.Emit(EventOpenEvent, map[string]any{
+				"key": fmt.Sprint(r.Response.UserInfo["key"]), "at": fmt.Sprint(r.Response.UserInfo["at"]),
+			})
 			return
 		}
 		if notificationOpensMessage(r.Response.UserInfo) {
@@ -341,5 +392,14 @@ func (n *desktopNotifier) handleTaskReminder(r model.TaskReminder) {
 	opts := TaskReminderNotification(r, time.Now(), time.Local)
 	if err := n.notif.SendNotification(opts); err != nil {
 		slog.Warn("no se pudo mostrar el aviso de la tarea", "err", err)
+	}
+}
+
+// handleEventReminder avisa que llegó la hora de un evento o una reunión. Igual
+// que el de las tareas, se muestra siempre.
+func (n *desktopNotifier) handleEventReminder(r model.EventReminder) {
+	opts := EventReminderNotification(r, time.Now(), time.Local)
+	if err := n.notif.SendNotification(opts); err != nil {
+		slog.Warn("no se pudo mostrar el aviso del evento", "err", err)
 	}
 }

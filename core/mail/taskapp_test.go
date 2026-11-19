@@ -101,7 +101,7 @@ func TestConnectTaskapp_StoresTokenAfterMe(t *testing.T) {
 	c, n, sec := newTaskappCore(t, f)
 	st, err := c.ConnectTaskapp(context.Background(), grantOpen(taskappTok))
 	require.NoError(t, err)
-	assert.Equal(t, model.TaskappStatus{Connected: true, UserName: "Fabricio", UserEmail: "f@ej.com"}, st)
+	assert.Equal(t, model.TaskappStatus{Connected: true, UserID: 7, UserName: "Fabricio", UserEmail: "f@ej.com"}, st)
 	tok, err := sec.Get(taskappSecret)
 	require.NoError(t, err)
 	assert.Equal(t, taskappTok, tok)
@@ -237,7 +237,7 @@ func TestTaskappStatus_OfflineKeepsConnected(t *testing.T) {
 	f.srv.Close()
 	st, err := c.TaskappStatus(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, model.TaskappStatus{Connected: true, UserName: "Fabricio", UserEmail: "f@ej.com"}, st)
+	assert.Equal(t, model.TaskappStatus{Connected: true, UserID: 7, UserName: "Fabricio", UserEmail: "f@ej.com"}, st)
 }
 
 func TestTaskappClient_Disconnected(t *testing.T) {

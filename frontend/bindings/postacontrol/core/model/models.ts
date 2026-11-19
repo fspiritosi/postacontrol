@@ -60,6 +60,22 @@ export interface AttachmentData {
 }
 
 /**
+ * Attendee es un invitado de un evento.
+ */
+export interface Attendee {
+    /**
+     * minúscula
+     */
+    "email": string;
+    "name": string;
+
+    /**
+     * NEEDS-ACTION, ACCEPTED, TENTATIVE o DECLINED
+     */
+    "partstat": string;
+}
+
+/**
  * AutoBackupInfo es el estado del respaldo automático: la carpeta elegida
  * (vacía = apagado) y la fecha (AAAA-MM-DD) de la última copia que hay ahí.
  */
@@ -103,6 +119,157 @@ export interface BackupImport {
      */
     "tasksAdded": number;
     "tasksSkipped": number;
+
+    /**
+     * Eventos del calendario (los de una UID que ya está se saltean).
+     */
+    "eventsAdded": number;
+    "eventsSkipped": number;
+}
+
+/**
+ * CalendarEvent es un evento del calendario (local, invitación o espejo de Taskapp).
+ */
+export interface CalendarEvent {
+    "id": number;
+    "uid": string;
+
+    /**
+     * "local", "invite" o "taskapp" (espejo de externos)
+     */
+    "kind": string;
+    "title": string;
+
+    /**
+     * viaja a los invitados
+     */
+    "description": string;
+
+    /**
+     * privadas, nunca salen
+     */
+    "notes": string;
+    "location": string;
+    "allDay": boolean;
+    "start": string;
+
+    /**
+     * exclusivo
+     */
+    "end": string;
+    "tzid": string;
+    "rrule": string;
+
+    /**
+     * nil = el de Configuración
+     */
+    "remindBefore": number | null;
+
+    /**
+     * cuenta que manda o responde; 0 = ninguna
+     */
+    "accountId": number;
+    "organizer": Address;
+    "sequence": number;
+
+    /**
+     * "confirmed" o "cancelled"
+     */
+    "status": string;
+
+    /**
+     * solo en "invite"
+     */
+    "myPartstat": string;
+    "myEmail": string;
+
+    /**
+     * ninguna cuenta coincide con el ATTENDEE
+     */
+    "aliasReply": boolean;
+    "needsReview": boolean;
+    "taskappMeetingId": number;
+
+    /**
+     * "", "changed", "cancelled" o "deleted"
+     */
+    "taskappChange": string;
+    "attendees": Attendee[] | null;
+    "exceptions": EventException[] | null;
+}
+
+/**
+ * CalendarItem es una ocurrencia de lo que se muestra en el calendario.
+ */
+export interface CalendarItem {
+    /**
+     * "e:<id>:<inicio original unix>", "m:<reunión>" o "t:<tarea>"
+     */
+    "key": string;
+
+    /**
+     * "local", "invite", "taskapp" o "task"
+     */
+    "source": string;
+    "eventId": number;
+    "meetingId": number;
+    "taskId": number;
+    "title": string;
+    "location": string;
+    "start": string;
+    "end": string;
+    "allDay": boolean;
+    "recurring": boolean;
+
+    /**
+     * inicio original (para "solo este")
+     */
+    "occurrenceAt": string;
+
+    /**
+     * color del proyecto (Taskapp)
+     */
+    "color": string;
+    "projectName": string;
+    "partstat": string;
+    "needsReview": boolean;
+    "cancelled": boolean;
+    "attendees": number;
+    "confirmed": number;
+    "taskappChange": string;
+
+    /**
+     * Taskapp
+     */
+    "url": string;
+
+    /**
+     * People son las personas con su respuesta: los invitados de un evento
+     * local o de una invitación; en una reunión de Taskapp, sus asistentes y
+     * después los externos del espejo. Vacío en una tarea; nunca nil.
+     */
+    "people": Attendee[] | null;
+}
+
+/**
+ * CalendarPart es la invitación iMIP que viaja con un correo.
+ */
+export interface CalendarPart {
+    "method": string;
+    "ics": string;
+}
+
+/**
+ * CalendarRange es lo que se muestra en el calendario para un rango.
+ */
+export interface CalendarRange {
+    /**
+     * nunca nil, ordenado por Start
+     */
+    "items": CalendarItem[] | null;
+    "taskappStale": boolean;
+    "taskappFetchedAt": string;
+    "taskappError": string;
 }
 
 export interface ComposeDraft {
@@ -167,6 +334,53 @@ export interface Draft {
     "updatedAt": string;
 }
 
+/**
+ * EventDelete es el pedido de borrar un evento o parte de una serie.
+ */
+export interface EventDelete {
+    "id": number;
+    "scope": string;
+    "occurrenceAt": string;
+    "notify": boolean;
+}
+
+/**
+ * EventException modifica o cancela una ocurrencia de una serie.
+ */
+export interface EventException {
+    /**
+     * inicio original de la ocurrencia
+     */
+    "recurrenceAt": string;
+    "cancelled": boolean;
+    "start": string;
+    "end": string;
+    "title": string;
+    "location": string;
+    "description": string;
+}
+
+/**
+ * EventSave es el pedido de guardar un evento.
+ */
+export interface EventSave {
+    /**
+     * ID 0 = nuevo
+     */
+    "event": CalendarEvent;
+
+    /**
+     * "" = todo el evento o la serie, "this" o "following"
+     */
+    "scope": string;
+
+    /**
+     * la ocurrencia, si Scope != ""
+     */
+    "occurrenceAt": string;
+    "notify": boolean;
+}
+
 export interface Folder {
     "id": number;
     "accountId": number;
@@ -202,6 +416,36 @@ export interface FolderDeleteInfo {
  * "inbox","sent","drafts","trash","junk","archive",""
  */
 export type FolderRole = string;
+
+/**
+ * ICSCalendar es un calendario de un archivo .ics (o de una entrada de un zip)
+ * listo para importar.
+ */
+export interface ICSCalendar {
+    /**
+     * ruta, o "ruta#entrada" para un zip
+     */
+    "id": string;
+
+    /**
+     * X-WR-CALNAME, o el nombre del archivo
+     */
+    "name": string;
+
+    /**
+     * cantidad de series
+     */
+    "events": number;
+}
+
+/**
+ * ICSImportResult cuenta lo que dejó importar .ics.
+ */
+export interface ICSImportResult {
+    "added": number;
+    "updated": number;
+    "skipped": number;
+}
 
 /**
  * Label es una etiqueta de usuario. Su keyword IMAP ($pc_…) no se expone.
@@ -308,6 +552,46 @@ export interface MessageDetail {
 }
 
 /**
+ * MessageInvite es lo que muestra la tarjeta de invitación de un correo.
+ */
+export interface MessageInvite {
+    "found": boolean;
+
+    /**
+     * REQUEST, CANCEL o REPLY
+     */
+    "method": string;
+
+    /**
+     * 0 si no quedó en el calendario
+     */
+    "eventId": number;
+    "title": string;
+    "location": string;
+    "organizer": Address;
+    "start": string;
+    "end": string;
+    "allDay": boolean;
+    "recurring": boolean;
+    "partstat": string;
+    "needsReview": boolean;
+    "cancelled": boolean;
+    "past": boolean;
+
+    /**
+     * el calendario tiene una versión más nueva
+     */
+    "outdated": boolean;
+    "aliasReply": boolean;
+
+    /**
+     * en un REPLY: quién respondió
+     */
+    "replyFrom": Address;
+    "replyStatus": string;
+}
+
+/**
  * MessageSource es el mensaje tal como está en el servidor, para verlo. Si es
  * muy largo, Text trae solo el principio y Truncated lo dice.
  */
@@ -357,6 +641,13 @@ export interface ReplyContext {
      */
     "inReplyTo": string;
     "references": string[] | null;
+}
+
+/**
+ * RespondResult es lo que deja responder una invitación.
+ */
+export interface RespondResult {
+    "warning": string;
 }
 
 /**
@@ -420,6 +711,19 @@ export interface RuleRun {
      * Matched es cuántos correos cumplieron al menos una regla.
      */
     "matched": number;
+}
+
+/**
+ * SavePreview dice, antes de guardar o borrar un evento, si hay que avisarles
+ * a los invitados y a cuántos se agrega o se quita.
+ */
+export interface SavePreview {
+    /**
+     * hay invitados y cambió algo que les importa
+     */
+    "notifyNeeded": boolean;
+    "added": number;
+    "removed": number;
 }
 
 /**
@@ -509,6 +813,11 @@ export interface SendRequest {
      * que ya pasó = ahora.
      */
     "sendAt"?: number;
+
+    /**
+     * Calendar, si viene, manda el correo como invitación (parte text/calendar).
+     */
+    "calendar"?: CalendarPart | null;
 }
 
 export interface ServerSettings {
@@ -573,6 +882,12 @@ export interface Settings {
      * tarea con hora; nil = 15.
      */
     "taskReminderMinutes": number | null;
+
+    /**
+     * EventReminderMinutes es la anticipación por defecto del aviso de un
+     * evento; nil = 15.
+     */
+    "eventReminderMinutes": number | null;
 
     /**
      * TaskappAPIURL y TaskappWebURL son las direcciones de Taskapp; vacías =
@@ -722,6 +1037,41 @@ export interface TaskappList {
 }
 
 /**
+ * TaskappMeetingCreate es el pedido de crear una reunión en Taskapp desde el
+ * calendario; External son los invitados de afuera, que reciben un .ics.
+ */
+export interface TaskappMeetingCreate {
+    "workspaceId": number;
+
+    /**
+     * 0 = sin proyecto
+     */
+    "projectId": number;
+    "title": string;
+    "description": string;
+    "location": string;
+    "allDay": boolean;
+    "start": string;
+    "end": string;
+    "attendeeIds": number[] | null;
+    "external": Address[] | null;
+
+    /**
+     * cuenta que manda a los externos
+     */
+    "accountId": number;
+}
+
+/**
+ * TaskappMember es un miembro de un workspace de Taskapp.
+ */
+export interface TaskappMember {
+    "id": number;
+    "name": string;
+    "email": string;
+}
+
+/**
  * TaskappProject es un proyecto activo de Taskapp.
  */
 export interface TaskappProject {
@@ -736,6 +1086,7 @@ export interface TaskappProject {
  */
 export interface TaskappStatus {
     "connected": boolean;
+    "userId": number;
     "userName": string;
     "userEmail": string;
 }
@@ -755,6 +1106,14 @@ export interface TaskappTask {
     "projectColor": string;
     "url": string;
     "description": string;
+}
+
+/**
+ * TaskappWorkspace es un workspace de Taskapp.
+ */
+export interface TaskappWorkspace {
+    "id": number;
+    "name": string;
 }
 
 /**
