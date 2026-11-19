@@ -248,3 +248,22 @@ func TestBuildReply_Errors(t *testing.T) {
 		}
 	}
 }
+
+func TestBuild_NormalizesLineBreaks(t *testing.T) {
+	s := sampleSeries()
+	s.Master.Description = "a\r\nb"
+	s.Master.Summary = "x\ry"
+	s.Master.Location = "l1\r\nl2"
+	data, err := Build("REQUEST", s, now0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cal, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := cal.Series[0].Master
+	if m.Description != "a\nb" || m.Summary != "x\ny" || m.Location != "l1\nl2" {
+		t.Errorf("got %q %q %q", m.Description, m.Summary, m.Location)
+	}
+}

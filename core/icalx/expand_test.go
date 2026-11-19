@@ -101,3 +101,14 @@ func TestExpand_Cap500(t *testing.T) {
 		t.Errorf("got %d", len(got))
 	}
 }
+
+func TestExpand_ZeroDurationAtFrom(t *testing.T) {
+	start := utc(2026, 11, 2, 10, 0)
+	got := Expand(start, start, false, "UTC", "", nil, start, start.Add(time.Hour))
+	if len(got) != 1 || !got[0].Equal(start) {
+		t.Errorf("got %v", got)
+	}
+	if got := Expand(start, start, false, "UTC", "", nil, start.Add(-time.Hour), start); len(got) != 0 {
+		t.Errorf("start == to no debería entrar: %v", got)
+	}
+}

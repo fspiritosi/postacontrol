@@ -76,13 +76,13 @@ func buildEvent(ev VEvent, method string, now time.Time) *ical.Component {
 		c.Props.SetText("STATUS", status)
 	}
 	if ev.Summary != "" {
-		c.Props.SetText("SUMMARY", ev.Summary)
+		c.Props.SetText("SUMMARY", cleanText(ev.Summary))
 	}
 	if ev.Description != "" {
-		c.Props.SetText("DESCRIPTION", ev.Description)
+		c.Props.SetText("DESCRIPTION", cleanText(ev.Description))
 	}
 	if ev.Location != "" {
-		c.Props.SetText("LOCATION", ev.Location)
+		c.Props.SetText("LOCATION", cleanText(ev.Location))
 	}
 	if ev.RRule != "" {
 		p := ical.NewProp("RRULE")
@@ -135,6 +135,11 @@ func attendeeProp(email, name, partstat string) *ical.Prop {
 	p.Params.Set("RSVP", "TRUE")
 	p.Value = "mailto:" + email
 	return p
+}
+
+// cleanText unifica los saltos de línea a "\n": el encoder rechaza CR y LF crudos.
+func cleanText(v string) string {
+	return strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(v)
 }
 
 // cleanParam saca lo que no puede ir en un parámetro (comillas y saltos).
