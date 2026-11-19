@@ -21,6 +21,9 @@ func (n wailsNotifier) Emit(event string, data any) {
 	if r, ok := data.(model.TaskReminder); ok && event == mail.EventTaskReminder {
 		n.hub.taskReminder(r)
 	}
+	if r, ok := data.(model.EventReminder); ok && event == mail.EventCalendarReminder {
+		n.hub.eventReminder(r)
+	}
 	if event == mail.EventSendFinished {
 		n.hub.sendFinished(data)
 	}

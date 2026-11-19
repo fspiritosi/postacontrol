@@ -509,6 +509,15 @@ type TaskReminder struct {
 	At     time.Time `json:"at"`
 }
 
+// EventReminder es el aviso de un evento o reunión próximos; At es el inicio de
+// la ocurrencia (el movido, si se movió), no el momento del aviso.
+type EventReminder struct {
+	Key    string    `json:"key"` // la Key del CalendarItem
+	Title  string    `json:"title"`
+	At     time.Time `json:"at"`
+	AllDay bool      `json:"allDay"`
+}
+
 // AutoBackupInfo es el estado del respaldo automático: la carpeta elegida
 // (vacía = apagado) y la fecha (AAAA-MM-DD) de la última copia que hay ahí.
 type AutoBackupInfo struct {
