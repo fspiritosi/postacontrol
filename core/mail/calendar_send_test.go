@@ -587,3 +587,21 @@ func TestSendFailedMessagesCarryFrontendFragment(t *testing.T) {
 		}
 	}
 }
+
+// Un evento semanal a las 22:00 de Buenos Aires (01:00 UTC del día siguiente)
+// sale con la zona: si no, Google lo expandiría en UTC y caería el martes.
+func TestSaveEvent_WeeklyInvitationKeepsLocalDay(t *testing.T) {
+	ar := setLocalAR(t)
+	c, smtp, _, acc := inviteCore(t)
+	e := meeting(acc, "ana@ej.com")
+	e.Start = time.Date(2026, 11, 23, 22, 0, 0, 0, ar).UTC()
+	e.End = e.Start.Add(time.Hour)
+	e.TZID = "America/Argentina/Buenos_Aires"
+	e.RRule = "FREQ=WEEKLY;BYDAY=MO"
+	_, err := c.SaveEvent(context.Background(), model.EventSave{Event: e, Notify: true})
+	require.NoError(t, err)
+	m := readMail(t, waitMails(t, smtp, 1)[0])
+	assert.Contains(t, m.ICS, "DTSTART;TZID=America/Argentina/Buenos_Aires:20261123T220000")
+	assert.Contains(t, m.ICS, "BEGIN:VTIMEZONE")
+	assert.Contains(t, m.ICS, "RRULE:FREQ=WEEKLY;BYDAY=MO")
+}

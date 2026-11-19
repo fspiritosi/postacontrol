@@ -16,7 +16,10 @@ import (
 const ProdID = "-//PostaControl//PostaControl//ES"
 
 // Build arma un iCalendar con el METHOD dado (REQUEST, CANCEL o PUBLISH).
-// Las horas van en UTC (sin VTIMEZONE) y los días completos como VALUE=DATE.
+// Las horas van en UTC (sin VTIMEZONE) y los días completos como VALUE=DATE,
+// salvo en una serie con repetición y zona IANA: ahí DTSTART, DTEND, EXDATE y
+// RECURRENCE-ID van en hora local de esa zona con su VTIMEZONE, para que quien
+// la recibe expanda BYDAY/BYMONTHDAY en el mismo día local.
 func Build(method string, s Series, now time.Time) ([]byte, error) {
 	method = strings.ToUpper(strings.TrimSpace(method))
 	switch method {
@@ -29,12 +32,29 @@ func Build(method string, s Series, now time.Time) ([]byte, error) {
 	}
 
 	cal := newCalendar(method)
-	cal.Children = append(cal.Children, buildEvent(s.Master, method, now))
+	loc := seriesZone(s.Master)
+	if loc != nil {
+		cal.Children = append(cal.Children, vtimezone(loc, s.Master.Start))
+	}
+	cal.Children = append(cal.Children, buildEvent(s.Master, method, now, loc))
 	for _, ov := range s.Overrides {
 		ov.UID = s.Master.UID
-		cal.Children = append(cal.Children, buildEvent(ov, method, now))
+		cal.Children = append(cal.Children, buildEvent(ov, method, now, loc))
 	}
 	return encode(cal)
+}
+
+// seriesZone es la zona en la que se escriben las horas de la serie: la del
+// maestro si se repite, tiene hora y su TZID carga; si no, nil (UTC).
+func seriesZone(m VEvent) *time.Location {
+	if m.RRule == "" || m.AllDay || m.TZID == "" || m.TZID == "UTC" {
+		return nil
+	}
+	loc, err := time.LoadLocation(m.TZID)
+	if err != nil {
+		return nil
+	}
+	return loc
 }
 
 func newCalendar(method string) *ical.Calendar {
@@ -54,16 +74,17 @@ func encode(cal *ical.Calendar) ([]byte, error) {
 	return fold(buf.Bytes()), nil
 }
 
-func buildEvent(ev VEvent, method string, now time.Time) *ical.Component {
+// buildEvent arma un VEVENT; con loc, las horas van en hora local de esa zona.
+func buildEvent(ev VEvent, method string, now time.Time, loc *time.Location) *ical.Component {
 	c := ical.NewComponent("VEVENT")
 	c.Props.SetText("UID", ev.UID)
 	c.Props.SetDateTime("DTSTAMP", now.UTC())
-	setTime(c, "DTSTART", ev.Start, ev.AllDay)
+	setTime(c, "DTSTART", ev.Start, ev.AllDay, loc)
 	if !ev.End.IsZero() {
-		setTime(c, "DTEND", ev.End, ev.AllDay)
+		setTime(c, "DTEND", ev.End, ev.AllDay, loc)
 	}
 	if !ev.RecurrenceID.IsZero() {
-		setTime(c, "RECURRENCE-ID", ev.RecurrenceID, ev.AllDay)
+		setTime(c, "RECURRENCE-ID", ev.RecurrenceID, ev.AllDay, loc)
 	}
 	seq := ical.NewProp("SEQUENCE") // entero: sin VALUE=TEXT
 	seq.Value = strconv.Itoa(ev.Sequence)
@@ -93,14 +114,20 @@ func buildEvent(ev VEvent, method string, now time.Time) *ical.Component {
 		p := ical.NewProp("EXDATE")
 		vals := make([]string, len(ev.ExDates))
 		for i, t := range ev.ExDates {
-			if ev.AllDay {
+			switch {
+			case ev.AllDay:
 				vals[i] = t.UTC().Format("20060102")
-			} else {
+			case loc != nil:
+				vals[i] = t.In(loc).Format("20060102T150405")
+			default:
 				vals[i] = t.UTC().Format("20060102T150405Z")
 			}
 		}
-		if ev.AllDay {
+		switch {
+		case ev.AllDay:
 			p.Params.Set("VALUE", "DATE")
+		case loc != nil:
+			p.Params.Set("TZID", loc.String())
 		}
 		p.Value = strings.Join(vals, ",")
 		c.Props.Set(p)
@@ -148,11 +175,15 @@ func cleanParam(v string) string {
 	return strings.TrimSpace(v)
 }
 
-func setTime(c *ical.Component, name string, t time.Time, allDay bool) {
+func setTime(c *ical.Component, name string, t time.Time, allDay bool, loc *time.Location) {
 	p := ical.NewProp(name)
-	if allDay {
+	switch {
+	case allDay:
 		p.SetDate(t.UTC())
-	} else {
+	case loc != nil:
+		p.Params.Set("TZID", loc.String())
+		p.Value = t.In(loc).Format("20060102T150405")
+	default:
 		p.SetDateTime(t.UTC())
 	}
 	c.Props.Set(p)

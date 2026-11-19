@@ -327,7 +327,7 @@ func eventToSeries(e model.CalendarEvent) icalx.Series {
 	s := icalx.Series{Master: base}
 	m := &s.Master
 	m.Summary, m.Description, m.Location = e.Title, e.Description, e.Location
-	m.Start, m.End, m.RRule = e.Start.UTC(), e.End.UTC(), e.RRule
+	m.Start, m.End, m.RRule, m.TZID = e.Start.UTC(), e.End.UTC(), e.RRule, e.TZID
 
 	xs := append([]model.EventException(nil), e.Exceptions...)
 	sort.Slice(xs, func(i, j int) bool { return xs[i].RecurrenceAt.Before(xs[j].RecurrenceAt) })
