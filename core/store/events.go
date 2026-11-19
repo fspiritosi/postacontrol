@@ -25,7 +25,7 @@ func scanEvent(r rowScanner) (model.CalendarEvent, error) {
 		return model.CalendarEvent{}, err
 	}
 	e.AllDay, e.AliasReply, e.NeedsReview = allDay != 0, alias != 0, review != 0
-	e.Start, e.End = time.Unix(start, 0), time.Unix(end, 0)
+	e.Start, e.End = time.Unix(start, 0).UTC(), time.Unix(end, 0).UTC()
 	if remind.Valid {
 		v := int(remind.Int64)
 		e.RemindBefore = &v
@@ -43,10 +43,16 @@ func (s *Store) loadEventChildren(ctx context.Context, evs []model.CalendarEvent
 		return nil
 	}
 	idx := make(map[int64]int, len(evs))
+	ph, ids := "", make([]any, 0, len(evs))
 	for i, e := range evs {
 		idx[e.ID] = i
+		if i > 0 {
+			ph += ","
+		}
+		ph += "?"
+		ids = append(ids, e.ID)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT event_id, email, name, partstat FROM event_attendees ORDER BY rowid`)
+	rows, err := s.db.QueryContext(ctx, `SELECT event_id, email, name, partstat FROM event_attendees WHERE event_id IN (`+ph+`) ORDER BY rowid`, ids...)
 	if err != nil {
 		return err
 	}
@@ -68,7 +74,7 @@ func (s *Store) loadEventChildren(ctx context.Context, evs []model.CalendarEvent
 		return err
 	}
 	rows, err = s.db.QueryContext(ctx, `SELECT event_id, recurrence_at, cancelled, start_at, end_at, title, location, description
- FROM event_exceptions ORDER BY recurrence_at`)
+ FROM event_exceptions WHERE event_id IN (`+ph+`) ORDER BY recurrence_at`, ids...)
 	if err != nil {
 		return err
 	}
@@ -80,7 +86,7 @@ func (s *Store) loadEventChildren(ctx context.Context, evs []model.CalendarEvent
 		if err := rows.Scan(&id, &rec, &cancelled, &start, &end, &x.Title, &x.Location, &x.Description); err != nil {
 			return err
 		}
-		x.RecurrenceAt, x.Cancelled, x.Start, x.End = time.Unix(rec, 0), cancelled != 0, time.Unix(start, 0), time.Unix(end, 0)
+		x.RecurrenceAt, x.Cancelled, x.Start, x.End = time.Unix(rec, 0).UTC(), cancelled != 0, time.Unix(start, 0).UTC(), time.Unix(end, 0).UTC()
 		if i, ok := idx[id]; ok {
 			evs[i].Exceptions = append(evs[i].Exceptions, x)
 		}
@@ -146,9 +152,9 @@ func (s *Store) AllEvents(ctx context.Context) ([]model.CalendarEvent, error) {
 // los simples que se superponen y las series que empezaron antes de to y no
 // terminaron antes de from (expandirlas es cosa del llamador).
 func (s *Store) EventsInRange(ctx context.Context, from, to time.Time) ([]model.CalendarEvent, error) {
-	return s.queryEvents(ctx, `WHERE (rrule = '' AND start_at < ? AND end_at > ?)
+	return s.queryEvents(ctx, `WHERE (rrule = '' AND start_at < ? AND (end_at > ? OR start_at >= ?))
  OR (rrule <> '' AND start_at < ? AND (series_end_at IS NULL OR series_end_at > ?))
- ORDER BY start_at, id`, to.Unix(), from.Unix(), to.Unix(), from.Unix())
+ ORDER BY start_at, id`, to.Unix(), from.Unix(), from.Unix(), to.Unix(), from.Unix())
 }
 
 // SaveEvent da de alta (ID 0) o edita un evento y reemplaza sus invitados y
@@ -209,13 +215,13 @@ func (s *Store) SaveEvent(ctx context.Context, e model.CalendarEvent, seriesEnd 
 			return model.CalendarEvent{}, err
 		}
 	}
-	for _, a := range e.Attendees {
+	for _, a := range dedupeAttendees(e.Attendees) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO event_attendees (event_id, email, name, partstat) VALUES (?,?,?,?)`,
-			e.ID, strings.ToLower(strings.TrimSpace(a.Email)), a.Name, a.Partstat); err != nil {
+			e.ID, a.Email, a.Name, a.Partstat); err != nil {
 			return model.CalendarEvent{}, err
 		}
 	}
-	for _, x := range e.Exceptions {
+	for _, x := range dedupeExceptions(e.Exceptions) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO event_exceptions (event_id, recurrence_at, cancelled, start_at, end_at, title, location, description)
  VALUES (?,?,?,?,?,?,?,?)`, e.ID, x.RecurrenceAt.Unix(), b2i(x.Cancelled), x.Start.Unix(), x.End.Unix(), x.Title, x.Location, x.Description); err != nil {
 			return model.CalendarEvent{}, err
@@ -225,6 +231,39 @@ func (s *Store) SaveEvent(ctx context.Context, e model.CalendarEvent, seriesEnd 
 		return model.CalendarEvent{}, err
 	}
 	return s.GetEvent(ctx, e.ID)
+}
+
+// dedupeAttendees normaliza los emails y, si se repiten, se queda con el último
+// (en la posición del primero).
+func dedupeAttendees(in []model.Attendee) []model.Attendee {
+	pos := map[string]int{}
+	out := make([]model.Attendee, 0, len(in))
+	for _, a := range in {
+		a.Email = strings.ToLower(strings.TrimSpace(a.Email))
+		if i, ok := pos[a.Email]; ok {
+			out[i] = a
+			continue
+		}
+		pos[a.Email] = len(out)
+		out = append(out, a)
+	}
+	return out
+}
+
+// dedupeExceptions se queda con la última excepción de cada recurrence_at.
+func dedupeExceptions(in []model.EventException) []model.EventException {
+	pos := map[int64]int{}
+	out := make([]model.EventException, 0, len(in))
+	for _, x := range in {
+		k := x.RecurrenceAt.Unix()
+		if i, ok := pos[k]; ok {
+			out[i] = x
+			continue
+		}
+		pos[k] = len(out)
+		out = append(out, x)
+	}
+	return out
 }
 
 func (s *Store) DeleteEvent(ctx context.Context, id int64) error {
@@ -365,7 +404,7 @@ func (s *Store) MeetingsInRange(ctx context.Context, from, to time.Time) ([]Stor
 		if err := rows.Scan(&m.ID, &m.WorkspaceID, &start, &end, &m.JSON, &fetched); err != nil {
 			return nil, time.Time{}, err
 		}
-		m.Start, m.End = time.Unix(start, 0), time.Unix(end, 0)
+		m.Start, m.End = time.Unix(start, 0).UTC(), time.Unix(end, 0).UTC()
 		if len(out) == 0 || fetched < oldest {
 			oldest = fetched
 		}
@@ -377,5 +416,5 @@ func (s *Store) MeetingsInRange(ctx context.Context, from, to time.Time) ([]Stor
 	if len(out) == 0 {
 		return out, time.Time{}, nil
 	}
-	return out, time.Unix(oldest, 0), nil
+	return out, time.Unix(oldest, 0).UTC(), nil
 }

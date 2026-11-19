@@ -395,3 +395,80 @@ func TestTaskappState_AndPartstat(t *testing.T) {
 	require.NoError(t, s.DeleteEvent(ctx, saved.ID))
 	assert.ErrorIs(t, s.DeleteEvent(ctx, saved.ID), ErrNotFound)
 }
+
+func TestEvents_ReadBackInUTC(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("ART", -3*3600)
+	t.Cleanup(func() { time.Local = old })
+	s := newStore(t)
+	ctx := context.Background()
+	e := evAt("allday", day(10), day(11))
+	e.AllDay = true
+	e.Exceptions = []model.EventException{{RecurrenceAt: day(10), Start: day(10), End: day(11)}}
+	saved, err := s.SaveEvent(ctx, e, nil)
+	require.NoError(t, err)
+	got, err := s.GetEvent(ctx, saved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, time.UTC, got.Start.Location())
+	assert.Equal(t, time.UTC, got.End.Location())
+	assert.Equal(t, "2026-11-10", got.Start.Format("2006-01-02"))
+	assert.Equal(t, time.UTC, got.Exceptions[0].RecurrenceAt.Location())
+	assert.Equal(t, "2026-11-10", got.Exceptions[0].Start.Format("2006-01-02"))
+	require.NoError(t, s.ReplaceMeetings(ctx, 1, day(1), day(30), []StoredMeeting{{ID: 1, WorkspaceID: 1, Start: day(10), End: day(11), JSON: "{}"}}, day(9)))
+	ms, fetched, err := s.MeetingsInRange(ctx, day(1), day(30))
+	require.NoError(t, err)
+	assert.Equal(t, time.UTC, ms[0].Start.Location())
+	assert.Equal(t, time.UTC, fetched.Location())
+}
+
+func TestEventsInRange_ZeroDuration(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, err := s.SaveEvent(ctx, evAt("enFrom", day(10), day(10)), nil)
+	require.NoError(t, err)
+	_, err = s.SaveEvent(ctx, evAt("enTo", day(15), day(15)), nil)
+	require.NoError(t, err)
+	got, err := s.EventsInRange(ctx, day(10), day(15))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "enFrom", got[0].UID)
+}
+
+func TestSaveEvent_DedupesChildren(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	e := evAt("dd", day(1), day(2))
+	e.Attendees = []model.Attendee{
+		{Email: "A@x.com", Name: "primero", Partstat: "NEEDS-ACTION"},
+		{Email: "b@x.com", Name: "B", Partstat: "NEEDS-ACTION"},
+		{Email: " a@X.com ", Name: "ultimo", Partstat: "ACCEPTED"},
+	}
+	e.Exceptions = []model.EventException{
+		{RecurrenceAt: day(1), Title: "uno"},
+		{RecurrenceAt: day(1), Title: "dos", Cancelled: true},
+	}
+	saved, err := s.SaveEvent(ctx, e, nil)
+	require.NoError(t, err)
+	require.Len(t, saved.Attendees, 2)
+	assert.Equal(t, "ultimo", saved.Attendees[0].Name)
+	assert.Equal(t, "ACCEPTED", saved.Attendees[0].Partstat)
+	require.Len(t, saved.Exceptions, 1)
+	assert.Equal(t, "dos", saved.Exceptions[0].Title)
+}
+
+func TestEvents_ChildrenOnlyOfReturned(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	a := evAt("a", day(1), day(2))
+	a.Attendees = []model.Attendee{{Email: "a@x.com"}}
+	b := evAt("b", day(20), day(21))
+	b.Attendees = []model.Attendee{{Email: "b@x.com"}}
+	_, err := s.SaveEvent(ctx, a, nil)
+	require.NoError(t, err)
+	_, err = s.SaveEvent(ctx, b, nil)
+	require.NoError(t, err)
+	got, err := s.EventsInRange(ctx, day(1), day(3))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, []model.Attendee{{Email: "a@x.com"}}, got[0].Attendees)
+}
