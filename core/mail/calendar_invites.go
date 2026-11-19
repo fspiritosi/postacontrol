@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,11 +78,15 @@ func (c *Core) processInvite(ctx context.Context, d model.MessageDetail, ics []b
 		return err
 	}
 	m := cal.Series[0].Master
-	rec := store.InviteRecord{MessageID: d.ID, Method: cal.Method, UID: m.UID, Sequence: m.Sequence,
+	rec := store.InviteRecord{MessageID: d.ID, Method: cal.Method, UID: recordUID(cal.Series[0]), Sequence: m.Sequence,
 		Sender: strings.ToLower(strings.TrimSpace(d.From.Email)), ICS: string(cal.Raw)}
-	seen, err := c.store.InviteSeen(ctx, rec.UID, rec.Sequence, rec.Sender, rec.Method)
-	if err != nil {
-		return err
+	// Una respuesta nueva puede venir con la misma SEQUENCE (el invitado
+	// cambió de idea): las respuestas solo se cuidan por correo.
+	seen := false
+	if cal.Method != "REPLY" {
+		if seen, err = c.store.InviteSeen(ctx, rec.UID, rec.Sequence, rec.Sender, rec.Method); err != nil {
+			return err
+		}
 	}
 	changed := false
 	switch {
@@ -100,6 +106,26 @@ func (c *Core) processInvite(ctx context.Context, d model.MessageDetail, ics []b
 		c.emit(EventCalendarChanged, nil)
 	}
 	return c.store.SaveInviteRecord(ctx, rec)
+}
+
+// recordUID es la UID con la que se registra el correo: la de la serie o, si
+// solo trae ocurrencias sueltas, "<uid>#<inicios originales unix, ordenados>",
+// así dos correos de ocurrencias distintas con la misma SEQUENCE no se toman
+// por repetidos.
+func recordUID(s icalx.Series) string {
+	if s.Master.RecurrenceID.IsZero() {
+		return s.Master.UID
+	}
+	ids := make([]int64, 0, len(s.Overrides))
+	for _, ov := range s.Overrides {
+		ids = append(ids, ov.RecurrenceID.Unix())
+	}
+	slices.Sort(ids)
+	parts := make([]string, 0, len(ids))
+	for _, id := range slices.Compact(ids) {
+		parts = append(parts, strconv.FormatInt(id, 10))
+	}
+	return s.Master.UID + "#" + strings.Join(parts, ",")
 }
 
 // inviteIgnored dice si la invitación del correo no se procesa: está en
@@ -149,17 +175,15 @@ func (c *Core) applyRequest(ctx context.Context, d model.MessageDetail, cal ical
 	if prev.Kind != "invite" {
 		return outcomeOwn, false, nil
 	}
-	if m.Sequence <= prev.Sequence {
+	// Las ocurrencias sueltas valen con la misma SEQUENCE de la serie (cada
+	// una es de otra ocurrencia); la serie entera tiene que ser más nueva.
+	occurrences := !m.RecurrenceID.IsZero() && prev.RRule != ""
+	if m.Sequence < prev.Sequence || (m.Sequence == prev.Sequence && !occurrences) {
 		return outcomeOutdated, false, nil
 	}
-	if !m.RecurrenceID.IsZero() && prev.RRule != "" {
-		// Solo trae ocurrencias cambiadas: van como excepciones de la serie.
-		next = prev
-		for _, ov := range s.Overrides {
-			next.Exceptions = withException(next.Exceptions, overrideException(ov))
-		}
-		next.Exceptions = validExceptions(next, next.Exceptions)
-		next.Sequence = m.Sequence
+	if occurrences {
+		next = withOverrides(prev, s.Overrides)
+		next.Sequence = max(prev.Sequence, m.Sequence)
 	} else {
 		next.ID, next.Notes, next.RemindBefore = prev.ID, prev.Notes, prev.RemindBefore
 		next.AccountID, next.MyEmail, next.AliasReply = prev.AccountID, prev.MyEmail, prev.AliasReply
@@ -173,6 +197,35 @@ func (c *Core) applyRequest(ctx context.Context, d model.MessageDetail, cal ical
 	}
 	_, err = c.store.SaveEvent(ctx, next, seriesEnd(next))
 	return outcomeUpdated, err == nil, err
+}
+
+// withOverrides suma a la serie las ocurrencias cambiadas. Si alguna cambió
+// de hora, la invitación queda para revisar (y sin respuesta, salvo que la
+// hubiera rechazado).
+func withOverrides(e model.CalendarEvent, ovs []icalx.VEvent) model.CalendarEvent {
+	dur := e.End.Sub(e.Start)
+	cur := map[int64]model.EventException{}
+	for _, x := range e.Exceptions {
+		cur[x.RecurrenceAt.Unix()] = x
+	}
+	moved := false
+	for _, ov := range ovs {
+		x := overrideException(ov)
+		start, end := x.RecurrenceAt, x.RecurrenceAt.Add(dur)
+		if old, ok := cur[x.RecurrenceAt.Unix()]; ok && !old.Cancelled {
+			start, end = old.Start, old.End
+		}
+		moved = moved || (!x.Cancelled && (!x.Start.Equal(start) || !x.End.Equal(end)))
+		e.Exceptions = withException(e.Exceptions, x)
+	}
+	e.Exceptions = validExceptions(e, e.Exceptions)
+	if moved {
+		e.NeedsReview = true
+		if e.MyPartstat != "DECLINED" {
+			e.MyPartstat = "NEEDS-ACTION"
+		}
+	}
+	return e
 }
 
 // setMyAttendee elige con qué cuenta se responde: la del primer ATTENDEE que
@@ -239,10 +292,19 @@ func overrideException(ov icalx.VEvent) model.EventException {
 }
 
 // eventPast dice si el evento (o la serie entera) ya terminó; una serie sin
-// fin nunca terminó.
+// fin nunca terminó. Uno de día completo termina al final de su último día en
+// la zona de now (la local: c.now es time.Now).
 func eventPast(e model.CalendarEvent, now time.Time) bool {
 	end := seriesEnd(e)
-	return end != nil && !end.After(now)
+	if end == nil {
+		return false
+	}
+	last := *end
+	if e.AllDay {
+		y, m, d := last.UTC().Date()
+		last = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	}
+	return !last.After(now)
 }
 
 // applyCancel cancela la invitación entera o, con RECURRENCE-ID, esas ocurrencias.
@@ -254,6 +316,9 @@ func (c *Core) applyCancel(ctx context.Context, s icalx.Series) (string, bool, e
 	}
 	if err != nil {
 		return "", false, err
+	}
+	if m.Sequence < prev.Sequence { // una cancelación vieja, de antes de un cambio
+		return outcomeOutdated, false, nil
 	}
 	next := prev
 	if m.RecurrenceID.IsZero() {
@@ -357,7 +422,7 @@ func (c *Core) inviteView(ctx context.Context, rec store.InviteRecord) (model.Me
 	m := cal.Series[0].Master
 	shown := seriesEvent(cal.Series[0], cal.Raw)
 	v.Cancelled = rec.Method == "CANCEL" || shown.Status == "cancelled"
-	ev, err := c.store.EventByUID(ctx, rec.UID)
+	ev, err := c.store.EventByUID(ctx, m.UID)
 	switch {
 	case err == nil:
 		v.EventID = ev.ID

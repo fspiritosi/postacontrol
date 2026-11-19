@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -608,4 +609,164 @@ func TestInviteForMessage_LegacyCachedAttachment(t *testing.T) {
 	assert.Equal(t, e.ID, inv.EventID)
 	assert.Equal(t, "invite", e.Kind)
 	assert.Equal(t, "created", outcome(t, c, m.ID))
+}
+
+// weeklySeries es google-request.ics como serie semanal de 4 (3, 10, 17 y 24/12 a las 15:00Z).
+func weeklySeries(t *testing.T) string {
+	t.Helper()
+	return strings.Replace(sampleICS(t, "google-request.ics"), "DTEND:20261203T160000Z",
+		"DTEND:20261203T160000Z\nRRULE:FREQ=WEEKLY;COUNT=4", 1)
+}
+
+// occurrenceOf cambia las horas de la muestra ics (oldTimes = "DTSTART:...\nDTEND:...")
+// por una sola ocurrencia (RECURRENCE-ID rid) con esas horas y SEQUENCE seq.
+func occurrenceOf(t *testing.T, ics, oldTimes, oldSeq, rid, start, end, seq string) string {
+	t.Helper()
+	require.Contains(t, ics, oldTimes)
+	out := strings.Replace(ics, oldTimes, "DTSTART:"+start+"\nDTEND:"+end+"\nRECURRENCE-ID:"+rid, 1)
+	return strings.Replace(out, "SEQUENCE:"+oldSeq, "SEQUENCE:"+seq, 1)
+}
+
+const (
+	requestTimes = "DTSTART:20261203T150000Z\nDTEND:20261203T160000Z"
+	cancelTimes  = "DTSTART:20261204T170000Z\nDTEND:20261204T180000Z"
+)
+
+func TestInvite_ReplyChangedAnswerSameSequence(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	ctx := context.Background()
+	saved, err := c.store.SaveEvent(ctx, model.CalendarEvent{UID: sampleUID, Kind: "local", Title: "Reunion de proyecto",
+		Status: "confirmed", Start: tu(2026, 12, 3, 15, 0), End: tu(2026, 12, 3, 16, 0), AccountID: acc.ID, Sequence: 1,
+		Attendees: []model.Attendee{{Email: "otra@example.com", Partstat: "NEEDS-ACTION"}}}, nil)
+	require.NoError(t, err)
+	from := "Otra Persona <otra@example.com>"
+	imap.Deliver(t, "INBOX", inviteMail("acepta", from, sampleICS(t, "reply-accepted.ics")))
+	imap.Deliver(t, "INBOX", inviteMail("rechaza", from,
+		strings.Replace(sampleICS(t, "reply-accepted.ics"), "PARTSTAT=ACCEPTED", "PARTSTAT=DECLINED", 1)))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+
+	first := open(t, c, inbox, "acepta")
+	second := open(t, c, inbox, "rechaza")
+
+	e, err := c.store.GetEvent(ctx, saved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "DECLINED", e.Attendees[0].Partstat, "la respuesta nueva, aunque tenga la misma SEQUENCE")
+	assert.Equal(t, "reply", outcome(t, c, first))
+	assert.Equal(t, "reply", outcome(t, c, second))
+}
+
+func TestInvite_CancelTwoOccurrencesSameSequence(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	cancel := sampleICS(t, "google-cancel.ics")
+	imap.Deliver(t, "INBOX", inviteMail("serie", orgFrom, weeklySeries(t)))
+	imap.Deliver(t, "INBOX", inviteMail("cancela-10", orgFrom,
+		occurrenceOf(t, cancel, cancelTimes, "3", "20261210T150000Z", "20261210T150000Z", "20261210T160000Z", "3")))
+	imap.Deliver(t, "INBOX", inviteMail("cancela-17", orgFrom,
+		occurrenceOf(t, cancel, cancelTimes, "3", "20261217T150000Z", "20261217T150000Z", "20261217T160000Z", "3")))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+
+	open(t, c, inbox, "serie")
+	ten := open(t, c, inbox, "cancela-10")
+	seventeen := open(t, c, inbox, "cancela-17")
+
+	e := inviteEvent(t, c)
+	assert.Equal(t, 3, e.Sequence)
+	require.Len(t, e.Exceptions, 2)
+	for _, x := range e.Exceptions {
+		assert.True(t, x.Cancelled)
+	}
+	assert.Len(t, december(t, c), 2)
+	assert.Equal(t, "cancelled", outcome(t, c, ten))
+	assert.Equal(t, "cancelled", outcome(t, c, seventeen))
+	r, _, err := c.store.InviteRecord(context.Background(), ten)
+	require.NoError(t, err)
+	assert.Equal(t, sampleUID+"#"+strconv.FormatInt(tu(2026, 12, 10, 15, 0).Unix(), 10), r.UID)
+	inv := inviteFor(t, c, ten)
+	assert.Equal(t, e.ID, inv.EventID)
+	assert.True(t, inv.Cancelled)
+	assert.Equal(t, tu(2026, 12, 10, 15, 0), inv.Start)
+}
+
+func TestInvite_OverrideRequestsSameSequence(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	req := sampleICS(t, "google-request.ics")
+	imap.Deliver(t, "INBOX", inviteMail("serie", orgFrom, weeklySeries(t)))
+	imap.Deliver(t, "INBOX", inviteMail("mueve-10", orgFrom,
+		occurrenceOf(t, req, requestTimes, "1", "20261210T150000Z", "20261210T180000Z", "20261210T190000Z", "2")))
+	imap.Deliver(t, "INBOX", inviteMail("mueve-17", orgFrom,
+		occurrenceOf(t, req, requestTimes, "1", "20261217T150000Z", "20261217T180000Z", "20261217T190000Z", "2")))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+
+	open(t, c, inbox, "serie")
+	ten := open(t, c, inbox, "mueve-10")
+	seventeen := open(t, c, inbox, "mueve-17")
+
+	e := inviteEvent(t, c)
+	assert.Equal(t, 2, e.Sequence)
+	assert.Equal(t, "RRULE:FREQ=WEEKLY;COUNT=4", "RRULE:"+e.RRule, "la serie sigue entera")
+	require.Len(t, e.Exceptions, 2)
+	assert.Equal(t, tu(2026, 12, 10, 18, 0), e.Exceptions[0].Start)
+	assert.Equal(t, tu(2026, 12, 17, 18, 0), e.Exceptions[1].Start)
+	assert.Equal(t, "updated", outcome(t, c, ten))
+	assert.Equal(t, "updated", outcome(t, c, seventeen))
+	assert.Len(t, december(t, c), 4)
+}
+
+func TestInvite_OverrideMoveNeedsReview(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	req := sampleICS(t, "google-request.ics")
+	imap.Deliver(t, "INBOX", inviteMail("serie", orgFrom, weeklySeries(t)))
+	imap.Deliver(t, "INBOX", inviteMail("mueve-10", orgFrom,
+		occurrenceOf(t, req, requestTimes, "1", "20261210T150000Z", "20261210T180000Z", "20261210T190000Z", "2")))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+
+	open(t, c, inbox, "serie")
+	setPartstat(t, c, "ACCEPTED")
+	open(t, c, inbox, "mueve-10")
+
+	e := inviteEvent(t, c)
+	assert.True(t, e.NeedsReview)
+	assert.Equal(t, "NEEDS-ACTION", e.MyPartstat)
+}
+
+func TestInvite_OldCancelOutdated(t *testing.T) {
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	imap.Deliver(t, "INBOX", inviteMail("request", orgFrom, sampleICS(t, "google-request.ics")))
+	imap.Deliver(t, "INBOX", inviteMail("update", orgFrom, sampleICS(t, "google-update.ics")))
+	old := strings.Replace(sampleICS(t, "google-cancel.ics"), "SEQUENCE:3", "SEQUENCE:1", 1)
+	imap.Deliver(t, "INBOX", inviteMail("cancel-viejo", orgFrom, old))
+	syncAll(t, c, acc)
+	inbox := folderID(t, c, acc.ID, "INBOX")
+
+	open(t, c, inbox, "request")
+	open(t, c, inbox, "update")
+	id := open(t, c, inbox, "cancel-viejo")
+
+	assert.Equal(t, "outdated", outcome(t, c, id))
+	e := inviteEvent(t, c)
+	assert.Equal(t, "confirmed", e.Status)
+	assert.Equal(t, 2, e.Sequence)
+}
+
+func TestInvite_AllDayTodayNotPast(t *testing.T) {
+	// El reloj va en la zona de Buenos Aires (sin tocar time.Local, que leen
+	// las goroutines del servidor de prueba).
+	art := time.FixedZone("ART", -3*3600)
+	c, imap, _, _, acc := receiverCore(t, meEmail)
+	c.now = func() time.Time { return tu(2026, 11, 20, 0, 0).In(art) } // 21:00 del 19/11 en Buenos Aires
+	today := strings.Replace(sampleICS(t, "google-request.ics"), requestTimes,
+		"DTSTART;VALUE=DATE:20261119\nDTEND;VALUE=DATE:20261120", 1)
+	imap.Deliver(t, "INBOX", inviteMail("hoy", orgFrom, today))
+	syncAll(t, c, acc)
+
+	id := open(t, c, folderID(t, c, acc.ID, "INBOX"), "hoy")
+
+	assert.Equal(t, "created", outcome(t, c, id))
+	assert.False(t, inviteFor(t, c, id).Past)
+	c.now = func() time.Time { return tu(2026, 11, 20, 3, 0).In(art) } // medianoche en Buenos Aires
+	assert.True(t, inviteFor(t, c, id).Past)
 }
