@@ -514,3 +514,65 @@ func TestInvitation_SeriesWithExceptions(t *testing.T) {
 	assert.Equal(t, 3, ov.Sequence)
 	assert.Empty(t, ov.RRule)
 }
+
+func TestSaveEvent_DuplicateAttendeesOneMail(t *testing.T) {
+	c, smtp, _, acc := inviteCore(t)
+	ctx := context.Background()
+	saved, err := c.SaveEvent(ctx, model.EventSave{Event: meeting(acc, "ana@ej.com", "beto@ej.com", "Ana <ANA@ej.com>")})
+	require.NoError(t, err)
+	require.Len(t, saved.Attendees, 2)
+	assert.Equal(t, model.Attendee{Email: "ana@ej.com", Name: "Ana", Partstat: "NEEDS-ACTION"}, saved.Attendees[0],
+		"gana el último, en el lugar del primero")
+	assert.Equal(t, "beto@ej.com", saved.Attendees[1].Email)
+
+	envs := waitMails(t, smtp, 2)
+	ana := mailsTo(t, envs, "ana@ej.com")
+	require.Len(t, ana, 1)
+	assert.Equal(t, 1, strings.Count(ana[0].ICS, "mailto:ana@ej.com"))
+	noMoreMails(t, c, smtp, 2)
+
+	p, err := c.PreviewEventSave(ctx, model.EventSave{Event: meeting(acc, "ana@ej.com", "ANA@ej.com")})
+	require.NoError(t, err)
+	assert.Equal(t, 1, p.Added)
+}
+
+func TestSaveEvent_SenderNotInvited(t *testing.T) {
+	c, smtp, _, acc := inviteCore(t)
+	ctx := context.Background()
+	saved, err := c.SaveEvent(ctx, model.EventSave{Event: meeting(acc, "ana@ej.com", "Yo <F@EJ.com>")})
+	require.NoError(t, err)
+	require.Len(t, saved.Attendees, 1)
+	assert.Equal(t, "ana@ej.com", saved.Attendees[0].Email)
+	envs := waitMails(t, smtp, 1)
+	assert.Equal(t, []string{"ana@ej.com"}, envs[0].To)
+	assert.NotContains(t, readMail(t, envs[0]).ICS, "ATTENDEE;CN=Yo")
+	noMoreMails(t, c, smtp, 1)
+
+	// Solo la cuenta propia: queda sin invitados y no sale nada.
+	only, err := c.SaveEvent(ctx, model.EventSave{Event: meeting(acc, testUser)})
+	require.NoError(t, err)
+	assert.Empty(t, only.Attendees)
+	assert.Empty(t, only.Organizer.Email)
+	p, err := c.PreviewEventSave(ctx, model.EventSave{Event: meeting(acc, testUser)})
+	require.NoError(t, err)
+	assert.Equal(t, model.SavePreview{}, p)
+	noMoreMails(t, c, smtp, 1)
+}
+
+func TestSaveEvent_OrganizerSavedWithoutNotify(t *testing.T) {
+	c, smtp, _, acc := inviteCore(t)
+	ctx := context.Background()
+	saved, err := c.SaveEvent(ctx, model.EventSave{Event: meeting(acc)})
+	require.NoError(t, err)
+	assert.Empty(t, saved.Organizer.Email, "sin invitados no hay organizador")
+
+	edit := saved
+	edit.Attendees = []model.Attendee{{Email: "ana@ej.com"}}
+	_, err = c.SaveEvent(ctx, model.EventSave{Event: edit})
+	require.NoError(t, err)
+	got, err := c.store.GetEvent(ctx, saved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.Address{Name: "Fabricio", Email: testUser}, got.Organizer)
+	assert.Equal(t, 0, got.Sequence)
+	noMoreMails(t, c, smtp, 0)
+}

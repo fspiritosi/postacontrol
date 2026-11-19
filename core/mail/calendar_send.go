@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"postacontrol/core/icalx"
 	"postacontrol/core/model"
+	"postacontrol/core/store"
 )
 
 const (
@@ -130,6 +132,60 @@ func (c *Core) sendNotices(ctx context.Context, ed *eventEdit, acc model.Account
 	return nil
 }
 
+// planEventSave prepara el guardado del evento e (ya validado) pedido en req:
+// saca de los invitados la dirección de la cuenta del evento (nadie se invita
+// a sí mismo) y, si quedan invitados, pone esa cuenta de organizador.
+func (c *Core) planEventSave(ctx context.Context, e model.CalendarEvent, req model.EventSave) (eventEdit, error) {
+	acc, err := c.eventAccount(ctx, e.AccountID)
+	if err != nil {
+		return eventEdit{}, err
+	}
+	if acc != nil {
+		e.Attendees = withoutEmail(e.Attendees, acc.Email)
+	}
+	var ed eventEdit
+	if e.ID == 0 {
+		ed = planCreate(e)
+	} else if ed, err = c.planSave(ctx, e, req.Scope, req.OccurrenceAt.UTC()); err != nil {
+		return eventEdit{}, err
+	}
+	if acc != nil {
+		org := model.Address{Name: acc.DisplayName, Email: acc.Email}
+		for _, ev := range []*model.CalendarEvent{ed.updated, ed.created} {
+			if ev != nil && ev.AccountID == acc.ID && len(ev.Attendees) > 0 {
+				ev.Organizer = org
+			}
+		}
+	}
+	return ed, nil
+}
+
+// eventAccount trae la cuenta del evento; nil si no tiene o ya no existe.
+func (c *Core) eventAccount(ctx context.Context, id int64) (*model.Account, error) {
+	if id == 0 {
+		return nil, nil
+	}
+	acc, err := c.store.GetAccount(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, c.ctxOrUserError(ctx, err)
+	}
+	return &acc, nil
+}
+
+// withoutEmail saca de los invitados la dirección email (sin distinguir mayúsculas).
+func withoutEmail(as []model.Attendee, email string) []model.Attendee {
+	out := make([]model.Attendee, 0, len(as))
+	for _, a := range as {
+		if !strings.EqualFold(a.Email, email) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // inviteAccount trae la cuenta desde la que salen las invitaciones.
 func (c *Core) inviteAccount(ctx context.Context, id int64) (model.Account, error) {
 	if id == 0 {
@@ -149,10 +205,7 @@ func (c *Core) PreviewEventSave(ctx context.Context, req model.EventSave) (model
 	if err := validateEvent(&e); err != nil {
 		return model.SavePreview{}, err
 	}
-	if e.ID == 0 {
-		return planCreate(e).preview(), nil
-	}
-	ed, err := c.planSave(ctx, e, req.Scope, req.OccurrenceAt.UTC())
+	ed, err := c.planEventSave(ctx, e, req)
 	if err != nil {
 		return model.SavePreview{}, err
 	}

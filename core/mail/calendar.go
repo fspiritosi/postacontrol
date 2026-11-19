@@ -215,7 +215,9 @@ func validateEvent(e *model.CalendarEvent) error {
 	if e.RemindBefore != nil && !validRemindMinutes(*e.RemindBefore) {
 		return &UserError{Code: "invalid", Msg: msgEventBadReminder}
 	}
+	// Sin repetidos: por email, gana el último y queda en el lugar del primero.
 	atts := make([]model.Attendee, 0, len(e.Attendees))
+	pos := map[string]int{}
 	for _, a := range e.Attendees {
 		addr, err := mail.ParseAddress(strings.TrimSpace(a.Email))
 		if err != nil || !strings.Contains(addr.Address, "@") {
@@ -228,6 +230,11 @@ func validateEvent(e *model.CalendarEvent) error {
 		if a.Partstat == "" {
 			a.Partstat = "NEEDS-ACTION"
 		}
+		if i, ok := pos[a.Email]; ok {
+			atts[i] = a
+			continue
+		}
+		pos[a.Email] = len(atts)
 		atts = append(atts, a)
 	}
 	e.Attendees = atts
@@ -428,14 +435,9 @@ func (c *Core) SaveEvent(ctx context.Context, req model.EventSave) (model.Calend
 	}
 	c.calMu.Lock()
 	defer c.calMu.Unlock()
-	var ed eventEdit
-	if e.ID == 0 {
-		ed = planCreate(e)
-	} else {
-		var err error
-		if ed, err = c.planSave(ctx, e, req.Scope, req.OccurrenceAt.UTC()); err != nil {
-			return model.CalendarEvent{}, err
-		}
+	ed, err := c.planEventSave(ctx, e, req)
+	if err != nil {
+		return model.CalendarEvent{}, err
 	}
 	acc, notices, err := c.prepareNotices(ctx, &ed, req.Notify || e.ID == 0)
 	if err != nil {
