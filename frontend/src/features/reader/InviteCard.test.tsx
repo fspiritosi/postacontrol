@@ -98,6 +98,15 @@ describe("InviteCard", () => {
     expect(await screen.findByText("Cambió la hora: volvé a responder")).toBeInTheDocument();
   });
 
+  it("aliasReply sin cuenta conocida no nombra una cuenta vacía", async () => {
+    setup({ aliasReply: true });
+    expect(
+      await screen.findByText(
+        "Ninguna de tus cuentas figura como invitada; vas a responder desde la cuenta que recibió el correo",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("aliasReply avisa desde qué cuenta se responde", async () => {
     setup({ aliasReply: true }, { accountEmail: "yo@x.com" });
     expect(

@@ -135,6 +135,8 @@ export function useMessageInvite(messageId: number | null) {
     queryKey: ["invite", messageId],
     queryFn: () => svc.InviteForMessage(messageId!),
     enabled: messageId != null,
+    // mail:calendar-changed la invalida cuando cambia: no hace falta repedirla.
+    staleTime: 60_000,
   });
 }
 

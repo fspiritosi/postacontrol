@@ -99,11 +99,25 @@ en el servidor si no se lo pedís.
 - Ver tus tareas pendientes de Taskapp.
 - Conectar con Taskapp desde Configuración → Taskapp.
 
+**Calendario**
+
+- Vista Calendario: semana laboral por defecto, y día, semana, mes o agenda.
+- Eventos con repetición y aviso de escritorio antes de que empiecen.
+- Invitaciones por correo: mandalas, recibilas y respondé desde el correo
+  (Aceptar, Tal vez, Rechazar). Compatibles con Google Calendar y Outlook.
+- Las tareas con fecha aparecen en el calendario.
+- Reuniones de Taskapp: verlas y crearlas, con invitados externos y aviso
+  cuando alguien cambia la hora en Taskapp.
+- Importar desde Google Calendar (el `.zip` o los `.ics` que exporta), en
+  Configuración → Calendario.
+- Limitación: no hay sincronización con Google ni CalDAV, y no hay app móvil.
+  Los eventos viven en esta PC (van en el respaldo).
+
 **Tus datos**
 
 - Contraseñas en el llavero del sistema (KWallet o GNOME Keyring), nunca en
   texto plano.
-- Respaldo de contactos, firmas, etiquetas, reglas, plantillas y tareas locales,
+- Respaldo de contactos, firmas, etiquetas, reglas, plantillas, tareas locales y eventos,
   manual o automático cada semana.
 - Tema Sistema, Claro u Oscuro.
 

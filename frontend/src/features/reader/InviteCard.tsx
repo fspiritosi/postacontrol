@@ -117,7 +117,7 @@ export function InviteCard({
         )}
         {canRespond && inv.aliasReply && (
           <p className="text-xs text-muted-foreground">
-            Ninguna de tus cuentas figura como invitada; vas a responder desde {accountEmail}
+            Ninguna de tus cuentas figura como invitada; vas a responder desde {accountEmail ?? "la cuenta que recibió el correo"}
           </p>
         )}
         {canRespond && (

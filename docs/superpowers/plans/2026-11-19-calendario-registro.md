@@ -195,3 +195,14 @@ Para tests que necesiten "pasado" vs "futuro" respecto del 2026-11-19: solo `pas
 3. Si el detalle (`GET /api/meetings/{id}`) trae `tasks` con vínculos (en prod la reunión consultada no tenía).
 4. Que el email de invitación de Taskapp no se duplique si PostaControl crea la reunión además de mandar su propio correo.
 5. Muestras reales de Google/Outlook y el ZIP de exportación de Google Calendar (ver arriba).
+
+## Checklist de aceptación (con la app real)
+
+1. [ ] Crear un evento con su Gmail como invitado. Llega la invitación, Google la muestra con los botones y aceptarla allá marca "aceptó" acá.
+2. [ ] Recibir una invitación de Google y aceptarla desde PostaControl. En Google figura como aceptada.
+3. [ ] Mover el evento y avisar. En Google se actualiza.
+4. [ ] Borrarlo y avisar. En Google se cancela.
+5. [ ] Crear una reunión de Taskapp con un externo. Aparece en Taskapp y el externo recibe el `.ics`.
+6. [ ] Cambiar la hora en Taskapp. Aparece el aviso "Cambió en Taskapp" y "Avisar" le actualiza al externo.
+7. [ ] Importar el ZIP de Google sin "Feriados" y verificar las repeticiones y los días completos.
+8. [ ] Verificar que llega el aviso de un evento.
