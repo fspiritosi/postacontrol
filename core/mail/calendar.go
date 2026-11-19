@@ -361,8 +361,7 @@ func (c *Core) planSave(ctx context.Context, e model.CalendarEvent, scope string
 	switch scope {
 	case "this":
 		next := prev
-		next.Exceptions = withException(prev.Exceptions, model.EventException{RecurrenceAt: at, Start: e.Start, End: e.End,
-			Title: e.Title, Location: e.Location, Description: e.Description})
+		next.Exceptions = withException(prev.Exceptions, occurrenceEdit(prev, e, at))
 		ed.updated, ed.when = &next, e.Start
 	case "following":
 		next, cut := splitSeries(prev, e, at), cutSeries(prev, at)
@@ -374,6 +373,30 @@ func (c *Core) planSave(ctx context.Context, e model.CalendarEvent, scope string
 		ed.updated = &next
 	}
 	return ed, nil
+}
+
+// occurrenceEdit es la excepción que deja editar solo la ocurrencia at con
+// los datos de e. Si la ocurrencia ya tenía textos propios, un título, lugar
+// o descripción igual al de la serie no los pisa (el pedido trae los de la
+// serie: por ejemplo, al moverla).
+func occurrenceEdit(prev, e model.CalendarEvent, at time.Time) model.EventException {
+	x := model.EventException{RecurrenceAt: at, Start: e.Start, End: e.End,
+		Title: e.Title, Location: e.Location, Description: e.Description}
+	for _, old := range prev.Exceptions {
+		if !old.RecurrenceAt.Equal(at) || old.Cancelled {
+			continue
+		}
+		if x.Title == prev.Title {
+			x.Title = old.Title
+		}
+		if x.Location == prev.Location {
+			x.Location = old.Location
+		}
+		if x.Description == prev.Description {
+			x.Description = old.Description
+		}
+	}
+	return x
 }
 
 // planDelete prepara el borrado de un evento local entero, de una ocurrencia

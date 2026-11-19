@@ -273,6 +273,36 @@ describe("EventDialog", () => {
     expect(vi.mocked(svc.SaveEvent).mock.calls[0][0].event.rrule).toBe("FREQ=WEEKLY;INTERVAL=2");
   });
 
+  it("al editar una ocurrencia con textos propios muestra los de la ocurrencia", async () => {
+    setup({
+      eventId: 1,
+      event: {
+        rrule: "FREQ=WEEKLY", location: "Sala serie", description: "Desc serie",
+        exceptions: [{
+          recurrenceAt: "2026-11-27T13:00:00Z", cancelled: false, start: "2026-11-27T15:00:00Z",
+          end: "2026-11-27T16:00:00Z", title: "Propia", location: "Sala propia", description: "Desc propia",
+        }],
+      },
+      initial: {
+        start: new Date("2026-11-27T15:00:00Z"), end: new Date("2026-11-27T16:00:00Z"),
+        recurring: true, occurrenceAt: "2026-11-27T13:00:00.000Z",
+      },
+    });
+    expect(await screen.findByLabelText("Título")).toHaveValue("Propia");
+    expect(screen.getByLabelText("Lugar")).toHaveValue("Sala propia");
+    expect(screen.getByLabelText("Descripción")).toHaveValue("Desc propia");
+  });
+
+  it("una ocurrencia sin excepción muestra los textos de la serie", async () => {
+    setup({
+      eventId: 1,
+      event: { rrule: "FREQ=WEEKLY", location: "Sala serie" },
+      initial: { recurring: true, occurrenceAt: "2026-11-27T13:00:00Z" },
+    });
+    expect(await screen.findByLabelText("Título")).toHaveValue("Reunión");
+    expect(screen.getByLabelText("Lugar")).toHaveValue("Sala serie");
+  });
+
   describe("reunión en Taskapp", () => {
     async function pickTaskapp(user: ReturnType<typeof userEvent.setup>) {
       await user.click(await screen.findByLabelText("Reunión en Taskapp"));

@@ -570,3 +570,38 @@ func TestSaveEvent_FollowingInsertFailsLosesNothing(t *testing.T) {
 	assert.Equal(t, "FREQ=WEEKLY", got.RRule)
 	assert.Len(t, listItems(t, c, tu(2026, 11, 1, 0, 0), tu(2026, 11, 29, 0, 0)), 4)
 }
+
+// Mover una ocurrencia que ya tenía textos propios, con un pedido que trae los
+// de la serie (el editor viejo, o un arrastre), no los pisa.
+func TestSaveEvent_ScopeThisKeepsOwnTexts(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	ser := weekly(t, c, "FREQ=WEEKLY")
+	ser.Location, ser.Description = "Sala serie", "Desc serie"
+	ser, err := c.SaveEvent(ctx, model.EventSave{Event: ser})
+	require.NoError(t, err)
+	occ := tu(2026, 11, 16, 13, 0)
+	own := ser
+	own.Title, own.Location, own.Description = "Propia", "Sala propia", "Desc propia"
+	own.Start, own.End = occ, occ.Add(time.Hour)
+	_, err = c.SaveEvent(ctx, model.EventSave{Event: own, Scope: "this", OccurrenceAt: occ})
+	require.NoError(t, err)
+
+	moved := ser // los textos de la serie
+	moved.Start, moved.End = tu(2026, 11, 16, 18, 0), tu(2026, 11, 16, 19, 0)
+	got, err := c.SaveEvent(ctx, model.EventSave{Event: moved, Scope: "this", OccurrenceAt: occ})
+	require.NoError(t, err)
+	require.Len(t, got.Exceptions, 1)
+	x := got.Exceptions[0]
+	assert.True(t, x.Start.Equal(tu(2026, 11, 16, 18, 0)))
+	assert.Equal(t, "Propia", x.Title)
+	assert.Equal(t, "Sala propia", x.Location)
+	assert.Equal(t, "Desc propia", x.Description)
+
+	// Un texto distinto del de la serie sí se aplica.
+	moved.Title = "Nuevo"
+	got, err = c.SaveEvent(ctx, model.EventSave{Event: moved, Scope: "this", OccurrenceAt: occ})
+	require.NoError(t, err)
+	assert.Equal(t, "Nuevo", got.Exceptions[0].Title)
+	assert.Equal(t, "Sala propia", got.Exceptions[0].Location)
+}

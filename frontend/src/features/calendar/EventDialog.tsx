@@ -75,6 +75,16 @@ const utcDay = (day: string) => {
 };
 const localDate = (day: string, time: string) => new Date(`${day}T${time || "00:00"}`);
 
+// Los textos con los que se abre: los de la excepción de la ocurrencia, si
+// tiene una (y no está cancelada); si no, los del evento.
+function occurrenceTexts(event: CalendarEvent, occurrenceAt?: string) {
+  const at = occurrenceAt ? new Date(occurrenceAt).getTime() : NaN;
+  const x = event.rrule
+    ? (event.exceptions ?? []).find((e) => !e.cancelled && new Date(e.recurrenceAt).getTime() === at)
+    : undefined;
+  return x ?? { title: event.title, location: event.location, description: event.description };
+}
+
 export function EventDialog({ open, onOpenChange, initial, eventId }: Props) {
   // Se monta de nuevo en cada apertura: parte siempre de lo que llega.
   return open ? <Flow initial={initial} eventId={eventId} onOpenChange={onOpenChange} /> : null;
@@ -114,7 +124,9 @@ function Form({
   const [chosen, setChosen] = useState<Dest>("local");
   const dest: Dest = connected && !editing ? chosen : "local";
 
-  const [title, setTitle] = useState(event.title);
+  // Al editar una ocurrencia que ya tiene textos propios se muestran esos.
+  const own = occurrenceTexts(event, initial.occurrenceAt);
+  const [title, setTitle] = useState(own.title);
   const [allDay, setAllDay] = useState(initial.allDay);
   const [startDay, setStartDay] = useState(localDay(initial.start));
   const [startTime, setStartTime] = useState(initial.allDay ? "09:00" : localTime(initial.start));
@@ -123,8 +135,8 @@ function Form({
     localDay(initial.allDay ? new Date(initial.end.getFullYear(), initial.end.getMonth(), initial.end.getDate() - 1) : initial.end),
   );
   const [endTime, setEndTime] = useState(initial.allDay ? "10:00" : localTime(initial.end));
-  const [location, setLocation] = useState(event.location);
-  const [description, setDescription] = useState(event.description);
+  const [location, setLocation] = useState(own.location);
+  const [description, setDescription] = useState(own.description);
   const [notes, setNotes] = useState(event.notes);
   const [saving, setSaving] = useState(false);
 
