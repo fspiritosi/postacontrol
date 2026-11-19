@@ -206,3 +206,8 @@ Para tests que necesiten "pasado" vs "futuro" respecto del 2026-11-19: solo `pas
 6. [ ] Cambiar la hora en Taskapp. Aparece el aviso "Cambió en Taskapp" y "Avisar" le actualiza al externo.
 7. [ ] Importar el ZIP de Google sin "Feriados" y verificar las repeticiones y los días completos.
 8. [ ] Verificar que llega el aviso de un evento.
+9. [ ] Crear un evento semanal a las 22:00 con su Gmail como invitado. En Google cae el mismo día de la semana (no el siguiente).
+10. [ ] Que un organizador de Google cambie solo el título de una invitación. El cambio se aplica acá.
+11. [ ] Recibir de Google la invitación a una sola ocurrencia de una serie y responderla desde PostaControl.
+12. [ ] Responder desde el Gmail propio (configurado como cuenta) a un evento creado desde otra cuenta. La respuesta se registra.
+13. [ ] Importar el ZIP real de Google con "Feriados" marcado. Se importan los feriados.

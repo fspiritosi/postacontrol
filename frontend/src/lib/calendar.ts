@@ -35,6 +35,30 @@ export function utcMidnightOfLocal(d: Date): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
+// Texto sobre el color de un proyecto: el que más contrasta con el fondo.
+export const DARK_TEXT = "#111111";
+export const LIGHT_TEXT = "#ffffff";
+
+// Luminancia relativa (WCAG) de un color "#rgb" o "#rrggbb"; null si no se entiende.
+function luminance(hex: string): number | null {
+  let h = hex.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(h)) h = [...h].map((c) => c + c).join("");
+  if (!/^[0-9a-f]{6}$/i.test(h)) return null;
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const c = parseInt(h.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function textOn(bg: string): string | undefined {
+  const l = luminance(bg);
+  if (l == null) return undefined;
+  // Contraste contra blanco (L=1) y contra el texto oscuro (L≈0.0056).
+  const dark = luminance(DARK_TEXT) ?? 0;
+  return 1.05 / (l + 0.05) >= (l + 0.05) / (dark + 0.05) ? LIGHT_TEXT : DARK_TEXT;
+}
+
 export function toFcEvent(it: CalendarItem): EventInput {
   const classNames: string[] = [];
   if (it.source === "local") classNames.push("ev-local");
@@ -51,7 +75,15 @@ export function toFcEvent(it: CalendarItem): EventInput {
     classNames,
     extendedProps: { item: it },
   };
-  if (it.source === "taskapp" && it.color) ev.backgroundColor = it.color;
+  if (it.source === "taskapp") {
+    if (it.color) {
+      ev.backgroundColor = it.color;
+      ev.borderColor = it.color;
+      ev.textColor = textOn(it.color);
+    } else {
+      classNames.push("ev-taskapp"); // sin proyecto: neutro, distinto de los locales
+    }
+  }
   return ev;
 }
 

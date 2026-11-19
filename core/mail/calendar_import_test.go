@@ -329,3 +329,19 @@ func TestImportICS_NoOrganizerNoAccounts(t *testing.T) {
 	assert.Equal(t, "local", e.Kind)
 	assert.Equal(t, int64(0), e.AccountID)
 }
+
+// Google nombra los calendarios de feriados con "#": la entrada del zip se
+// encuentra igual (el corte es en el primer "#" cuyo prefijo es un archivo).
+func TestImportICS_ZipEntryWithHash(t *testing.T) {
+	c, _, _, _, _ := receiverCore(t, meEmail)
+	const entry = "x#holiday@group.v.calendar.google.com.ics"
+	zp := writeZip(t, "t.zip", map[string]string{entry: oneEventICS("F", "feriado@x", "Feriado")})
+	prev, err := c.PreviewICSImport(context.Background(), []string{zp})
+	require.NoError(t, err)
+	require.Len(t, prev, 1)
+	assert.Equal(t, zp+"#"+entry, prev[0].ID)
+	res, err := c.ImportICS(context.Background(), []string{prev[0].ID})
+	require.NoError(t, err)
+	assert.Equal(t, model.ICSImportResult{Added: 1}, res)
+	assert.Equal(t, "Feriado", eventOf(t, c, "feriado@x").Title)
+}

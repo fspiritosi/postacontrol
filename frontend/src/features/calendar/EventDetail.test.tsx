@@ -136,4 +136,20 @@ describe("EventDetail", () => {
     expect(screen.getByText("Invitados externos: 1 · 0 confirmaron")).toBeInTheDocument();
     expect(svc.GetEvent).not.toHaveBeenCalled();
   });
+
+  it("Quitar invitados externos pide confirmación antes de mandar la cancelación", async () => {
+    vi.mocked(svc.RemoveTaskappExternals).mockResolvedValue({ warning: "La reunión sigue en Taskapp" });
+    const { user } = setup(calItem({ source: "taskapp", eventId: 9, attendees: 1 }));
+    await user.click(screen.getByRole("button", { name: "Quitar invitados externos" }));
+    expect(
+      await screen.findByText("Se les va a mandar una cancelación a los invitados externos. La reunión sigue en Taskapp."),
+    ).toBeInTheDocument();
+    expect(svc.RemoveTaskappExternals).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(svc.RemoveTaskappExternals).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Quitar invitados externos" }));
+    await user.click(await screen.findByRole("button", { name: "Quitar" }));
+    await waitFor(() => expect(svc.RemoveTaskappExternals).toHaveBeenCalledWith(9));
+  });
 });

@@ -18,6 +18,7 @@ const (
 	msgEventNoAccount   = "Elegí desde qué cuenta mandar las invitaciones."
 	msgInviteSendFailed = "El evento se guardó, pero no pudimos mandar las invitaciones: "
 	msgCancelSendFailed = "El evento se borró, pero no pudimos mandar las cancelaciones: "
+	msgNoEventAccount   = "la cuenta ya no existe."
 )
 
 // invitation es un aviso por mandar a los invitados de un evento.

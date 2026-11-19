@@ -37,11 +37,23 @@ func scanEvent(r rowScanner) (model.CalendarEvent, error) {
 	return e, nil
 }
 
-// loadEventChildren completa invitados y excepciones de los eventos.
+// eventChildrenChunk es cuántos eventos se piden por consulta al cargar sus
+// invitados y excepciones (SQLite limita las variables de un IN (...)).
+const eventChildrenChunk = 500
+
+// loadEventChildren carga los invitados y las excepciones de evs, por tandas.
 func (s *Store) loadEventChildren(ctx context.Context, evs []model.CalendarEvent) error {
-	if len(evs) == 0 {
-		return nil
+	for len(evs) > 0 {
+		n := min(len(evs), eventChildrenChunk)
+		if err := s.loadEventChildrenChunk(ctx, evs[:n]); err != nil {
+			return err
+		}
+		evs = evs[n:]
 	}
+	return nil
+}
+
+func (s *Store) loadEventChildrenChunk(ctx context.Context, evs []model.CalendarEvent) error {
 	idx := make(map[int64]int, len(evs))
 	ph, ids := "", make([]any, 0, len(evs))
 	for i, e := range evs {

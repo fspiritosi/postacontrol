@@ -99,6 +99,21 @@ func readZipEntry(f *zip.File) ([]byte, error) {
 	return data, nil
 }
 
+// splitZipID separa "ruta#entrada" en el primer "#" cuyo prefijo es un
+// archivo: tanto la ruta como la entrada pueden tener "#" (Google nombra así
+// los calendarios de feriados).
+func splitZipID(id string) (zp, entry string, ok bool) {
+	for i := 0; i < len(id); i++ {
+		if id[i] != '#' {
+			continue
+		}
+		if st, err := os.Stat(id[:i]); err == nil && !st.IsDir() {
+			return id[:i], id[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
 // loadICSID lee lo que designa id: una ruta, o "ruta#entrada" de un zip.
 func loadICSID(id string) (icsSource, error) {
 	if _, err := os.Stat(id); err == nil {
@@ -111,11 +126,10 @@ func loadICSID(id string) (icsSource, error) {
 		}
 		return icsSource{id: id, name: filepath.Base(id), data: data}, nil
 	}
-	i := strings.LastIndex(id, "#")
-	if i < 0 {
+	zp, entry, ok := splitZipID(id)
+	if !ok {
 		return icsSource{}, icsUnreadable(filepath.Base(id), nil)
 	}
-	zp, entry := id[:i], id[i+1:]
 	data, err := readICSFile(zp)
 	if err != nil {
 		return icsSource{}, err

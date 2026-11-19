@@ -499,3 +499,36 @@ func TestSaveMeeting_Upserts(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2000, fetched.Unix())
 }
+
+// Con más eventos que variables admite SQLite en un IN (...), los invitados y
+// las excepciones se cargan por tandas.
+func TestAllEvents_ManyEventsLoadChildren(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	const n = 33000
+	_, err := s.db.ExecContext(ctx, `WITH RECURSIVE seq(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM seq WHERE i < ?)
+ INSERT INTO events (uid, kind, title, start_at, end_at, created_at, updated_at)
+ SELECT 'u' || i, 'local', 'E' || i, i * 60, i * 60 + 30, 0, 0 FROM seq`, n)
+	require.NoError(t, err)
+	for _, id := range []int64{1, 500, 501, 1000, n} {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO event_attendees (event_id, email, name, partstat) VALUES (?, ?, '', 'ACCEPTED')`,
+			id, fmt.Sprintf("p%d@x.com", id))
+		require.NoError(t, err)
+		_, err = s.db.ExecContext(ctx, `INSERT INTO event_exceptions (event_id, recurrence_at, cancelled, start_at, end_at) VALUES (?, ?, 1, ?, ?)`,
+			id, id*60, id*60, id*60+30)
+		require.NoError(t, err)
+	}
+	all, err := s.AllEvents(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, n)
+	for _, e := range all {
+		switch e.ID {
+		case 1, 500, 501, 1000, n:
+			require.Len(t, e.Attendees, 1, "evento %d", e.ID)
+			assert.Equal(t, fmt.Sprintf("p%d@x.com", e.ID), e.Attendees[0].Email)
+			require.Len(t, e.Exceptions, 1, "evento %d", e.ID)
+		default:
+			require.Empty(t, e.Attendees, "evento %d", e.ID)
+		}
+	}
+}

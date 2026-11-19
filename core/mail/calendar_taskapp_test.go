@@ -932,3 +932,28 @@ func TestMeetings_People(t *testing.T) {
 	}, items[0].People)
 	assert.Equal(t, 1, items[0].Attendees, "el conteo sigue siendo de los externos")
 }
+
+// La descripción de Taskapp es HTML: a los externos les llega como texto.
+func TestMeetingExternals_DescriptionAsText(t *testing.T) {
+	c, f, smtp, _, acc := meetCore(t)
+	req := createReq(acc, model.Address{Name: "Bea", Email: "bea@cliente.com"})
+	req.Description = "<p>Hola <b>equipo</b></p>"
+	_, err := c.CreateTaskappMeeting(context.Background(), req)
+	require.NoError(t, err)
+	m := readMail(t, waitMails(t, smtp, 1)[0])
+	for _, part := range []string{m.ICS, m.HTML, m.Text} {
+		assert.NotContains(t, part, "<b>")
+		assert.NotContains(t, part, "&lt;b&gt;")
+	}
+	assert.Contains(t, m.ICS, "DESCRIPTION:Hola equipo")
+	assert.Equal(t, "Hola equipo", mirrorOf(t, c, 77).Description)
+
+	f.edit(77, func(fm *fakeMeeting) { fm.Description = "<p>Nuevo &amp; <i>mejor</i></p>" })
+	listRange(t, c)
+	require.Equal(t, "changed", mirrorOf(t, c, 77).TaskappChange)
+	require.NoError(t, c.NotifyTaskappChange(context.Background(), mirrorOf(t, c, 77).ID))
+	m = readMail(t, waitMails(t, smtp, 2)[1])
+	assert.Contains(t, m.ICS, "DESCRIPTION:Nuevo & mejor")
+	assert.NotContains(t, m.HTML, "&lt;i&gt;")
+	assert.Equal(t, "Nuevo & mejor", mirrorOf(t, c, 77).Description)
+}

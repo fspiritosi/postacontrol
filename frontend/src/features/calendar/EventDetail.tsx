@@ -61,7 +61,7 @@ export function EventDetail({
   onEdit?: (item: CalendarItem) => void;
 }) {
   const qc = useQueryClient();
-  const { askScope, askNotify, dialogs } = useChoice();
+  const { askScope, askNotify, askConfirm, dialogs } = useChoice();
   const hasEvent = item.source === "local" || item.source === "invite";
   const event = useEvent(hasEvent ? item.eventId : null);
 
@@ -90,6 +90,15 @@ export function EventDetail({
     } catch (e) {
       toast.error(errorMessage(e));
     }
+  };
+
+  const removeExternals = async () => {
+    const ok = await askConfirm({
+      title: "¿Quitar invitados externos?",
+      text: "Se les va a mandar una cancelación a los invitados externos. La reunión sigue en Taskapp.",
+      action: "Quitar",
+    });
+    if (ok) await run(() => svc.RemoveTaskappExternals(item.eventId));
   };
 
   const people = item.people ?? [];
@@ -201,7 +210,7 @@ export function EventDetail({
                 <ExternalLinkIcon /> Abrir en Taskapp
               </Button>
               {item.attendees > 0 && (
-                <Button variant="outline" size="sm" onClick={() => void run(() => svc.RemoveTaskappExternals(item.eventId))}>
+                <Button variant="outline" size="sm" onClick={() => void removeExternals()}>
                   Quitar invitados externos
                 </Button>
               )}

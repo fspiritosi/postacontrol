@@ -605,3 +605,21 @@ func TestSaveEvent_WeeklyInvitationKeepsLocalDay(t *testing.T) {
 	assert.Contains(t, m.ICS, "BEGIN:VTIMEZONE")
 	assert.Contains(t, m.ICS, "RRULE:FREQ=WEEKLY;BYDAY=MO")
 }
+
+// Si la cuenta del evento ya no existe, borrar con aviso lo borra igual y
+// avisa, como falla parcial, que las cancelaciones no salieron.
+func TestDeleteEvent_NotifyWithoutAccountDeletesAnyway(t *testing.T) {
+	c, smtp, _, acc := inviteCore(t)
+	ctx := context.Background()
+	saved, err := c.SaveEvent(ctx, model.EventSave{Event: meeting(acc, "ana@ej.com")})
+	require.NoError(t, err)
+	waitMails(t, smtp, 1)
+	require.NoError(t, c.RemoveAccount(ctx, acc.ID))
+
+	err = c.DeleteEvent(ctx, model.EventDelete{ID: saved.ID, Notify: true})
+	requireUserMsg(t, err, "send", "El evento se borró, pero no pudimos mandar las cancelaciones: la cuenta ya no existe.")
+	assert.Contains(t, err.Error(), "pero no pudimos mandar")
+	_, err = c.store.GetEvent(ctx, saved.ID)
+	requireUserError(t, c.ctxOrUserError(ctx, err), "not_found")
+	noMoreMails(t, c, smtp, 1)
+}

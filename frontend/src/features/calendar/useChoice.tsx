@@ -1,11 +1,16 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
+import { ConfirmDialog, type Confirm } from "./ConfirmDialog";
 import { NotifyDialog } from "./NotifyDialog";
 import { ScopeDialog, type Scope } from "./ScopeDialog";
 
-type Ask = { kind: "scope"; allowThis: boolean } | { kind: "notify"; added: number; removed: number };
+type Ask =
+  | { kind: "scope"; allowThis: boolean }
+  | { kind: "notify"; added: number; removed: number }
+  | ({ kind: "confirm" } & Confirm);
 
-// Deja pedir el alcance y el aviso como promesas: el flujo de guardar o borrar
-// se lee de corrido. Cada una resuelve null si se cancela. `dialogs` se dibuja
+// Deja pedir el alcance, el aviso y una confirmación como promesas: el flujo
+// de guardar o borrar se lee de corrido. El alcance y el aviso resuelven null
+// si se cancela; la confirmación, false. `dialogs` se dibuja
 // una vez en el componente que lo usa.
 export function useChoice() {
   const [ask, setAsk] = useState<Ask | null>(null);
@@ -17,6 +22,7 @@ export function useChoice() {
   }), []);
   const askScope = useCallback((allowThis = true) => open<Scope | null>({ kind: "scope", allowThis }), [open]);
   const askNotify = useCallback((added: number, removed: number) => open<boolean | null>({ kind: "notify", added, removed }), [open]);
+  const askConfirm = useCallback((c: Confirm) => open<boolean>({ kind: "confirm", ...c }), [open]);
 
   const answer = (v: unknown) => {
     const r = resolver.current;
@@ -34,7 +40,8 @@ export function useChoice() {
         removed={ask?.kind === "notify" ? ask.removed : 0}
         onPick={answer}
       />
+      <ConfirmDialog ask={ask?.kind === "confirm" ? ask : null} onPick={answer} />
     </>
   );
-  return { askScope, askNotify, dialogs };
+  return { askScope, askNotify, askConfirm, dialogs };
 }

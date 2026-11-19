@@ -608,7 +608,16 @@ func (c *Core) DeleteEvent(ctx context.Context, req model.EventDelete) error {
 	if err != nil {
 		return err
 	}
-	acc, notices, err := c.prepareNotices(ctx, &ed, req.Notify)
+	// Sin la cuenta del evento no hay desde dónde avisar: se borra igual.
+	notify, noAccount := req.Notify, false
+	if notify && len(ed.notices()) > 0 {
+		acc, err := c.eventAccount(ctx, ed.accountID())
+		if err != nil {
+			return err
+		}
+		notify, noAccount = acc != nil, acc == nil
+	}
+	acc, notices, err := c.prepareNotices(ctx, &ed, notify)
 	if err != nil {
 		return err
 	}
@@ -616,6 +625,9 @@ func (c *Core) DeleteEvent(ctx context.Context, req model.EventDelete) error {
 		return err
 	}
 	c.emit(EventCalendarChanged, nil)
+	if noAccount {
+		return &UserError{Code: "send", Msg: msgCancelSendFailed + msgNoEventAccount}
+	}
 	failed := msgInviteSendFailed
 	if ed.updated == nil {
 		failed = msgCancelSendFailed

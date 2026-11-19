@@ -45,6 +45,11 @@
   border-color: var(--primary);
   color: var(--primary-foreground);
 }
+.fc .ev-taskapp {
+  background: var(--secondary);
+  border-color: var(--border);
+  color: var(--secondary-foreground);
+}
 .fc .ev-task {
   background: var(--muted);
   color: var(--muted-foreground);
