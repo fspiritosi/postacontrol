@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/mail"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -201,6 +202,13 @@ func validateEvent(e *model.CalendarEvent) error {
 	if e.Title == "" {
 		return &UserError{Code: "invalid", Msg: msgEventNoTitle}
 	}
+	if e.AllDay {
+		// Día completo: medianoche UTC de la fecha, fin exclusivo.
+		e.Start, e.End = utcDate(e.Start), utcDate(e.End)
+		if !e.End.After(e.Start) {
+			e.End = e.Start.AddDate(0, 0, 1)
+		}
+	}
 	if !e.End.After(e.Start) {
 		return &UserError{Code: "invalid", Msg: msgEventEndBefore}
 	}
@@ -225,6 +233,12 @@ func validateEvent(e *model.CalendarEvent) error {
 	e.Attendees = atts
 	e.Start, e.End = e.Start.UTC(), e.End.UTC()
 	return nil
+}
+
+// utcDate es la medianoche UTC de la fecha (UTC) de t.
+func utcDate(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 // seriesEnd es el fin de la última ocurrencia (nil si la serie no termina),
@@ -294,6 +308,8 @@ func (c *Core) SaveEvent(ctx context.Context, req model.EventSave) (model.Calend
 	if err := validateEvent(&e); err != nil {
 		return model.CalendarEvent{}, err
 	}
+	c.calMu.Lock()
+	defer c.calMu.Unlock()
 	var saved model.CalendarEvent
 	var err error
 	if e.ID == 0 {
@@ -312,7 +328,7 @@ func (c *Core) createEvent(ctx context.Context, e model.CalendarEvent) (model.Ca
 	e.UID = uuid.NewString() + "@postacontrol"
 	e.Kind, e.Status, e.Sequence = "local", "confirmed", 0
 	if e.TZID == "" {
-		e.TZID = time.Local.String()
+		e.TZID = localTZID()
 	}
 	e.Exceptions = []model.EventException{}
 	return c.saveEvent(ctx, e)
@@ -448,13 +464,14 @@ func (c *Core) splitSeries(ctx context.Context, prev, e model.CalendarEvent, at 
 	}
 	next.Exceptions = validExceptions(next, shiftExceptions(moved, next.Start.Sub(at)))
 
-	if _, err := c.saveEvent(ctx, cutSeries(prev, at)); err != nil {
-		return model.CalendarEvent{}, err
-	}
+	// Primero el alta y después el corte: si algo falla, a lo sumo queda una
+	// ocurrencia repetida, nunca se pierde una.
 	saved, err := c.saveEvent(ctx, next)
 	if err != nil {
-		// Sin la serie nueva, la vieja vuelve a como estaba.
-		_, _ = c.store.SaveEvent(context.WithoutCancel(ctx), prev, seriesEnd(prev))
+		return model.CalendarEvent{}, err
+	}
+	if _, err := c.saveEvent(ctx, cutSeries(prev, at)); err != nil {
+		_ = c.store.DeleteEvent(context.WithoutCancel(ctx), saved.ID)
 		return model.CalendarEvent{}, err
 	}
 	return saved, nil
@@ -463,6 +480,8 @@ func (c *Core) splitSeries(ctx context.Context, prev, e model.CalendarEvent, at 
 // DeleteEvent borra un evento local entero, solo una ocurrencia ("this") o
 // desde una ocurrencia en adelante ("following").
 func (c *Core) DeleteEvent(ctx context.Context, req model.EventDelete) error {
+	c.calMu.Lock()
+	defer c.calMu.Unlock()
 	prev, err := c.localEvent(ctx, req.ID)
 	if err != nil {
 		return err
@@ -489,4 +508,34 @@ func (c *Core) DeleteEvent(ctx context.Context, req model.EventDelete) error {
 	}
 	c.emit(EventCalendarChanged, nil)
 	return nil
+}
+
+// localTZID es el nombre IANA de la zona local, o "" si no se sabe: en Linux
+// sin TZ, time.Local se llama "Local" y hay que mirar TZ o /etc/localtime.
+func localTZID() string {
+	link, _ := os.Readlink("/etc/localtime")
+	return localTZIDFrom(time.Local.String(), os.Getenv("TZ"), link)
+}
+
+// localTZIDFrom elige la zona entre el nombre de time.Local, el valor de TZ y
+// el destino del enlace /etc/localtime, en ese orden; vale el primero que
+// time.LoadLocation acepta.
+func localTZIDFrom(local, env, link string) string {
+	valid := func(name string) bool {
+		if name == "" || name == "Local" {
+			return false
+		}
+		_, err := time.LoadLocation(name)
+		return err == nil
+	}
+	if valid(local) {
+		return local
+	}
+	if env = strings.TrimPrefix(env, ":"); valid(env) {
+		return env
+	}
+	if _, name, ok := strings.Cut(link, "zoneinfo/"); ok && valid(name) {
+		return name
+	}
+	return ""
 }

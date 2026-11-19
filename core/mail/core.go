@@ -57,6 +57,9 @@ type Core struct {
 	// settingsMu serializa leer-y-guardar la fila única de configuración
 	// (SetSettings, SetBackground, ClearBackground) y el borrado del fondo viejo.
 	settingsMu sync.Mutex
+	// calMu serializa leer-modificar-guardar de los eventos del calendario
+	// (SaveEvent, DeleteEvent), así dos pedidos seguidos no se pisan las excepciones.
+	calMu sync.Mutex
 
 	// Ciclo de vida: las goroutines propias (sincronización inicial y
 	// periódica) usan ctx y se registran en wg. Close cancela y espera.

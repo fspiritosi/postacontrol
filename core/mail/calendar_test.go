@@ -2,8 +2,10 @@ package mail
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -434,4 +436,134 @@ func TestSettings_EventReminderValidated(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, st.EventReminderMinutes)
 	assert.Equal(t, 30, *st.EventReminderMinutes)
+}
+
+func TestSaveEvent_FollowingCutFailsKeepsSeries(t *testing.T) {
+	c, _, _, n := newTestCore(t)
+	ctx := context.Background()
+	ser := weekly(t, c, "FREQ=WEEKLY")
+	// Otra conexión a la misma base hace fallar el corte de la serie vieja.
+	db, err := sql.Open("sqlite", c.cfg.DBPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec(`CREATE TRIGGER falla_corte BEFORE UPDATE OF rrule ON events WHEN NEW.rrule LIKE '%UNTIL=%'
+ BEGIN SELECT RAISE(ABORT, 'falla simulada'); END`)
+	require.NoError(t, err)
+	before := len(n.matching(EventCalendarChanged))
+
+	edit := ser
+	edit.Title = "Nueva"
+	edit.Start, edit.End = tu(2026, 11, 16, 16, 0), tu(2026, 11, 16, 17, 0)
+	_, err = c.SaveEvent(ctx, model.EventSave{Event: edit, Scope: "following", OccurrenceAt: tu(2026, 11, 16, 13, 0)})
+	require.Error(t, err)
+
+	all, err := c.store.AllEvents(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1, "la serie nueva se borra si no se pudo cortar la vieja")
+	assert.Equal(t, ser.ID, all[0].ID)
+	assert.Equal(t, "FREQ=WEEKLY", all[0].RRule)
+	assert.Equal(t, []time.Time{tu(2026, 11, 2, 13, 0), tu(2026, 11, 9, 13, 0), tu(2026, 11, 16, 13, 0), tu(2026, 11, 23, 13, 0)},
+		starts(listItems(t, c, tu(2026, 11, 1, 0, 0), tu(2026, 11, 29, 0, 0))))
+	assert.Len(t, n.matching(EventCalendarChanged), before, "un error no emite")
+}
+
+func TestSaveEvent_ConcurrentEditsKeepExceptions(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	ser := weekly(t, c, "FREQ=WEEKLY")
+	const k = 12
+	var wg sync.WaitGroup
+	errs := make(chan error, k)
+	for i := 0; i < k; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			occ := ser.Start.AddDate(0, 0, 7*i)
+			e := ser
+			e.Title = fmt.Sprintf("Semana %d", i)
+			e.Start, e.End = occ, occ.Add(time.Hour)
+			if i%2 == 0 {
+				_, err := c.SaveEvent(ctx, model.EventSave{Event: e, Scope: "this", OccurrenceAt: occ})
+				errs <- err
+				return
+			}
+			errs <- c.DeleteEvent(ctx, model.EventDelete{ID: ser.ID, Scope: "this", OccurrenceAt: occ})
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	got, err := c.store.GetEvent(ctx, ser.ID)
+	require.NoError(t, err)
+	assert.Len(t, got.Exceptions, k, "ninguna edición pisa a otra")
+}
+
+func TestLocalTZIDFrom(t *testing.T) {
+	cases := []struct {
+		name, local, env, link, want string
+	}{
+		{"zona con nombre", "America/Argentina/Buenos_Aires", "Europe/Madrid", "", "America/Argentina/Buenos_Aires"},
+		{"TZ con dos puntos", "Local", ":America/Argentina/Cordoba", "/usr/share/zoneinfo/Europe/Madrid", "America/Argentina/Cordoba"},
+		{"TZ sin dos puntos", "Local", "Europe/Madrid", "", "Europe/Madrid"},
+		{"TZ inválido, enlace", "Local", "Nada/Invalida", "/usr/share/zoneinfo/America/Argentina/Buenos_Aires", "America/Argentina/Buenos_Aires"},
+		{"enlace relativo", "Local", "", "../usr/share/zoneinfo/UTC", "UTC"},
+		{"enlace inválido", "Local", "", "/usr/share/zoneinfo/Nada/Invalida", ""},
+		{"enlace sin zoneinfo", "Local", "", "/etc/otra", ""},
+		{"TZ Local", "Local", "Local", "", ""},
+		{"nada", "Local", "", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, localTZIDFrom(tc.local, tc.env, tc.link))
+		})
+	}
+}
+
+func TestSaveEvent_AllDayNormalizedToUTC(t *testing.T) {
+	loc := setLocalAR(t)
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	// Medianoche local en Argentina = 03:00 UTC.
+	ev, err := c.SaveEvent(ctx, model.EventSave{Event: model.CalendarEvent{Title: "Feriado", AllDay: true,
+		Start: time.Date(2026, 11, 20, 0, 0, 0, 0, loc), End: time.Date(2026, 11, 21, 0, 0, 0, 0, loc)}})
+	require.NoError(t, err)
+	assert.True(t, ev.Start.Equal(tu(2026, 11, 20, 0, 0)), "%v", ev.Start)
+	assert.True(t, ev.End.Equal(tu(2026, 11, 21, 0, 0)), "%v", ev.End)
+
+	// Mismo día: el fin pasa al día siguiente.
+	ev, err = c.SaveEvent(ctx, model.EventSave{Event: model.CalendarEvent{Title: "Un día", AllDay: true,
+		Start: tu(2026, 11, 20, 3, 0), End: tu(2026, 11, 20, 5, 0)}})
+	require.NoError(t, err)
+	assert.True(t, ev.Start.Equal(tu(2026, 11, 20, 0, 0)), "%v", ev.Start)
+	assert.True(t, ev.End.Equal(tu(2026, 11, 21, 0, 0)), "%v", ev.End)
+}
+
+// Si falla el alta de la serie nueva (y también cualquier intento de deshacer
+// un corte), la serie vieja no puede haber quedado cortada: primero se da de
+// alta la nueva y recién después se corta la vieja.
+func TestSaveEvent_FollowingInsertFailsLosesNothing(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	ctx := context.Background()
+	ser := weekly(t, c, "FREQ=WEEKLY")
+	db, err := sql.Open("sqlite", c.cfg.DBPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	for _, q := range []string{
+		`CREATE TRIGGER falla_alta BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'falla simulada'); END`,
+		`CREATE TRIGGER falla_deshacer BEFORE UPDATE ON events WHEN OLD.rrule LIKE '%UNTIL=%'
+ BEGIN SELECT RAISE(ABORT, 'falla simulada'); END`,
+	} {
+		_, err = db.Exec(q)
+		require.NoError(t, err)
+	}
+	edit := ser
+	edit.Start, edit.End = tu(2026, 11, 16, 16, 0), tu(2026, 11, 16, 17, 0)
+	_, err = c.SaveEvent(ctx, model.EventSave{Event: edit, Scope: "following", OccurrenceAt: tu(2026, 11, 16, 13, 0)})
+	require.Error(t, err)
+	got, err := c.store.GetEvent(ctx, ser.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "FREQ=WEEKLY", got.RRule)
+	assert.Len(t, listItems(t, c, tu(2026, 11, 1, 0, 0), tu(2026, 11, 29, 0, 0)), 4)
 }
