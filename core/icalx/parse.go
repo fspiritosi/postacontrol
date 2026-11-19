@@ -46,6 +46,8 @@ type Calendar struct {
 	Name   string   // X-WR-CALNAME
 	Series []Series // agrupado por UID, en el orden del archivo
 	Raw    []byte   // el archivo tal cual
+	// Skipped lista los VEVENT ilegibles que se salteó: "<UID o #n>: <motivo>".
+	Skipped []string
 }
 
 // Parse lee un iCalendar; las horas flotantes se toman en time.Local.
@@ -78,13 +80,20 @@ func ParseInLocation(data []byte, floating *time.Location) (Calendar, error) {
 	}
 
 	index := map[string]int{}
+	nEvents := 0
 	for _, c := range cal.Children {
 		if c.Name != "VEVENT" {
 			continue
 		}
+		nEvents++
 		ev, err := parseEvent(c, vtz, floating)
 		if err != nil {
-			return Calendar{}, err
+			id := textProp(c, "UID")
+			if id == "" {
+				id = "#" + strconv.Itoa(nEvents)
+			}
+			out.Skipped = append(out.Skipped, id+": "+err.Error())
+			continue
 		}
 		i, ok := index[ev.UID]
 		if !ok {
@@ -101,6 +110,9 @@ func ParseInLocation(data []byte, floating *time.Location) (Calendar, error) {
 			s.Master = ev
 		}
 	}
+	if nEvents > 0 && len(out.Series) == 0 {
+		return Calendar{}, fmt.Errorf("icalx: no se pudo leer ningún evento (%s)", out.Skipped[0])
+	}
 	// Serie con solo excepciones: la primera hace de maestro.
 	for i := range out.Series {
 		s := &out.Series[i]
@@ -115,7 +127,7 @@ func parseEvent(c *ical.Component, vtz map[string]*ical.Component, floating *tim
 	var ev VEvent
 	ev.UID = textProp(c, "UID")
 	if ev.UID == "" {
-		return ev, errors.New("icalx: evento sin UID")
+		return ev, errors.New("falta el UID")
 	}
 	ev.Sequence, _ = strconv.Atoi(strings.TrimSpace(textProp(c, "SEQUENCE")))
 	ev.Status = strings.ToUpper(strings.TrimSpace(textProp(c, "STATUS")))
@@ -125,7 +137,7 @@ func parseEvent(c *ical.Component, vtz map[string]*ical.Component, floating *tim
 
 	startProp := c.Props.Get("DTSTART")
 	if startProp == nil {
-		return ev, fmt.Errorf("icalx: el evento %q no tiene DTSTART", ev.UID)
+		return ev, errors.New("falta DTSTART")
 	}
 	start, allDay, tzid, err := parseTime(startProp, vtz, floating)
 	if err != nil {

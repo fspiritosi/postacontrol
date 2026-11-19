@@ -3,6 +3,7 @@ package icalx
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -226,5 +227,44 @@ func TestParse_ExportName(t *testing.T) {
 func TestParse_Garbage(t *testing.T) {
 	if _, err := Parse([]byte("hola")); err == nil {
 		t.Error("se esperaba un error")
+	}
+}
+
+func TestParse_SkipsMalformedEvent(t *testing.T) {
+	data := ics("BEGIN:VEVENT\r\nUID:ok\r\nDTSTART:20261120T100000Z\r\nEND:VEVENT\r\n" +
+		"BEGIN:VEVENT\r\nDTSTART:20261121T100000Z\r\nEND:VEVENT\r\n" +
+		"BEGIN:VEVENT\r\nUID:sinfecha\r\nEND:VEVENT\r\n")
+	cal, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cal.Series) != 1 || cal.Series[0].Master.UID != "ok" {
+		t.Errorf("series: %+v", cal.Series)
+	}
+	if len(cal.Skipped) != 2 || !strings.HasPrefix(cal.Skipped[0], "#2: ") ||
+		!strings.Contains(cal.Skipped[0], "UID") || !strings.HasPrefix(cal.Skipped[1], "sinfecha: ") ||
+		!strings.Contains(cal.Skipped[1], "DTSTART") {
+		t.Errorf("skipped: %q", cal.Skipped)
+	}
+}
+
+func TestParse_AllMalformed(t *testing.T) {
+	_, err := Parse(ics("BEGIN:VEVENT\r\nUID:a\r\nEND:VEVENT\r\n"))
+	if err == nil || !strings.Contains(err.Error(), "DTSTART") {
+		t.Errorf("err=%v", err)
+	}
+}
+
+func TestParse_ExDateMultiple(t *testing.T) {
+	data := ics("BEGIN:VEVENT\r\nUID:a\r\nDTSTART:20261120T100000Z\r\nRRULE:FREQ=DAILY\r\n" +
+		"EXDATE;TZID=America/Argentina/Buenos_Aires:20261121T100000,20261122T100000\r\nEND:VEVENT\r\n")
+	baires(t)
+	cal, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := cal.Series[0].Master.ExDates
+	if len(ex) != 2 || !ex[0].Equal(utc(2026, 11, 21, 13, 0)) || !ex[1].Equal(utc(2026, 11, 22, 13, 0)) {
+		t.Errorf("exdates=%v", ex)
 	}
 }
