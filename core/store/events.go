@@ -434,3 +434,10 @@ func (s *Store) CachedMeeting(ctx context.Context, id int64) (StoredMeeting, err
 	m.Start, m.End = time.Unix(start, 0).UTC(), time.Unix(end, 0).UTC()
 	return m, nil
 }
+
+// SaveMeeting guarda (o reemplaza) una sola reunión en la caché.
+func (s *Store) SaveMeeting(ctx context.Context, m StoredMeeting, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO taskapp_meetings (id, workspace_id, start_at, end_at, json, fetched_at) VALUES (?,?,?,?,?,?)`,
+		m.ID, m.WorkspaceID, m.Start.Unix(), m.End.Unix(), m.JSON, at.Unix())
+	return err
+}

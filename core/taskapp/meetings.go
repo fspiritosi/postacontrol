@@ -2,6 +2,9 @@ package taskapp
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -160,6 +163,23 @@ func (c *Client) CreateMeeting(ctx context.Context, m NewMeeting) (Meeting, erro
 	}
 	var w wireMeeting
 	if err := c.do(ctx, "POST", "/api/meetings", in, &w); err != nil {
+		return Meeting{}, err
+	}
+	return w.meeting(), nil
+}
+
+// ErrNotFound: la reunión no existe o el usuario ya no tiene acceso (404).
+var ErrNotFound = errors.New("taskapp: no existe")
+
+// Meeting trae una reunión por ID. Si no existe o el usuario no tiene acceso,
+// el error es ErrNotFound (y también el *APIError del 404).
+func (c *Client) Meeting(ctx context.Context, id int64) (Meeting, error) {
+	var w wireMeeting
+	if err := c.do(ctx, "GET", "/api/meetings/"+strconv.FormatInt(id, 10), nil, &w); err != nil {
+		var api *APIError
+		if errors.As(err, &api) && api.Status == http.StatusNotFound {
+			return Meeting{}, fmt.Errorf("%w: %w", ErrNotFound, err)
+		}
 		return Meeting{}, err
 	}
 	return w.meeting(), nil

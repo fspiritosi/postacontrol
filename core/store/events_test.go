@@ -484,3 +484,18 @@ func TestCachedMeeting_ByID(t *testing.T) {
 	_, err = s.CachedMeeting(ctx, 10)
 	assert.ErrorIs(t, err, ErrNotFound)
 }
+
+func TestSaveMeeting_Upserts(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	m := StoredMeeting{ID: 9, WorkspaceID: 3, Start: day(5), End: day(5).Add(time.Hour), JSON: `{"v":1}`}
+	require.NoError(t, s.SaveMeeting(ctx, m, time.Unix(1000, 0)))
+	m.Start, m.End, m.JSON = day(20), day(20).Add(time.Hour), `{"v":2}`
+	require.NoError(t, s.SaveMeeting(ctx, m, time.Unix(2000, 0)))
+	got, err := s.CachedMeeting(ctx, 9)
+	require.NoError(t, err)
+	assert.Equal(t, m, got)
+	_, fetched, err := s.MeetingsInRange(ctx, day(19), day(21))
+	require.NoError(t, err)
+	assert.EqualValues(t, 2000, fetched.Unix())
+}

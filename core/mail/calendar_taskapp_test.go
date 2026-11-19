@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +55,8 @@ type meetTaskapp struct {
 	down     bool     // /api/meetings corta la conexión sin responder
 	code     int      // /api/meetings responde con este código (0 = normal)
 	postDrop bool     // el POST corta la conexión sin responder
+	details  int      // GET /api/meetings/{id}
+	detailDn bool     // GET /api/meetings/{id} corta la conexión sin responder
 	nextID   int64
 }
 
@@ -143,6 +146,21 @@ func newMeetTaskapp(t *testing.T) *meetTaskapp {
 				}
 			}
 			_ = json.NewEncoder(w).Encode(out)
+		case strings.HasPrefix(r.URL.Path, "/api/meetings/") && r.Method == "GET":
+			f.details++
+			if f.detailDn {
+				drop(w)
+				return
+			}
+			id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/meetings/"), 10, 64)
+			for _, m := range f.meetings {
+				if m.ID == id {
+					_ = json.NewEncoder(w).Encode(m)
+					return
+				}
+			}
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"meeting not found"}`))
 		case r.URL.Path == "/api/meetings" && r.Method == "POST":
 			f.posts = append(f.posts, string(body))
 			if f.postDrop {
@@ -696,4 +714,83 @@ func TestTaskappStatus_HasUserID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskappStatus{Connected: true, UserID: 7, UserName: "Fabricio", UserEmail: "f@ej.com"}, st)
 	assert.True(t, strings.HasPrefix(c.TaskappWebURL(context.Background()), "http://127.0.0.1"))
+}
+
+// Una reunión reprogramada fuera del rango que se mira no se da por borrada:
+// se confirma en Taskapp y queda "changed", con la hora nueva para avisar.
+func TestTaskappChange_MovedOutsideWindowIsChanged(t *testing.T) {
+	c, f, smtp, _, acc := meetCore(t)
+	mirror := createdWithBea(t, c, smtp, acc)
+	f.edit(77, func(m *fakeMeeting) { m.StartTime, m.EndTime = tu(2026, 12, 20, 15, 0), tu(2026, 12, 20, 16, 0) })
+
+	items := meetingItems(listRange(t, c))
+	assert.Equal(t, "changed", mirrorOf(t, c, 77).TaskappChange)
+	require.Len(t, items, 1, "el espejo se sigue mostrando en su hora vieja")
+	assert.Equal(t, "changed", items[0].TaskappChange)
+	f.set(func() { assert.Equal(t, 1, f.details) })
+	listRange(t, c)
+	assert.Equal(t, "changed", mirrorOf(t, c, 77).TaskappChange, "no va y viene")
+
+	require.NoError(t, c.NotifyTaskappChange(context.Background(), mirror.ID))
+	envs := waitMails(t, smtp, 2)
+	m := readMail(t, envs[1])
+	assert.Contains(t, m.ICS, "METHOD:REQUEST")
+	assert.Contains(t, m.ICS, "DTSTART:20261220T150000Z")
+	assert.True(t, mirrorOf(t, c, 77).Start.Equal(tu(2026, 12, 20, 15, 0)))
+}
+
+func TestTaskappChange_ConfirmFailsLeavesMirror(t *testing.T) {
+	c, f, smtp, _, acc := meetCore(t)
+	createdWithBea(t, c, smtp, acc)
+	f.remove(77)
+	f.set(func() { f.detailDn = true })
+	listRange(t, c)
+	assert.Empty(t, mirrorOf(t, c, 77).TaskappChange, "sin poder confirmar no se marca")
+	f.set(func() { f.detailDn = false })
+	listRange(t, c)
+	assert.Equal(t, "deleted", mirrorOf(t, c, 77).TaskappChange, "con el 404, sí")
+}
+
+// Si la reunión vuelve a quedar como en la foto, el cambio pendiente se borra.
+func TestTaskappChange_RevertClearsFlag(t *testing.T) {
+	c, f, smtp, _, acc := meetCore(t)
+	createdWithBea(t, c, smtp, acc)
+	f.edit(77, func(m *fakeMeeting) { m.Location = "Sala 9" })
+	listRange(t, c)
+	require.Equal(t, "changed", mirrorOf(t, c, 77).TaskappChange)
+	f.edit(77, func(m *fakeMeeting) { m.Location = "Meet" })
+	listRange(t, c)
+	assert.Empty(t, mirrorOf(t, c, 77).TaskappChange)
+}
+
+// Completar la reunión en Taskapp no es un cambio para los externos.
+func TestTaskappChange_CompletedIsNotAChange(t *testing.T) {
+	c, f, smtp, _, acc := meetCore(t)
+	createdWithBea(t, c, smtp, acc)
+	f.edit(77, func(m *fakeMeeting) { m.Status = "completed" })
+	listRange(t, c)
+	assert.Empty(t, mirrorOf(t, c, 77).TaskappChange)
+}
+
+// El aviso de cambios del calendario sale una sola vez, con el espejo ya guardado.
+func TestCreateMeeting_EmitsOnceAfterMirror(t *testing.T) {
+	c, _, _, n, acc := meetCore(t)
+	var mirrored []bool
+	n.setHook(func(event string, _ any) {
+		if event == EventCalendarChanged {
+			_, err := c.store.EventByMeeting(context.Background(), 77)
+			mirrored = append(mirrored, err == nil)
+		}
+	})
+	_, err := c.CreateTaskappMeeting(context.Background(), createReq(acc, model.Address{Email: "bea@cliente.com"}))
+	require.NoError(t, err)
+	n.setHook(nil)
+	assert.Equal(t, []bool{true}, mirrored)
+}
+
+// Si no salen las invitaciones, la UI no tiene que ofrecer crearla de nuevo.
+func TestCreateMeeting_SendFailedMessageContract(t *testing.T) {
+	msg := fmt.Sprintf(msgMeetingSendFailed, "motivo")
+	assert.Contains(t, msg, "no la vuelvas a crear")
+	assert.Equal(t, "La reunión se creó en Taskapp, pero no pudimos mandar la invitación a los invitados externos: motivo; no la vuelvas a crear.", msg)
 }

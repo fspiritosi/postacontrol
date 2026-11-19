@@ -116,3 +116,28 @@ func TestMeetings_Unauthorized(t *testing.T) {
 	_, err := c.Meetings(context.Background(), 3, time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 2, 0, 0, 0, 0, time.UTC))
 	assert.True(t, errors.Is(err, ErrUnauthorized))
 }
+
+func TestMeeting_ByID(t *testing.T) {
+	c := servidor(t, "GET", "/api/meetings/9", 200, `{"id":9,"workspace_id":2,"title":"R","start_time":"2026-12-20T15:00:00Z",
+	 "end_time":"2026-12-20T16:00:00Z","status":"scheduled","created_by":7,"tasks":[]}`, nil)
+	m, err := c.Meeting(context.Background(), 9)
+	require.NoError(t, err)
+	assert.EqualValues(t, 9, m.ID)
+	assert.EqualValues(t, 2, m.WorkspaceID)
+	assert.Equal(t, time.Date(2026, 12, 20, 15, 0, 0, 0, time.UTC), m.Start)
+
+	c = servidor(t, "GET", "/api/meetings/9", 404, `{"error":"meeting not found"}`, nil)
+	_, err = c.Meeting(context.Background(), 9)
+	assert.ErrorIs(t, err, ErrNotFound)
+	var api *APIError
+	require.ErrorAs(t, err, &api)
+	assert.Equal(t, 404, api.Status)
+
+	c = servidor(t, "GET", "/api/meetings/9", 500, `{"error":"falla"}`, nil)
+	_, err = c.Meeting(context.Background(), 9)
+	assert.NotErrorIs(t, err, ErrNotFound)
+
+	c = servidor(t, "GET", "/api/meetings/9", 401, `{"error":"unauthorized"}`, nil)
+	_, err = c.Meeting(context.Background(), 9)
+	assert.ErrorIs(t, err, ErrUnauthorized)
+}

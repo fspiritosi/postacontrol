@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"postacontrol/core/model"
@@ -31,6 +32,9 @@ const (
 	msgNotMeeting           = "Este evento no es una reunión de Taskapp."
 	msgExternalsRemoved     = "La reunión sigue en Taskapp; solo se avisó a los invitados externos."
 	msgExternalsNotNotified = "No pudimos avisarles a los invitados externos: "
+	// msgMeetingSendFailed: la reunión y el espejo quedaron, pero la
+	// invitación no se encoló. Mismo contrato con la UI que msgMeetingOrphan.
+	msgMeetingSendFailed = "La reunión se creó en Taskapp, pero no pudimos mandar la invitación a los invitados externos: %s; no la vuelvas a crear."
 
 	// meetingLookback: la API filtra solo por inicio, así que se pide desde
 	// una semana antes para traer las que empezaron antes y siguen en curso.
@@ -94,10 +98,16 @@ type meetingSnap struct {
 	Status      string `json:"status"`
 }
 
+// meetingSnapshot arma la foto de m. Completar la reunión no les cambia nada
+// a los externos: "completed" se guarda como "scheduled".
 func meetingSnapshot(m taskapp.Meeting) string {
+	status := m.Status
+	if status == "completed" {
+		status = "scheduled"
+	}
 	b, _ := json.Marshal(meetingSnap{Title: m.Title, Start: m.Start.UTC().Format(time.RFC3339),
 		End: m.End.UTC().Format(time.RFC3339), AllDay: m.AllDay, Location: m.Location,
-		Description: m.Description, Status: m.Status})
+		Description: m.Description, Status: status})
 	return string(b)
 }
 
@@ -213,7 +223,7 @@ func (c *Core) meetingsFor(ctx context.Context, from, to time.Time) (items []mod
 	var projs map[int64]taskapp.Project
 	if mine, ps, ferr := c.fetchMeetings(ctx, cl, from.UTC(), to.UTC()); ferr == nil {
 		meetings, projs, at = mine, ps, c.now()
-		c.detectTaskappChanges(ctx, mine, from, to)
+		c.detectTaskappChanges(ctx, cl, mine, from, to)
 	} else {
 		if c.ctxErr(ctx) != nil {
 			return nil, false, time.Time{}, ""
@@ -325,18 +335,45 @@ func (c *Core) orphanMirrorItems(ctx context.Context, from, to time.Time, shown 
 	return out
 }
 
+// mirrorsToCheck son los espejos de evs que empiezan en [from, to) y no están
+// cancelados (a esos externos ya les llegó la cancelación).
+func mirrorsToCheck(evs []model.CalendarEvent, from, to time.Time) []model.CalendarEvent {
+	var out []model.CalendarEvent
+	for _, e := range evs {
+		if e.Kind == "taskapp" && e.Status != "cancelled" && !e.Start.Before(from) && e.Start.Before(to) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// mirrorChange es la marca que corresponde a un espejo con foto snap según la
+// reunión m (nil = Taskapp confirmó que no existe). Si coincide con la foto
+// no hay nada que avisar, y se borra la marca que hubiera.
+func mirrorChange(m *taskapp.Meeting, snap string) string {
+	switch {
+	case m == nil:
+		return changeDeleted
+	case m.Status == "cancelled":
+		return changeCancelled
+	case meetingSnapshot(*m) != snap:
+		return changeChanged
+	}
+	return changeNone
+}
+
 // detectTaskappChanges compara, después de una lectura buena, los espejos que
-// empiezan en [from, to) con lo que vino de Taskapp (mine: todas las del
-// usuario de esa lectura) y marca los que cambiaron. Un espejo ya cancelado
-// no se mira (los externos ya recibieron la cancelación). Avisa a la UI solo
-// si cambió alguna marca.
-func (c *Core) detectTaskappChanges(ctx context.Context, mine []taskapp.Meeting, from, to time.Time) {
+// empiezan en [from, to) con lo que vino de Taskapp (mine: las del usuario de
+// esa lectura) y marca los que cambiaron. Si la reunión de un espejo no vino
+// (pudo haberse movido fuera del rango), se pregunta por ella a Taskapp, sin
+// calMu: solo un 404 la da por borrada; si se encuentra, se guarda en la
+// caché (para avisar con sus datos nuevos); con otro error, el espejo queda
+// como estaba. Avisa a la UI solo si cambió alguna marca.
+func (c *Core) detectTaskappChanges(ctx context.Context, cl *taskapp.Client, mine []taskapp.Meeting, from, to time.Time) {
 	byID := make(map[int64]taskapp.Meeting, len(mine))
 	for _, m := range mine {
 		byID[m.ID] = m
 	}
-	c.calMu.Lock()
-	defer c.calMu.Unlock()
 	evs, err := c.store.EventsInRange(ctx, from, to)
 	if err != nil {
 		if c.ctxErr(ctx) == nil {
@@ -344,26 +381,53 @@ func (c *Core) detectTaskappChanges(ctx context.Context, mine []taskapp.Meeting,
 		}
 		return
 	}
-	marked := false
-	for _, e := range evs {
-		if e.Kind != "taskapp" || e.Status == "cancelled" || e.Start.Before(from) || !e.Start.Before(to) {
+	gone := map[int64]bool{}
+confirm:
+	for _, e := range mirrorsToCheck(evs, from, to) {
+		id := e.TaskappMeetingID
+		if _, ok := byID[id]; ok {
 			continue
+		}
+		m, err := cl.Meeting(ctx, id)
+		switch {
+		case err == nil:
+			byID[id] = m
+			c.cacheMeeting(ctx, m)
+		case errors.Is(err, taskapp.ErrNotFound):
+			gone[id] = true
+		case errors.Is(err, taskapp.ErrUnauthorized):
+			_ = c.taskappErr(err) // traba y avisa; las demás tampoco se pueden confirmar
+			break confirm
+		default:
+			if c.ctxErr(ctx) != nil {
+				return
+			}
+			slog.Warn("no se pudo confirmar la reunión en Taskapp", "meetingId", id, "err", err)
+		}
+	}
+
+	c.calMu.Lock()
+	defer c.calMu.Unlock()
+	if evs, err = c.store.EventsInRange(ctx, from, to); err != nil {
+		if c.ctxErr(ctx) == nil {
+			slog.Warn("no se pudieron revisar los cambios de las reuniones", "err", err)
+		}
+		return
+	}
+	marked := false
+	for _, e := range mirrorsToCheck(evs, from, to) {
+		var m *taskapp.Meeting
+		if found, ok := byID[e.TaskappMeetingID]; ok {
+			m = &found
+		} else if !gone[e.TaskappMeetingID] {
+			continue // no se sabe
 		}
 		snap, err := c.store.TaskappSnapshot(ctx, e.ID)
 		if err != nil {
 			slog.Warn("no se pudo leer la foto de la reunión", "eventId", e.ID, "err", err)
 			continue
 		}
-		change := e.TaskappChange
-		m, ok := byID[e.TaskappMeetingID]
-		switch {
-		case !ok:
-			change = changeDeleted
-		case m.Status == "cancelled":
-			change = changeCancelled
-		case meetingSnapshot(m) != snap:
-			change = changeChanged
-		}
+		change := mirrorChange(m, snap)
 		if change == e.TaskappChange {
 			continue
 		}
@@ -375,6 +439,18 @@ func (c *Core) detectTaskappChanges(ctx context.Context, mine []taskapp.Meeting,
 	}
 	if marked {
 		c.emit(EventCalendarChanged, nil)
+	}
+}
+
+// cacheMeeting guarda una reunión suelta en la caché.
+func (c *Core) cacheMeeting(ctx context.Context, m taskapp.Meeting) {
+	raw, err := json.Marshal(m)
+	if err == nil {
+		err = c.store.SaveMeeting(ctx, store.StoredMeeting{ID: m.ID, WorkspaceID: m.WorkspaceID, Start: m.Start, End: m.End,
+			JSON: string(raw)}, c.now())
+	}
+	if err != nil && c.ctxErr(ctx) == nil {
+		slog.Warn("no se pudo guardar la reunión en la caché", "meetingId", m.ID, "err", err)
 	}
 }
 
@@ -436,7 +512,8 @@ func (c *Core) CreateTaskappMeeting(ctx context.Context, req model.TaskappMeetin
 		slog.Warn("taskapp: no se sabe si la reunión se creó", "err", err)
 		return model.CalendarItem{}, &UserError{Code: "taskapp-uncertain", Msg: msgMeetingUncertain, Err: err}
 	}
-	c.emit(EventCalendarChanged, nil)
+	// El aviso sale una vez, al final (con el espejo ya guardado si hay).
+	defer c.emit(EventCalendarChanged, nil)
 	item := meetingItem(created, c.knownProjects(), web)
 	if len(e.Attendees) == 0 {
 		return item, nil
@@ -455,7 +532,8 @@ func (c *Core) CreateTaskappMeeting(ctx context.Context, req model.TaskappMeetin
 	}
 	withMirror(&item, mirror)
 	if err := c.queueInvitation(saveCtx, acc, mirror, "REQUEST", attendeeAddrs(mirror.Attendees), false); err != nil {
-		return item, &UserError{Code: "send", Msg: msgInviteSendFailed + c.ctxOrUserError(saveCtx, err).Error(), Err: err}
+		reason := strings.TrimRight(c.ctxOrUserError(saveCtx, err).Error(), ". ")
+		return item, &UserError{Code: "send", Msg: fmt.Sprintf(msgMeetingSendFailed, reason), Err: err}
 	}
 	return item, nil
 }
