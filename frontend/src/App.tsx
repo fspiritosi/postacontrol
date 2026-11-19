@@ -1,3 +1,4 @@
+import { CalendarView } from "@/features/calendar/CalendarView";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -74,9 +75,7 @@ export default function App() {
           )
         }
         full={(s) =>
-          s.view?.kind === "calendar" ? (
-            <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">Calendario</div>
-          ) : null
+          s.view?.kind === "calendar" ? <CalendarView state={s} /> : null
         }
         reader={(s) =>
           s.view?.kind === "contacts" ? (
