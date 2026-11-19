@@ -709,6 +709,10 @@ type CalendarItem struct {
 	Confirmed     int       `json:"confirmed"`
 	TaskappChange string    `json:"taskappChange"`
 	URL           string    `json:"url"` // Taskapp
+	// People son las personas con su respuesta: los invitados de un evento
+	// local o de una invitación; en una reunión de Taskapp, sus asistentes y
+	// después los externos del espejo. Vacío en una tarea; nunca nil.
+	People []Attendee `json:"people"`
 }
 
 // CalendarRange es lo que se muestra en el calendario para un rango.

@@ -908,3 +908,27 @@ func TestMeetings_QuietRefreshAndStaleCache(t *testing.T) {
 	assert.Empty(t, r.TaskappError)
 	assert.Len(t, meetingItems(r), 1)
 }
+
+// El ítem de una reunión trae a los asistentes de Taskapp (con su respuesta
+// traducida) y después a los externos del espejo.
+func TestMeetings_People(t *testing.T) {
+	c, f, smtp, _, acc := meetCore(t)
+	createdWithBea(t, c, smtp, acc)
+	f.edit(77, func(m *fakeMeeting) {
+		m.Attendees[0].RsvpStatus = "accepted"
+		m.Attendees = append(m.Attendees, m.Attendees[0], m.Attendees[0], m.Attendees[0])
+		m.Attendees[1].Name, m.Attendees[1].Email, m.Attendees[1].RsvpStatus = "Caro", "caro@cc.com", "declined"
+		m.Attendees[2].Name, m.Attendees[2].Email, m.Attendees[2].RsvpStatus = "Dani", "dani@cc.com", "maybe"
+		m.Attendees[3].Name, m.Attendees[3].Email, m.Attendees[3].RsvpStatus = "Eli", "eli@cc.com", "pending"
+	})
+	items := meetingItems(listRange(t, c))
+	require.Len(t, items, 1)
+	assert.Equal(t, []model.Attendee{
+		{Email: "ana@cc.com", Name: "Ana", Partstat: "ACCEPTED"},
+		{Email: "caro@cc.com", Name: "Caro", Partstat: "DECLINED"},
+		{Email: "dani@cc.com", Name: "Dani", Partstat: "TENTATIVE"},
+		{Email: "eli@cc.com", Name: "Eli", Partstat: "NEEDS-ACTION"},
+		{Email: "bea@cliente.com", Name: "Bea", Partstat: "NEEDS-ACTION"},
+	}, items[0].People)
+	assert.Equal(t, 1, items[0].Attendees, "el conteo sigue siendo de los externos")
+}

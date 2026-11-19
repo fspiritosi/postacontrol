@@ -94,9 +94,46 @@ describe("EventDetail", () => {
   });
 
   it("local: muestra los invitados con su estado y Editar llama al callback", async () => {
-    const { user, onEdit } = setup(calItem({ attendees: 1, confirmed: 1 }));
+    const { user, onEdit } = setup(
+      calItem({ attendees: 1, confirmed: 1, people: [{ email: "b@x.com", name: "Beto", partstat: "ACCEPTED" }] }),
+    );
     expect(await screen.findByText("Beto")).toBeInTheDocument();
+    expect(screen.getByText("confirmó")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Editar" }));
     expect(onEdit).toHaveBeenCalled();
+  });
+
+  it("una invitación lista a los invitados con su estado", () => {
+    setup(
+      calItem({
+        source: "invite", attendees: 2, confirmed: 0,
+        people: [
+          { email: "c@x.com", name: "", partstat: "DECLINED" },
+          { email: "d@x.com", name: "Dora", partstat: "TENTATIVE" },
+        ],
+      }),
+    );
+    expect(screen.getByText("c@x.com")).toBeInTheDocument();
+    expect(screen.getByText("rechazó")).toBeInTheDocument();
+    expect(screen.getByText("Dora")).toBeInTheDocument();
+    expect(screen.getByText("tal vez")).toBeInTheDocument();
+  });
+
+  it("una reunión de Taskapp muestra a los asistentes y aclara que el conteo es de externos", () => {
+    setup(
+      calItem({
+        source: "taskapp", eventId: 9, attendees: 1, confirmed: 0,
+        people: [
+          { email: "ana@cc.com", name: "Ana", partstat: "ACCEPTED" },
+          { email: "bea@cliente.com", name: "Bea", partstat: "NEEDS-ACTION" },
+        ],
+      }),
+    );
+    expect(screen.getByText("Ana")).toBeInTheDocument();
+    expect(screen.getByText("confirmó")).toBeInTheDocument();
+    expect(screen.getByText("Bea")).toBeInTheDocument();
+    expect(screen.getByText("sin responder")).toBeInTheDocument();
+    expect(screen.getByText("Invitados externos: 1 · 0 confirmaron")).toBeInTheDocument();
+    expect(svc.GetEvent).not.toHaveBeenCalled();
   });
 });

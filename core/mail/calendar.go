@@ -145,6 +145,7 @@ func (c *Core) ListCalendar(ctx context.Context, from, to time.Time) (model.Cale
 				Title: o.Title, Location: o.Location, Start: o.Start, End: o.End, AllDay: e.AllDay,
 				Recurring: e.RRule != "", OccurrenceAt: o.Original, Partstat: partstat, NeedsReview: e.NeedsReview,
 				Cancelled: e.Status == "cancelled", Attendees: len(e.Attendees), Confirmed: confirmed,
+				People: nonNil(e.Attendees),
 			})
 		}
 	}
@@ -178,7 +179,8 @@ func taskItem(t model.LocalTask) (model.CalendarItem, bool) {
 	if t.DueDate == "" || t.DoneAt != nil {
 		return model.CalendarItem{}, false
 	}
-	it := model.CalendarItem{Key: fmt.Sprintf("t:%d", t.ID), Source: "task", TaskID: t.ID, Title: t.Title}
+	it := model.CalendarItem{Key: fmt.Sprintf("t:%d", t.ID), Source: "task", TaskID: t.ID, Title: t.Title,
+		People: []model.Attendee{}}
 	if t.DueTime != "" {
 		start, err := time.ParseInLocation("2006-01-02 15:04", t.DueDate+" "+t.DueTime, time.Local)
 		if err != nil {

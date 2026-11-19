@@ -157,8 +157,12 @@ func TestListCalendar_LocalTaskAndAllDay(t *testing.T) {
 	assert.Equal(t, time.UTC, ev.Start.Location())
 	assert.True(t, ev.End.Equal(tu(2026, 11, 21, 0, 0)))
 	assert.False(t, ev.Recurring)
+	assert.NotNil(t, ev.People)
+	assert.Empty(t, ev.People)
 
 	task := items[1]
+	assert.NotNil(t, task.People, "nunca nil")
+	assert.Empty(t, task.People)
 	assert.Equal(t, fmt.Sprintf("t:%d", timed.ID), task.Key)
 	assert.Equal(t, "task", task.Source)
 	assert.Equal(t, timed.ID, task.TaskID)
@@ -604,4 +608,16 @@ func TestSaveEvent_ScopeThisKeepsOwnTexts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Nuevo", got.Exceptions[0].Title)
 	assert.Equal(t, "Sala propia", got.Exceptions[0].Location)
+}
+
+// El ítem de un evento local trae sus invitados con su respuesta.
+func TestListCalendar_PeopleOfLocalEvent(t *testing.T) {
+	c, _, _, _ := newTestCore(t)
+	e, err := c.store.SaveEvent(context.Background(), model.CalendarEvent{UID: "u@x", Kind: "local", Title: "Con gente",
+		Status: "confirmed", Start: tu(2026, 11, 20, 13, 0), End: tu(2026, 11, 20, 14, 0),
+		Attendees: []model.Attendee{{Email: "ana@ej.com", Name: "Ana", Partstat: "ACCEPTED"}, {Email: "beto@ej.com", Partstat: "NEEDS-ACTION"}}}, nil)
+	require.NoError(t, err)
+	items := listItems(t, c, tu(2026, 11, 20, 0, 0), tu(2026, 11, 21, 0, 0))
+	require.Len(t, items, 1)
+	assert.Equal(t, e.Attendees, items[0].People)
 }

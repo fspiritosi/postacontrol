@@ -242,6 +242,13 @@ export interface CalendarItem {
      * Taskapp
      */
     "url": string;
+
+    /**
+     * People son las personas con su respuesta: los invitados de un evento
+     * local o de una invitación; en una reunión de Taskapp, sus asistentes y
+     * después los externos del espejo. Vacío en una tarea; nunca nil.
+     */
+    "people": Attendee[] | null;
 }
 
 /**

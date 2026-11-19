@@ -421,11 +421,28 @@ func (c *Core) meetingRangeItems(ctx context.Context, meetings []taskapp.Meeting
 func meetingItem(m taskapp.Meeting, projs map[int64]taskapp.Project, web string) model.CalendarItem {
 	it := model.CalendarItem{Key: "m:" + strconv.FormatInt(m.ID, 10), Source: "taskapp", MeetingID: m.ID,
 		Title: m.Title, Location: m.Location, Start: m.Start, End: m.End, AllDay: m.AllDay,
-		ProjectName: m.ProjectName, Cancelled: m.Status == "cancelled", URL: meetingURL(web, m.ID)}
+		ProjectName: m.ProjectName, Cancelled: m.Status == "cancelled", URL: meetingURL(web, m.ID),
+		People: make([]model.Attendee, 0, len(m.Attendees))}
+	for _, a := range m.Attendees {
+		it.People = append(it.People, model.Attendee{Email: a.Email, Name: a.Name, Partstat: rsvpPartstat(a.Rsvp)})
+	}
 	if p, ok := projs[m.ProjectID]; ok && m.ProjectID != 0 {
 		it.Color, it.ProjectName = p.Color, p.Name
 	}
 	return it
+}
+
+// rsvpPartstat traduce la respuesta de un asistente de Taskapp a PARTSTAT.
+func rsvpPartstat(rsvp string) string {
+	switch rsvp {
+	case "accepted":
+		return "ACCEPTED"
+	case "declined":
+		return "DECLINED"
+	case "maybe":
+		return "TENTATIVE"
+	}
+	return "NEEDS-ACTION"
 }
 
 func meetingURL(web string, id int64) string {
@@ -433,7 +450,8 @@ func meetingURL(web string, id int64) string {
 }
 
 // withMirror le suma al ítem de la reunión lo de su espejo: los invitados
-// externos y el cambio pendiente de avisarles.
+// externos (también a People, después de los de Taskapp) y el cambio
+// pendiente de avisarles.
 func withMirror(it *model.CalendarItem, mirror model.CalendarEvent) {
 	confirmed := 0
 	for _, a := range mirror.Attendees {
@@ -442,6 +460,10 @@ func withMirror(it *model.CalendarItem, mirror model.CalendarEvent) {
 		}
 	}
 	it.EventID, it.Attendees, it.Confirmed, it.TaskappChange = mirror.ID, len(mirror.Attendees), confirmed, mirror.TaskappChange
+	if it.People == nil {
+		it.People = []model.Attendee{}
+	}
+	it.People = append(it.People, mirror.Attendees...)
 }
 
 // mirrorFor trae el espejo de la reunión, si tiene.

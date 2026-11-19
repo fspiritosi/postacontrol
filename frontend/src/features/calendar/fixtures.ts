@@ -8,7 +8,7 @@ export function calItem(over: Partial<CalendarItem> = {}): CalendarItem {
     key: "e:1:1700000000", source: "local", eventId: 1, meetingId: 0, taskId: 0, title: "Reunión", location: "",
     start: "2026-11-20T13:00:00Z", end: "2026-11-20T14:00:00Z", allDay: false, recurring: false,
     occurrenceAt: "2026-11-20T13:00:00Z", color: "", projectName: "", partstat: "", needsReview: false,
-    cancelled: false, attendees: 0, confirmed: 0, taskappChange: "", url: "", ...over,
+    cancelled: false, attendees: 0, confirmed: 0, taskappChange: "", url: "", people: [], ...over,
   };
 }
 

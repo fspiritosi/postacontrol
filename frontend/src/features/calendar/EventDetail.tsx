@@ -20,6 +20,27 @@ const PARTSTAT: Record<string, string> = {
   "NEEDS-ACTION": "Sin responder",
 };
 
+// El estado de cada persona en la lista.
+const PERSON_STATE: Record<string, string> = {
+  ACCEPTED: "confirmó",
+  DECLINED: "rechazó",
+  TENTATIVE: "tal vez",
+  "NEEDS-ACTION": "sin responder",
+};
+
+function People({ people }: { people: CalendarItem["people"] }) {
+  return (
+    <ul className="space-y-0.5">
+      {(people ?? []).map((a) => (
+        <li key={a.email} className="flex justify-between gap-2">
+          <span className="truncate">{a.name || a.email}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">{PERSON_STATE[a.partstat] ?? a.partstat}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
@@ -71,7 +92,7 @@ export function EventDetail({
     }
   };
 
-  const attendees = event.data?.attendees ?? [];
+  const people = item.people ?? [];
   const organizer = event.data?.organizer;
 
   return (
@@ -88,21 +109,19 @@ export function EventDetail({
           {item.source === "invite" && organizer && (organizer.name || organizer.email) && (
             <Row label="Organiza">{organizer.name ? `${organizer.name} <${organizer.email}>` : organizer.email}</Row>
           )}
-          {item.source === "taskapp" && item.attendees > 0 && (
+          {item.source === "taskapp" && (people.length > 0 || item.attendees > 0) && (
             <Row label="Asistentes">
-              {item.attendees} · {item.confirmed} confirmaron
+              <People people={people} />
+              {item.attendees > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Invitados externos: {item.attendees} · {item.confirmed} confirmaron
+                </p>
+              )}
             </Row>
           )}
-          {hasEvent && attendees.length > 0 && (
+          {hasEvent && people.length > 0 && (
             <Row label={`Invitados (${item.confirmed}/${item.attendees} confirmaron)`}>
-              <ul className="space-y-0.5">
-                {attendees.map((a) => (
-                  <li key={a.email} className="flex justify-between gap-2">
-                    <span className="truncate">{a.name || a.email}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{PARTSTAT[a.partstat] ?? a.partstat}</span>
-                  </li>
-                ))}
-              </ul>
+              <People people={people} />
             </Row>
           )}
           {item.source === "invite" && item.partstat && (
