@@ -113,3 +113,10 @@ export function allDayLocal(iso: string): Date {
   const [y, m, d] = allDayDate(iso).split("-").map(Number);
   return new Date(y, m - 1, d);
 }
+
+// La hora cero de Go. Los time.Time de los pedidos se leen con RFC 3339: un
+// texto vacío hace fallar el pedido entero, así que "sin hora" va así.
+export const GO_ZERO_TIME = "0001-01-01T00:00:00Z";
+
+// Una hora para mandarle al núcleo: la vacía pasa a ser la hora cero de Go.
+export const goTime = (iso: string | undefined | null): string => iso || GO_ZERO_TIME;

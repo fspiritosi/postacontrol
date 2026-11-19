@@ -1,6 +1,7 @@
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { CalendarEvent, EventSave } from "../../../bindings/postacontrol/core/model/models";
 import { toast } from "sonner";
+import { goTime } from "@/lib/calendar";
 import { isSendPartialError, errorMessage } from "@/lib/errors";
 import type { useChoice } from "./useChoice";
 
@@ -26,7 +27,7 @@ export async function saveEventFlow(
     if (s == null) return false;
     scope = s;
   }
-  const req: EventSave = { event, scope, occurrenceAt: occ?.occurrenceAt ?? "", notify: false };
+  const req: EventSave = { event, scope, occurrenceAt: goTime(occ?.occurrenceAt), notify: false };
   if (!isNew) {
     const prev = await svc.PreviewEventSave(req);
     if (prev.notifyNeeded) {
@@ -54,7 +55,7 @@ export async function deleteEventFlow(ask: Ask, id: number, occ: Occurrence): Pr
     if (s == null) return false;
     scope = s;
   }
-  const req = { id, scope, occurrenceAt: occ.occurrenceAt, notify: false };
+  const req = { id, scope, occurrenceAt: goTime(occ.occurrenceAt), notify: false };
   const prev = await svc.PreviewEventDelete(req);
   if (prev.notifyNeeded) {
     const notify = await ask.askNotify(prev.added, prev.removed);
