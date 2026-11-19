@@ -9,13 +9,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
-import type { CalendarItem, EventSave } from "../../../bindings/postacontrol/core/model/models";
-import { loadCalendarView, saveCalendarView, toFcEvent, utcMidnightOfLocal, type CalendarViewId } from "@/lib/calendar";
+import type { CalendarItem } from "../../../bindings/postacontrol/core/model/models";
+import { allDayLocal, loadCalendarView, saveCalendarView, toFcEvent, utcMidnightOfLocal, type CalendarViewId } from "@/lib/calendar";
 import { errorMessage } from "@/lib/errors";
 import { useCalendar } from "@/lib/queries";
 import type { ShellState } from "../layout/MailShell";
 import { CalendarToolbar } from "./CalendarToolbar";
+import { saveEventFlow } from "./eventActions";
 import { EventDetail } from "./EventDetail";
+import { EventDialog, type EventInitial } from "./EventDialog";
 import { useChoice } from "./useChoice";
 import "./calendar.css";
 
@@ -31,15 +33,9 @@ function initialRange() {
   return { from, to: new Date(from.getTime() + 21 * 24 * HOUR) };
 }
 
-export function CalendarView({
-  state,
-  onNewEvent,
-  onEditEvent,
-}: {
-  state: ShellState;
-  onNewEvent?: (start: Date, end: Date, allDay: boolean) => void;
-  onEditEvent?: (item: CalendarItem) => void;
-}) {
+type Editing = { initial: EventInitial; eventId: number | null };
+
+export function CalendarView({ state }: { state: ShellState }) {
   const qc = useQueryClient();
   const calRef = useRef<FullCalendar>(null);
   const [view, setView] = useState<CalendarViewId>(loadCalendarView);
@@ -47,6 +43,7 @@ export function CalendarView({
   const [title, setTitle] = useState("");
   const [range, setRange] = useState(initialRange);
   const { askScope, askNotify, dialogs } = useChoice();
+  const [editing, setEditing] = useState<Editing | null>(null);
   const cal = useCalendar(range.from, range.to);
   const items = useMemo(() => cal.data?.items ?? [], [cal.data]);
   const selected = items.find((i) => i.key === state.eventKey) ?? null;
@@ -83,12 +80,6 @@ export function CalendarView({
   const reschedule = async (info: EventDropArg | EventResizeDoneArg) => {
     const item = info.event.extendedProps.item as CalendarItem;
     try {
-      let scope: "" | "this" | "following" = "";
-      if (item.recurring) {
-        const s = await askScope();
-        if (s == null) return info.revert();
-        scope = s;
-      }
       const ev = info.event;
       const allDay = ev.allDay;
       const startD = ev.start!;
@@ -103,19 +94,7 @@ export function CalendarView({
         end = (ev.end ?? new Date(startD.getTime() + HOUR)).toISOString();
       }
       const event = await svc.GetEvent(item.eventId);
-      const req: EventSave = {
-        event: { ...event, allDay, start, end },
-        scope,
-        occurrenceAt: item.occurrenceAt,
-        notify: false,
-      };
-      const prev = await svc.PreviewEventSave(req);
-      if (prev.notifyNeeded) {
-        const notify = await askNotify(prev.added, prev.removed);
-        if (notify == null) return info.revert();
-        req.notify = notify;
-      }
-      await svc.SaveEvent(req);
+      if (!(await saveEventFlow({ askScope, askNotify }, { ...event, allDay, start, end }, item))) return info.revert();
       void qc.invalidateQueries({ queryKey: ["calendar"] });
       void qc.invalidateQueries({ queryKey: ["event"] });
     } catch (e) {
@@ -124,11 +103,25 @@ export function CalendarView({
     }
   };
 
+  const onNewEvent = (start: Date, end: Date, allDay: boolean) => setEditing({ initial: { start, end, allDay }, eventId: null });
+
+  const onEditEvent = (item: CalendarItem) =>
+    setEditing({
+      eventId: item.eventId,
+      initial: {
+        start: item.allDay ? allDayLocal(item.start) : new Date(item.start),
+        end: item.allDay ? allDayLocal(item.end) : new Date(item.end),
+        allDay: item.allDay,
+        recurring: item.recurring,
+        occurrenceAt: item.occurrenceAt,
+      },
+    });
+
   const newEvent = () => {
     const start = new Date();
     start.setMinutes(0, 0, 0);
     start.setHours(start.getHours() + 1);
-    onNewEvent?.(start, new Date(start.getTime() + HOUR), false);
+    onNewEvent(start, new Date(start.getTime() + HOUR), false);
   };
 
   return (
@@ -163,7 +156,7 @@ export function CalendarView({
             datesSet={onDatesSet}
             eventClick={(info) => state.selectEvent(info.event.id)}
             select={(info) => {
-              onNewEvent?.(info.start, info.end, info.allDay);
+              onNewEvent(info.start, info.end, info.allDay);
               calRef.current?.getApi().unselect();
             }}
             eventDrop={(info) => void reschedule(info)}
@@ -181,6 +174,14 @@ export function CalendarView({
         )}
       </aside>
       {dialogs}
+      {editing && (
+        <EventDialog
+          open
+          onOpenChange={(o) => !o && setEditing(null)}
+          initial={editing.initial}
+          eventId={editing.eventId}
+        />
+      )}
     </div>
   );
 }

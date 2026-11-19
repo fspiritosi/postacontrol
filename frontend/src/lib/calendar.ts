@@ -70,3 +70,14 @@ export function formatItemWhen(it: CalendarItem): string {
   const hm = (d: Date) => d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
   return `${date} · ${hm(s)} a ${hm(e)}`;
 }
+
+// Fecha local "AAAA-MM-DD" y hora local "HH:MM" para los campos del formulario.
+const two = (n: number) => String(n).padStart(2, "0");
+export const localDay = (d: Date) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+export const localTime = (d: Date) => `${two(d.getHours())}:${two(d.getMinutes())}`;
+
+// Medianoche local de la fecha de un día completo (la inversa de utcMidnightOfLocal).
+export function allDayLocal(iso: string): Date {
+  const [y, m, d] = allDayDate(iso).split("-").map(Number);
+  return new Date(y, m - 1, d);
+}

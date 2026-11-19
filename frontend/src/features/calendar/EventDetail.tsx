@@ -10,6 +10,7 @@ import { formatItemWhen } from "@/lib/calendar";
 import { errorMessage } from "@/lib/errors";
 import { useEvent } from "@/lib/queries";
 import type { ShellState } from "../layout/MailShell";
+import { deleteEventFlow } from "./eventActions";
 import { useChoice } from "./useChoice";
 
 const PARTSTAT: Record<string, string> = {
@@ -61,20 +62,7 @@ export function EventDetail({
 
   const remove = async () => {
     try {
-      let scope: "" | "this" | "following" = "";
-      if (item.recurring) {
-        const s = await askScope();
-        if (s == null) return;
-        scope = s;
-      }
-      const req = { id: item.eventId, scope, occurrenceAt: item.occurrenceAt, notify: false };
-      const prev = await svc.PreviewEventDelete(req);
-      if (prev.notifyNeeded) {
-        const notify = await askNotify(prev.added, prev.removed);
-        if (notify == null) return;
-        req.notify = notify;
-      }
-      await svc.DeleteEvent(req);
+      if (!(await deleteEventFlow({ askScope, askNotify }, item.eventId, item))) return;
       refresh();
       state.selectEvent(null);
     } catch (e) {
