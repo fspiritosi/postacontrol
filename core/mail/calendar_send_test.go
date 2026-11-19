@@ -576,3 +576,14 @@ func TestSaveEvent_OrganizerSavedWithoutNotify(t *testing.T) {
 	assert.Equal(t, 0, got.Sequence)
 	noMoreMails(t, c, smtp, 0)
 }
+
+// Contrato con la UI: lib/errors.ts (SEND_PARTIAL_FRAGMENT) reconoce estos
+// avisos de "se guardó/borró, pero falló el correo" por esta frase.
+func TestSendFailedMessagesCarryFrontendFragment(t *testing.T) {
+	const fragment = "pero no pudimos mandar"
+	for _, m := range []string{msgInviteSendFailed, msgCancelSendFailed} {
+		if !strings.Contains(m, fragment) {
+			t.Errorf("%q no contiene %q", m, fragment)
+		}
+	}
+}

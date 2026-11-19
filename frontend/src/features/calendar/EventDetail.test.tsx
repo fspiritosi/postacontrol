@@ -83,6 +83,16 @@ describe("EventDetail", () => {
     );
   });
 
+  it("si el borrado quedó hecho y falló el correo, avisa y suelta la selección", async () => {
+    vi.mocked(svc.PreviewEventDelete).mockResolvedValue({ notifyNeeded: false, added: 0, removed: 0 });
+    vi.mocked(svc.DeleteEvent).mockRejectedValue(new Error("El evento se borró, pero no pudimos mandar las cancelaciones: x"));
+    const { user, state } = setup(calItem());
+    await user.click(screen.getByRole("button", { name: "Borrar" }));
+    await waitFor(() => expect(state.selectEvent).toHaveBeenCalledWith(null));
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("pero no pudimos mandar"));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it("local: muestra los invitados con su estado y Editar llama al callback", async () => {
     const { user, onEdit } = setup(calItem({ attendees: 1, confirmed: 1 }));
     expect(await screen.findByText("Beto")).toBeInTheDocument();

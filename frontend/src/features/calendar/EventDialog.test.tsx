@@ -211,6 +211,54 @@ describe("EventDialog", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
+  it("tocar la repetición no ofrece Solo este", async () => {
+    vi.mocked(svc.PreviewEventSave).mockResolvedValue({ notifyNeeded: false, added: 0, removed: 0 });
+    const { user } = setup({
+      eventId: 1,
+      event: { rrule: "FREQ=DAILY" },
+      initial: { recurring: true, occurrenceAt: "2026-11-20T13:00:00Z" },
+    });
+    await user.click(await screen.findByRole("combobox", { name: "Repetición" }));
+    await user.click(await screen.findByRole("option", { name: "Todos los meses" }));
+    await user.click(save());
+    await screen.findByRole("button", { name: "Este y los siguientes" });
+    expect(screen.queryByRole("button", { name: "Solo este" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Este y los siguientes" }));
+    await waitFor(() => expect(svc.SaveEvent).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(svc.SaveEvent).mock.calls[0][0].event.rrule).toBe("FREQ=MONTHLY");
+  });
+
+  it("sin tocar la repetición manda la regla tal cual, aunque la arme el formulario", async () => {
+    vi.mocked(svc.PreviewEventSave).mockResolvedValue({ notifyNeeded: false, added: 0, removed: 0 });
+    const rrule = "FREQ=WEEKLY;BYDAY=MO;UNTIL=20261220T120000Z";
+    const { user } = setup({ eventId: 1, event: { rrule }, initial: { recurring: true, occurrenceAt: "2026-11-20T13:00:00Z" } });
+    await screen.findByLabelText("Título");
+    await user.click(save());
+    await user.click(await screen.findByRole("button", { name: "Solo este" }));
+    await waitFor(() => expect(svc.SaveEvent).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(svc.SaveEvent).mock.calls[0][0].event.rrule).toBe(rrule);
+  });
+
+  it("si el borrado quedó hecho y falló el correo, avisa y cierra", async () => {
+    vi.mocked(svc.PreviewEventDelete).mockResolvedValue({ notifyNeeded: false, added: 0, removed: 0 });
+    const { user, onOpenChange } = setup({ eventId: 1 });
+    vi.mocked(svc.DeleteEvent).mockRejectedValue(new Error("El evento se borró, pero no pudimos mandar las cancelaciones: x"));
+    await screen.findByLabelText("Título");
+    await user.click(screen.getByRole("button", { name: "Borrar" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(toast.warning).toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("si el guardado quedó hecho y falló el correo, avisa y cierra", async () => {
+    const { user, onOpenChange } = setup();
+    vi.mocked(svc.SaveEvent).mockRejectedValue(new Error("El evento se guardó, pero no pudimos mandar las invitaciones: x"));
+    await user.type(await screen.findByLabelText("Título"), "Cena");
+    await user.click(save());
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(toast.warning).toHaveBeenCalled();
+  });
+
   it("un evento con regla ajena la muestra como personalizada y la conserva", async () => {
     vi.mocked(svc.PreviewEventSave).mockResolvedValue({ notifyNeeded: false, added: 0, removed: 0 });
     const { user } = setup({

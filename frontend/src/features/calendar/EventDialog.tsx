@@ -131,6 +131,7 @@ function Form({
   // Repetición: la que armó el formulario, o la del evento si es de otra clase.
   const parsed = parseRRule(event.rrule);
   const [repeat, setRepeat] = useState<Repeat | typeof CUSTOM>(parsed ?? CUSTOM);
+  const [repeatTouched, setRepeatTouched] = useState(false);
   const [reminder, setReminder] = useState(event.remindBefore == null ? DEFAULT_REMINDER : String(event.remindBefore));
   const [invitees, setInvitees] = useState(() => formatRecipients(event.attendees));
   const [fromId, setFromId] = useState<number | null>(event.accountId || null);
@@ -198,8 +199,8 @@ function Form({
   };
 
   const saveLocal = async () => {
-    const rrule =
-      repeat === CUSTOM ? event.rrule : buildRRule(repeat, t.start, allDay);
+    // Sin tocar la repetición, la regla va tal cual (una importada no se rearma).
+    const rrule = repeatTouched && repeat !== CUSTOM ? buildRRule(repeat, t.start, allDay) : event.rrule;
     const next: CalendarEvent = {
       ...event,
       title: title.trim(),
@@ -220,14 +221,9 @@ function Form({
     };
     const occ = { recurring: initial.recurring ?? false, occurrenceAt: initial.occurrenceAt ?? "" };
     try {
-      if (await saveEventFlow(choice, next, occ)) onOpenChange(false);
+      if (await saveEventFlow(choice, next, occ, repeatTouched)) onOpenChange(false);
     } catch (e) {
-      const msg = errorMessage(e);
-      // El evento quedó guardado; falló el correo con las invitaciones.
-      if (msg.startsWith("El evento se guardó")) {
-        toast.warning(msg);
-        onOpenChange(false);
-      } else toast.error(msg);
+      toast.error(errorMessage(e));
     } finally {
       refresh();
     }
@@ -394,13 +390,14 @@ function Form({
                   <Label htmlFor="ev-repeat">Repetición</Label>
                   <Select
                     value={repeat === CUSTOM ? CUSTOM : repeat.freq}
-                    onValueChange={(v) =>
+                    onValueChange={(v) => {
+                      setRepeatTouched(true);
                       setRepeat(
                         v === CUSTOM
                           ? CUSTOM
                           : { freq: v as Repeat["freq"], days: v === "weekly" ? [(t.start.getDay() + 6) % 7] : [], until: repeat === CUSTOM ? "" : repeat.until },
-                      )
-                    }
+                      );
+                    }}
                   >
                     <SelectTrigger id="ev-repeat" className="w-full" aria-label="Repetición">
                       <SelectValue />
@@ -426,9 +423,10 @@ function Form({
                             variant={on ? "default" : "outline"}
                             aria-label={DAY_NAMES[i]}
                             aria-pressed={on}
-                            onClick={() =>
-                              setRepeat({ ...repeat, days: on ? repeat.days.filter((d) => d !== i) : [...repeat.days, i] })
-                            }
+                            onClick={() => {
+                              setRepeatTouched(true);
+                              setRepeat({ ...repeat, days: on ? repeat.days.filter((d) => d !== i) : [...repeat.days, i] });
+                            }}
                           >
                             {l}
                           </Button>
@@ -443,7 +441,10 @@ function Form({
                         id="ev-until"
                         type="date"
                         value={repeat.until}
-                        onChange={(e) => setRepeat({ ...repeat, until: e.target.value })}
+                        onChange={(e) => {
+                          setRepeatTouched(true);
+                          setRepeat({ ...repeat, until: e.target.value });
+                        }}
                       />
                     </div>
                   )}

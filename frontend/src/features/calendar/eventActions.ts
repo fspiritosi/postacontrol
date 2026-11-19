@@ -1,5 +1,7 @@
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
 import type { CalendarEvent, EventSave } from "../../../bindings/postacontrol/core/model/models";
+import { toast } from "sonner";
+import { isSendPartialError, errorMessage } from "@/lib/errors";
 import type { useChoice } from "./useChoice";
 
 type Ask = Pick<ReturnType<typeof useChoice>, "askScope" | "askNotify">;
@@ -10,11 +12,17 @@ export type Occurrence = { recurring: boolean; occurrenceAt: string };
 // Guarda un evento local: alcance (si se repite y ya existe), aviso (si hace
 // falta) y guardado. false = se canceló en alguna pregunta y no se guardó.
 // Un alta no pregunta: con invitados siempre manda la invitación.
-export async function saveEventFlow(ask: Ask, event: CalendarEvent, occ: Occurrence | null): Promise<boolean> {
+export async function saveEventFlow(
+  ask: Ask,
+  event: CalendarEvent,
+  occ: Occurrence | null,
+  // Se tocó la repetición: "Solo este" no la cambiaría, no se ofrece.
+  repeatChanged = false,
+): Promise<boolean> {
   const isNew = event.id === 0;
   let scope: "" | "this" | "following" = "";
   if (!isNew && occ?.recurring) {
-    const s = await ask.askScope();
+    const s = await ask.askScope(!repeatChanged);
     if (s == null) return false;
     scope = s;
   }
@@ -27,7 +35,13 @@ export async function saveEventFlow(ask: Ask, event: CalendarEvent, occ: Occurre
       req.notify = notify;
     }
   }
-  await svc.SaveEvent(req);
+  try {
+    await svc.SaveEvent(req);
+  } catch (e) {
+    // Quedó guardado; falló solo el correo: se avisa y se da por hecho.
+    if (!isSendPartialError(e)) throw e;
+    toast.warning(errorMessage(e));
+  }
   return true;
 }
 
@@ -47,6 +61,12 @@ export async function deleteEventFlow(ask: Ask, id: number, occ: Occurrence): Pr
     if (notify == null) return false;
     req.notify = notify;
   }
-  await svc.DeleteEvent(req);
+  try {
+    await svc.DeleteEvent(req);
+  } catch (e) {
+    // Quedó borrado; falló solo el correo: se avisa y se da por hecho.
+    if (!isSendPartialError(e)) throw e;
+    toast.warning(errorMessage(e));
+  }
   return true;
 }

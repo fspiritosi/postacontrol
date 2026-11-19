@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { NotifyDialog } from "./NotifyDialog";
 import { ScopeDialog, type Scope } from "./ScopeDialog";
 
-type Ask = { kind: "scope" } | { kind: "notify"; added: number; removed: number };
+type Ask = { kind: "scope"; allowThis: boolean } | { kind: "notify"; added: number; removed: number };
 
 // Deja pedir el alcance y el aviso como promesas: el flujo de guardar o borrar
 // se lee de corrido. Cada una resuelve null si se cancela. `dialogs` se dibuja
@@ -15,7 +15,7 @@ export function useChoice() {
     resolver.current = resolve as (v: never) => void;
     setAsk(a);
   }), []);
-  const askScope = useCallback(() => open<Scope | null>({ kind: "scope" }), [open]);
+  const askScope = useCallback((allowThis = true) => open<Scope | null>({ kind: "scope", allowThis }), [open]);
   const askNotify = useCallback((added: number, removed: number) => open<boolean | null>({ kind: "notify", added, removed }), [open]);
 
   const answer = (v: unknown) => {
@@ -27,7 +27,7 @@ export function useChoice() {
 
   const dialogs: ReactNode = (
     <>
-      <ScopeDialog open={ask?.kind === "scope"} onPick={answer} />
+      <ScopeDialog open={ask?.kind === "scope"} allowThis={ask?.kind !== "scope" || ask.allowThis} onPick={answer} />
       <NotifyDialog
         open={ask?.kind === "notify"}
         added={ask?.kind === "notify" ? ask.added : 0}

@@ -62,6 +62,7 @@ export function EventDetail({
 
   const remove = async () => {
     try {
+      // Un fallo parcial (borrado, sin cancelaciones) lo avisa deleteEventFlow.
       if (!(await deleteEventFlow({ askScope, askNotify }, item.eventId, item))) return;
       refresh();
       state.selectEvent(null);
