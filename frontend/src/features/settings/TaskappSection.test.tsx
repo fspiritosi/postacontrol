@@ -22,10 +22,10 @@ import { TaskappSection } from "./TaskappSection";
 const settings = {
   unifiedInbox: false, disableNotifications: false, disableSpellcheck: false, threadedList: false,
   readingPane: "", background: "", disableUndoSend: false, autoBackupDir: "", theme: "",
-  taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "",
+  taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "",
 };
-const off = { connected: false, userName: "", userEmail: "" };
-const on = { connected: true, userName: "Ana", userEmail: "ana@ej.com" };
+const off = { connected: false, userId: 0, userName: "", userEmail: "" };
+const on = { connected: true, userId: 0, userName: "Ana", userEmail: "ana@ej.com" };
 
 beforeAll(() => {
   Element.prototype.hasPointerCapture = () => false;

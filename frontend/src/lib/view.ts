@@ -4,13 +4,14 @@ export type UnifiedRole = "inbox" | "flagged" | "sent" | "drafts" | "trash";
 
 // Lo que se ve en la lista: una carpeta de una cuenta, una vista que junta
 // las carpetas de un rol de todas las cuentas, la Bandeja de salida, la
-// libreta de contactos o las tareas.
+// libreta de contactos, las tareas o el calendario.
 export type View =
   | { kind: "folder"; folderId: number }
   | { kind: "unified"; role: UnifiedRole }
   | { kind: "outbox" }
   | { kind: "contacts" }
-  | { kind: "tasks" };
+  | { kind: "tasks" }
+  | { kind: "calendar" };
 
 export const UNIFIED_LABEL: Record<UnifiedRole, string> = {
   inbox: "Entrada",
@@ -22,7 +23,7 @@ export const UNIFIED_LABEL: Record<UnifiedRole, string> = {
 
 const VIEW_KEY = "pc:view";
 
-function isView(v: unknown): v is View {
+export function isView(v: unknown): v is View {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
   switch (o.kind) {
@@ -33,6 +34,7 @@ function isView(v: unknown): v is View {
     case "outbox":
     case "contacts":
     case "tasks":
+    case "calendar":
       return true;
     default:
       return false;
@@ -73,6 +75,7 @@ export function viewIsValid(v: View, folders: Folder[], unifiedEnabled: boolean)
     case "outbox":
     case "contacts":
     case "tasks":
+    case "calendar":
       return true;
   }
 }

@@ -2,7 +2,7 @@ import { MailIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PencilIcon } from "luc
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
-import { onOpenMessage, onOpenTask, syncFolder, syncUnified } from "@/lib/events";
+import { onOpenEvent, onOpenMessage, onOpenTask, syncFolder, syncUnified } from "@/lib/events";
 import { useAllFolders, useSettings } from "@/lib/queries";
 import { NO_MARKS, type Marks } from "@/lib/selection";
 import { useReadingPane, type ReadingPane } from "@/lib/settings";
@@ -137,6 +137,11 @@ export type ShellState = {
   selectTask: (key: string | null) => void;
   // Pasa a Tareas con esa tarea local abierta.
   openTask: (localId: number) => void;
+  // Evento abierto en el calendario (clave de la ocurrencia) y fecha que se
+  // muestra (ISO); la fija el aviso de un evento.
+  eventKey: string | null;
+  selectEvent: (key: string | null) => void;
+  calendarDate: string | null;
   // Correos marcados para actuar sobre varios (listas planas y búsqueda) y
   // conversaciones marcadas (por raíz). Abrir algo, cambiar de vista o buscar
   // los suelta: si no, una acción tocaría correos que ya no se ven.
@@ -157,6 +162,8 @@ type Props = {
   sidebar?: (s: ShellState, mode: SidebarMode) => ReactNode;
   list?: (s: ShellState) => ReactNode;
   reader?: (s: ShellState) => ReactNode;
+  // Pantalla completa: si devuelve algo, reemplaza a la lista y el lector.
+  full?: (s: ShellState) => ReactNode | null;
   // Componentes sin lugar en pantalla que necesitan el estado (p. ej. avisos).
   extras?: (s: ShellState) => ReactNode;
 };
@@ -178,16 +185,18 @@ function syncView(v: View, folders: Folder[]) {
   } else if (v.kind === "unified") {
     void syncUnified(v.role);
   }
-  // outbox, contacts y tasks no tienen nada que traer del servidor.
+  // outbox, contacts, tasks y calendar no tienen nada que traer del servidor.
 }
 
-export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
+export function MailShell({ accounts, sidebar, list, reader, full, extras }: Props) {
   const [chosen, setChosen] = useState<View | null>(loadView);
   const [messageId, setMessageId] = useState<number | null>(null);
   const [search, setSearchState] = useState<SearchState | null>(null);
   const [threadRoot, setThreadRoot] = useState<string | null>(null);
   const [contactId, setContactId] = useState<number | null>(null);
   const [taskKey, setTaskKey] = useState<string | null>(null);
+  const [eventKey, setEventKey] = useState<string | null>(null);
+  const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [marked, setMarked] = useState<Marks<number>>(NO_MARKS);
   const [markedThreads, setMarkedThreads] = useState<Marks<string>>(NO_MARKS);
   const [labelFilter, setLabelFilterState] = useState<number | null>(null);
@@ -248,6 +257,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
       setThreadRoot(null);
       setContactId(null);
       setTaskKey(null);
+      setEventKey(null);
+      setCalendarDate(null);
       setMarked(NO_MARKS);
       setMarkedThreads(NO_MARKS);
       setLabelFilterState(null);
@@ -277,6 +288,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setThreadRoot(null);
     setContactId(null);
     setTaskKey(null);
+    setEventKey(null);
+    setCalendarDate(null);
     setLabelFilterState(null);
   }, [clearMarks]);
 
@@ -293,6 +306,8 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setSearchState(null);
     setThreadRoot(null);
     setContactId(id);
+    setEventKey(null);
+    setCalendarDate(null);
   }, [clearMarks]);
 
   const openTask = useCallback((localId: number) => {
@@ -303,6 +318,21 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     setSearchState(null);
     setThreadRoot(null);
     setTaskKey(`l:${localId}`);
+    setEventKey(null);
+    setCalendarDate(null);
+  }, [clearMarks]);
+
+  const openEvent = useCallback((key: string, at: string) => {
+    clearMarks();
+    setChosen({ kind: "calendar" });
+    setLabelFilterState(null);
+    setMessageId(null);
+    setSearchState(null);
+    setThreadRoot(null);
+    setContactId(null);
+    setTaskKey(null);
+    setCalendarDate(at);
+    setEventKey(key);
   }, [clearMarks]);
 
   const selectMessage = useCallback((id: number | null) => {
@@ -337,6 +367,9 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   // Abrir desde el aviso de una tarea.
   useEffect(() => onOpenTask(({ taskId }) => openTask(taskId)), [openTask]);
 
+  // Abrir desde el aviso de un evento.
+  useEffect(() => onOpenEvent(({ key, at }) => openEvent(key, at)), [openEvent]);
+
   const vertical = pane !== "right";
   const view = !ready || valid ? chosen : null;
   const composeAccount = viewAccount(view, folders, accounts) ?? accounts[0];
@@ -356,6 +389,9 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
     taskKey,
     selectTask: setTaskKey,
     openTask,
+    eventKey,
+    selectEvent: setEventKey,
+    calendarDate,
     marked,
     markedThreads,
     setMarked,
@@ -368,6 +404,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
   useLabelKeys(state);
   const [taskFor, setTaskFor] = useState<number | null>(null);
   const keys = useMailKeys(state, composeAccount?.id, setTaskFor);
+  const fullScreen = full?.(state) ?? null;
 
   // Los dos paneles del grupo interior se arman una vez; solo cambia el orden.
   const listPanel = (
@@ -462,7 +499,10 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
           </ResizablePanel>
           <ResizableHandle />
           <ResizablePanel id="main" defaultSize={`${layout.outer.main}%`} minSize="40%">
-            {/* key = posición: al cambiarla el grupo se vuelve a montar con sus tamaños. */}
+            {fullScreen != null ? (
+              fullScreen
+            ) : (
+            // key = posición: al cambiarla el grupo se vuelve a montar con sus tamaños.
             <ResizablePanelGroup
               key={pane}
               orientation={vertical ? "vertical" : "horizontal"}
@@ -483,6 +523,7 @@ export function MailShell({ accounts, sidebar, list, reader, extras }: Props) {
                 </>
               )}
             </ResizablePanelGroup>
+            )}
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

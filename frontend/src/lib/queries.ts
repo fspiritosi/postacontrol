@@ -111,6 +111,51 @@ export function useTaskappStatus() {
   });
 }
 
+// Eventos y reuniones del rango visible. Al cambiar de rango se muestra el
+// anterior mientras llega el nuevo, para que el calendario no parpadee.
+export function useCalendar(from: Date, to: Date) {
+  return useQuery({
+    queryKey: ["calendar", from.toISOString(), to.toISOString()],
+    queryFn: () => svc.ListCalendar(from.toISOString(), to.toISOString()),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useEvent(id: number | null) {
+  return useQuery({
+    queryKey: ["event", id],
+    queryFn: () => svc.GetEvent(id!),
+    enabled: id != null,
+  });
+}
+
+// La invitación (si la hay) del correo abierto.
+export function useMessageInvite(messageId: number | null) {
+  return useQuery({
+    queryKey: ["invite", messageId],
+    queryFn: () => svc.InviteForMessage(messageId!),
+    enabled: messageId != null,
+  });
+}
+
+// Los espacios de trabajo de Taskapp: solo se piden con Taskapp conectado.
+export function useTaskappWorkspaces() {
+  const status = useTaskappStatus();
+  return useQuery({
+    queryKey: ["taskapp-workspaces"],
+    queryFn: async () => (await svc.TaskappWorkspaces()) ?? [],
+    enabled: status.data?.connected === true,
+  });
+}
+
+export function useTaskappMembers(workspaceId: number | null) {
+  return useQuery({
+    queryKey: ["taskapp-members", workspaceId],
+    queryFn: async () => (await svc.TaskappMembers(workspaceId!)) ?? [],
+    enabled: workspaceId != null,
+  });
+}
+
 // Las tareas de Taskapp a las que está vinculado el hilo de este correo.
 export function useTaskLinks(messageId: number | null) {
   return useQuery({

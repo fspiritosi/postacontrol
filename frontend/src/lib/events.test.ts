@@ -20,6 +20,7 @@ import {
   PROGRESS_REFRESH_MS,
   SEARCH_REFRESH_MS,
   onOpenMessage,
+  onOpenEvent,
   onOpenTask,
   onPasswordRequest,
   onSettingsRequest,
@@ -80,13 +81,28 @@ describe("useMailEvents", () => {
     emit("mail:tasks-changed", null);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["local-tasks"] });
     emit("mail:taskapp-changed", null);
-    for (const k of ["taskapp-tasks", "taskapp-status", "task-links"]) {
+    for (const k of ["taskapp-tasks", "taskapp-status", "task-links", "calendar"]) {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: [k] });
     }
   });
 
+  it("mail:calendar-changed recarga el calendario, los eventos y las invitaciones", () => {
+    emit("mail:calendar-changed", null);
+    for (const k of ["calendar", "event", "invite"]) {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: [k] });
+    }
+  });
+
+  it("app:open-event llega a quien escucha", () => {
+    const got: unknown[] = [];
+    const off = onOpenEvent((r) => got.push(r));
+    emit("app:open-event", { key: "e:4", at: "2026-11-20T10:00:00Z" });
+    off();
+    expect(got).toEqual([{ key: "e:4", at: "2026-11-20T10:00:00Z" }]);
+  });
+
   it("mail:taskapp-auth deja un aviso fijo con Reconectar", async () => {
-    vi.mocked(svc.ConnectTaskapp).mockResolvedValue({ connected: true, userName: "A", userEmail: "a@b.c" });
+    vi.mocked(svc.ConnectTaskapp).mockResolvedValue({ connected: true, userId: 0, userName: "A", userEmail: "a@b.c" });
     emit("mail:taskapp-auth", null);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["taskapp-status"] });
     expect(toast.error).toHaveBeenCalledWith(

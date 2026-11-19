@@ -90,6 +90,8 @@ func (s *MailService) ServiceStartup(ctx context.Context, _ application.ServiceO
 	core.StartAutoBackup(ctx, autoBackupCheckEvery)
 	// Envíos programados y correos pospuestos: alcanza con mirar cada minuto.
 	core.StartScheduler(ctx, time.Minute)
+	// Reuniones de Taskapp: se vuelven a leer cada tanto para ver cambios.
+	core.StartMeetingRefresh(ctx, 10*time.Minute)
 	return nil
 }
 
@@ -340,6 +342,30 @@ func (s *MailService) PickBackground(ctx context.Context) (bool, error) {
 // backupPatterns es el filtro de los diálogos del respaldo (en Linux GTK
 // distingue mayúsculas).
 const backupPatterns = "*.json;*.JSON"
+
+// icsPatterns es el filtro del diálogo de importar calendario.
+const icsPatterns = "*.ics;*.ICS;*.zip;*.ZIP"
+
+// PickICSFiles pregunta qué archivos .ics o .zip importar. Si se cancela
+// devuelve una lista vacía.
+func (s *MailService) PickICSFiles(ctx context.Context) ([]string, error) {
+	if s.app == nil {
+		return nil, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo."}
+	}
+	dlg := s.app.Dialog.OpenFile().CanChooseFiles(true).SetTitle("Importar calendario").
+		AddFilter("Calendario (*.ics, *.zip)", icsPatterns)
+	if w := dialogParent(ctx, s.app.Window.Current); w != nil {
+		dlg.AttachToWindow(w)
+	}
+	paths, err := dlg.PromptForMultipleSelection()
+	if err != nil {
+		return nil, &mail.UserError{Code: "ui", Msg: "No pudimos abrir el diálogo.", Err: err}
+	}
+	if paths == nil {
+		paths = []string{}
+	}
+	return paths, nil
+}
 
 // ExportBackup pregunta dónde guardar el respaldo de contactos, firmas,
 // etiquetas y reglas, y lo escribe. Devuelve false (sin error) si se cancela.
@@ -981,4 +1007,74 @@ func (s *MailService) CreateLocalTaskFrom(ctx context.Context, messageID int64) 
 
 func (s *MailService) FindMessageByHeader(ctx context.Context, headerID string) (model.MessageSummary, error) {
 	return s.core.FindMessageByHeader(ctx, headerID)
+}
+
+// Calendario: envoltorios finos sobre el núcleo.
+
+func (s *MailService) ListCalendar(ctx context.Context, from, to time.Time) (model.CalendarRange, error) {
+	return s.core.ListCalendar(ctx, from, to)
+}
+
+func (s *MailService) GetEvent(ctx context.Context, id int64) (model.CalendarEvent, error) {
+	return s.core.GetEvent(ctx, id)
+}
+
+func (s *MailService) SaveEvent(ctx context.Context, req model.EventSave) (model.CalendarEvent, error) {
+	return s.core.SaveEvent(ctx, req)
+}
+
+func (s *MailService) DeleteEvent(ctx context.Context, req model.EventDelete) error {
+	return s.core.DeleteEvent(ctx, req)
+}
+
+func (s *MailService) PreviewEventSave(ctx context.Context, req model.EventSave) (model.SavePreview, error) {
+	return s.core.PreviewEventSave(ctx, req)
+}
+
+func (s *MailService) PreviewEventDelete(ctx context.Context, req model.EventDelete) (model.SavePreview, error) {
+	return s.core.PreviewEventDelete(ctx, req)
+}
+
+func (s *MailService) InviteForMessage(ctx context.Context, messageID int64) (model.MessageInvite, error) {
+	return s.core.InviteForMessage(ctx, messageID)
+}
+
+func (s *MailService) RespondInvite(ctx context.Context, eventID int64, partstat string) (model.RespondResult, error) {
+	return s.core.RespondInvite(ctx, eventID, partstat)
+}
+
+func (s *MailService) RemoveCancelledEvent(ctx context.Context, eventID int64) error {
+	return s.core.RemoveCancelledEvent(ctx, eventID)
+}
+
+func (s *MailService) TaskappWorkspaces(ctx context.Context) ([]model.TaskappWorkspace, error) {
+	return s.core.TaskappWorkspaces(ctx)
+}
+
+func (s *MailService) TaskappMembers(ctx context.Context, workspaceID int64) ([]model.TaskappMember, error) {
+	return s.core.TaskappMembers(ctx, workspaceID)
+}
+
+func (s *MailService) CreateTaskappMeeting(ctx context.Context, req model.TaskappMeetingCreate) (model.CalendarItem, error) {
+	return s.core.CreateTaskappMeeting(ctx, req)
+}
+
+func (s *MailService) NotifyTaskappChange(ctx context.Context, eventID int64) error {
+	return s.core.NotifyTaskappChange(ctx, eventID)
+}
+
+func (s *MailService) DismissTaskappChange(ctx context.Context, eventID int64) error {
+	return s.core.DismissTaskappChange(ctx, eventID)
+}
+
+func (s *MailService) RemoveTaskappExternals(ctx context.Context, eventID int64) (model.RespondResult, error) {
+	return s.core.RemoveTaskappExternals(ctx, eventID)
+}
+
+func (s *MailService) PreviewICSImport(ctx context.Context, paths []string) ([]model.ICSCalendar, error) {
+	return s.core.PreviewICSImport(ctx, paths)
+}
+
+func (s *MailService) ImportICS(ctx context.Context, ids []string) (model.ICSImportResult, error) {
+	return s.core.ImportICS(ctx, ids)
 }

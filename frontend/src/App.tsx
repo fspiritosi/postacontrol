@@ -73,6 +73,11 @@ export default function App() {
             <MessageList accounts={all} state={s} />
           )
         }
+        full={(s) =>
+          s.view?.kind === "calendar" ? (
+            <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">Calendario</div>
+          ) : null
+        }
         reader={(s) =>
           s.view?.kind === "contacts" ? (
             <ContactPanel state={s} />

@@ -25,7 +25,7 @@ vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
     Promise.resolve({
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: false,
       readingPane: "",
     }),
@@ -108,7 +108,7 @@ function renderList(
           selectThread: vi.fn(),
           contactId: null,
           selectContact: vi.fn(),
-          openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+          openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
           marked: { keys: [], anchor: null },
           markedThreads: { keys: [], anchor: null },
           setMarked: vi.fn(),
@@ -178,7 +178,7 @@ describe("MessageList posición del panel", () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: false,
       readingPane,
     });
@@ -222,7 +222,7 @@ describe("MessageList conversaciones", () => {
     const settings = {
       unifiedInbox: true,
       background: "",
-      disableNotifications: true, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+      disableNotifications: true, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: false,
       readingPane: "",
     };
@@ -263,7 +263,7 @@ describe("MessageList conversaciones", () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: true,
       background: "",
-      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: true,
       readingPane: "",
     });
@@ -369,7 +369,7 @@ function Stateful({ view, open = null }: { view: View; open?: number | null }) {
     },
     contactId: null,
     selectContact: vi.fn(),
-    openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+    openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
     marked,
     markedThreads,
     setMarked,
@@ -506,7 +506,7 @@ describe("MessageList selección múltiple", () => {
             selectThread: vi.fn(),
             contactId: null,
             selectContact: vi.fn(),
-            openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+            openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
             marked: NO_MARKS,
             markedThreads: NO_MARKS,
             setMarked: vi.fn(),
@@ -577,7 +577,7 @@ describe("MessageList selección múltiple", () => {
     const settings = {
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: false,
       readingPane: "",
     };
@@ -599,7 +599,7 @@ describe("MessageList selección múltiple", () => {
             selectThread: vi.fn(),
             contactId: null,
             selectContact: vi.fn(),
-            openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+            openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
             marked: NO_MARKS,
             markedThreads: NO_MARKS,
             setMarked: vi.fn(),
@@ -635,7 +635,7 @@ describe("MessageList no leídos", () => {
       vi.mocked(svc.GetSettings).mockResolvedValue({
         unifiedInbox: false,
         background: "",
-        disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+        disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
         threadedList: false,
         readingPane,
       });
@@ -705,7 +705,7 @@ describe("MessageList no leídos", () => {
                 selectThread: vi.fn(),
                 contactId: null,
                 selectContact: vi.fn(),
-                openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+                openContact: vi.fn(), taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
                 marked: { keys: marked, anchor: null },
                 markedThreads: { keys: [], anchor: null },
                 setMarked,
@@ -827,7 +827,7 @@ describe("MessageList filtro por etiqueta", () => {
     vi.mocked(svc.GetSettings).mockResolvedValue({
       unifiedInbox: false,
       background: "",
-      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
+      disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "",
       threadedList: true,
       readingPane: "",
     });

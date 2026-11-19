@@ -60,7 +60,7 @@ function setup(role: string, labels: number[] = [], over: Partial<MessageDetail>
     selectThread: vi.fn(),
     contactId: null,
     selectContact: vi.fn(),
-    openContact, taskKey: null, selectTask: vi.fn(), openTask: vi.fn(),
+    openContact, taskKey: null, selectTask: vi.fn(), openTask: vi.fn(), eventKey: null, selectEvent: vi.fn(), calendarDate: null,
   } as unknown as ShellState;
   const client = new QueryClient();
   render(

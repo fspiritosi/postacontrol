@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../bindings/postacontrol/app/mailservice", () => ({
@@ -24,7 +25,7 @@ vi.mock("../compose/ComposerContext", () => ({ useComposer: () => ({ openNew }) 
 import type { Account, Folder } from "../../../bindings/postacontrol/core/model/models";
 import { Security } from "../../../bindings/postacontrol/core/model/models";
 import * as svc from "../../../bindings/postacontrol/app/mailservice";
-import { requestOpenMessage, resetSyncStateForTests } from "@/lib/events";
+import { requestOpenEvent, requestOpenMessage, resetSyncStateForTests } from "@/lib/events";
 import type { View } from "@/lib/view";
 import { MailShell, expandedSidebarSize, saveOuterLayout, sidebarResizeAction, type ShellState } from "./MailShell";
 
@@ -47,10 +48,10 @@ const FOLDERS: Record<number, Folder[]> = {
   5: [folder(51, 5, "inbox")],
 };
 
-function setup(saved: View | null, unifiedInbox: boolean, readingPane = "", withSidebar = false) {
+function setup(saved: View | null, unifiedInbox: boolean, readingPane = "", withSidebar = false, full?: (s: ShellState) => ReactNode) {
   if (saved) localStorage.setItem("pc:view", JSON.stringify(saved));
   vi.mocked(svc.ListFolders).mockImplementation((id: number) => Promise.resolve(FOLDERS[id]) as never);
-  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "", threadedList: false, readingPane, background: "" });
+  vi.mocked(svc.GetSettings).mockResolvedValue({ unifiedInbox, disableNotifications: false, disableSpellcheck: false, disableUndoSend: false, autoBackupDir: "", taskReminderMinutes: null, eventReminderMinutes: null, taskappApiUrl: "", taskappWebUrl: "", theme: "", threadedList: false, readingPane, background: "" });
   let current: ShellState | null = null;
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -61,6 +62,7 @@ function setup(saved: View | null, unifiedInbox: boolean, readingPane = "", with
           return <p data-testid="view">{JSON.stringify(s.view)}</p>;
         }}
         reader={() => <p>lector</p>}
+        full={full}
         sidebar={
           withSidebar ? (_s, mode) => <p data-testid="sidebar-mode">{String(mode.collapsed)}</p> : undefined
         }
@@ -202,6 +204,34 @@ describe("MailShell contactos", () => {
     expect(state().taskKey).toBe("t:3");
     act(() => state().selectView({ kind: "folder", folderId: 22 }));
     expect(state().taskKey).toBeNull();
+  });
+
+  it("con full que devuelve un nodo no se renderizan la lista ni el lector", async () => {
+    setup({ kind: "calendar" }, false, "", true, (s) => (s.view?.kind === "calendar" ? <p>pantalla completa</p> : null));
+    expect(await screen.findByText("pantalla completa")).toBeTruthy();
+    expect(screen.queryByTestId("view")).toBeNull();
+    expect(screen.queryByText("lector")).toBeNull();
+    expect(screen.getByTestId("sidebar-mode")).toBeTruthy();
+  });
+
+  it("con full que devuelve null se ven la lista y el lector", async () => {
+    setup({ kind: "folder", folderId: 21 }, false, "", false, () => null);
+    await waitFor(() => expect(shown()).toEqual({ kind: "folder", folderId: 21 }));
+    expect(screen.getByText("lector")).toBeTruthy();
+  });
+
+  it("onOpenEvent pasa al calendario con la fecha y el evento; selectView los limpia", async () => {
+    const { state } = setup({ kind: "folder", folderId: 21 }, false);
+    await waitFor(() => expect(svc.SyncFolder).toHaveBeenCalledWith(21));
+    act(() => requestOpenEvent({ key: "e:4", at: "2026-11-20T10:00:00Z" }));
+    expect(shown()).toEqual({ kind: "calendar" });
+    expect(state().eventKey).toBe("e:4");
+    expect(state().calendarDate).toBe("2026-11-20T10:00:00Z");
+    act(() => state().selectEvent("e:5"));
+    expect(state().eventKey).toBe("e:5");
+    act(() => state().selectView({ kind: "folder", folderId: 22 }));
+    expect(state().eventKey).toBeNull();
+    expect(state().calendarDate).toBeNull();
   });
 
   it("la libreta guardada vuelve al reabrir", async () => {

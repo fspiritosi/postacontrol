@@ -158,6 +158,10 @@ export function CreateTaskappItem(req: model$0.TaskappCreate): $CancellablePromi
     return $Call.ByID(1608058830, req);
 }
 
+export function CreateTaskappMeeting(req: model$0.TaskappMeetingCreate): $CancellablePromise<model$0.CalendarItem> {
+    return $Call.ByID(2412185538, req);
+}
+
 export function DeleteContact(id: number): $CancellablePromise<void> {
     return $Call.ByID(3876242856, id);
 }
@@ -167,6 +171,10 @@ export function DeleteContact(id: number): $CancellablePromise<void> {
  */
 export function DeleteDraft(id: number): $CancellablePromise<void> {
     return $Call.ByID(3632404791, id);
+}
+
+export function DeleteEvent(req: model$0.EventDelete): $CancellablePromise<void> {
+    return $Call.ByID(435615788, req);
 }
 
 /**
@@ -228,6 +236,10 @@ export function DisconnectTaskapp(): $CancellablePromise<void> {
     return $Call.ByID(2501104247);
 }
 
+export function DismissTaskappChange(eventID: number): $CancellablePromise<void> {
+    return $Call.ByID(1526980459, eventID);
+}
+
 /**
  * EmptyTrash borra definitivamente todos los correos de la Papelera y
  * devuelve cuántos borró.
@@ -250,6 +262,10 @@ export function FindMessageByHeader(headerID: string): $CancellablePromise<model
 
 export function GetContact(id: number): $CancellablePromise<model$0.Contact> {
     return $Call.ByID(333453687, id);
+}
+
+export function GetEvent(id: number): $CancellablePromise<model$0.CalendarEvent> {
+    return $Call.ByID(283069131, id);
 }
 
 export function GetMessage(id: number): $CancellablePromise<model$0.MessageDetail> {
@@ -279,12 +295,24 @@ export function ImportBackup(): $CancellablePromise<model$0.BackupImport | null>
     return $Call.ByID(2888958544);
 }
 
+export function ImportICS(ids: string[] | null): $CancellablePromise<model$0.ICSImportResult> {
+    return $Call.ByID(22411755, ids);
+}
+
+export function InviteForMessage(messageID: number): $CancellablePromise<model$0.MessageInvite> {
+    return $Call.ByID(4143382808, messageID);
+}
+
 export function LabelUsage(id: number): $CancellablePromise<number> {
     return $Call.ByID(2406668782, id);
 }
 
 export function ListAccounts(): $CancellablePromise<model$0.Account[] | null> {
     return $Call.ByID(837905259);
+}
+
+export function ListCalendar($from: string, to: string): $CancellablePromise<model$0.CalendarRange> {
+    return $Call.ByID(2829430109, $from, to);
 }
 
 /**
@@ -384,6 +412,10 @@ export function MoveMessages(ids: number[] | null, destFolderID: number): $Cance
     return $Call.ByID(2219385610, ids, destFolderID);
 }
 
+export function NotifyTaskappChange(eventID: number): $CancellablePromise<void> {
+    return $Call.ByID(61200046, eventID);
+}
+
 /**
  * OpenComposeWindow abre un redactor en su propia ventana con initJSON (lo
  * lee con ComposeInit). Si key no está vacía y ya hay una ventana con esa
@@ -459,6 +491,14 @@ export function PickBackground(): $CancellablePromise<boolean> {
 }
 
 /**
+ * PickICSFiles pregunta qué archivos .ics o .zip importar. Si se cancela
+ * devuelve una lista vacía.
+ */
+export function PickICSFiles(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2280143598);
+}
+
+/**
  * PickImage abre el diálogo nativo para elegir una imagen a insertar en el
  * cuerpo. Devuelve un PickedImage vacío (sin error) si se cancela.
  */
@@ -468,6 +508,18 @@ export function PickImage(): $CancellablePromise<model$0.PickedImage> {
 
 export function PrepareCompose(messageID: number, mode: model$0.ComposeMode): $CancellablePromise<model$0.ComposeDraft> {
     return $Call.ByID(1128403450, messageID, mode);
+}
+
+export function PreviewEventDelete(req: model$0.EventDelete): $CancellablePromise<model$0.SavePreview> {
+    return $Call.ByID(753348792, req);
+}
+
+export function PreviewEventSave(req: model$0.EventSave): $CancellablePromise<model$0.SavePreview> {
+    return $Call.ByID(4249005606, req);
+}
+
+export function PreviewICSImport(paths: string[] | null): $CancellablePromise<model$0.ICSCalendar[] | null> {
+    return $Call.ByID(2516311563, paths);
 }
 
 /**
@@ -484,6 +536,14 @@ export function RefreshLabel(labelID: number, accountID: number): $CancellablePr
 
 export function RemoveAccount(id: number): $CancellablePromise<void> {
     return $Call.ByID(670503326, id);
+}
+
+export function RemoveCancelledEvent(eventID: number): $CancellablePromise<void> {
+    return $Call.ByID(111849710, eventID);
+}
+
+export function RemoveTaskappExternals(eventID: number): $CancellablePromise<model$0.RespondResult> {
+    return $Call.ByID(3911729231, eventID);
 }
 
 /**
@@ -503,6 +563,10 @@ export function ReorderLabels(ids: number[] | null): $CancellablePromise<void> {
 
 export function ReorderRules(accountID: number, ids: number[] | null): $CancellablePromise<void> {
     return $Call.ByID(2477328953, accountID, ids);
+}
+
+export function RespondInvite(eventID: number, partstat: string): $CancellablePromise<model$0.RespondResult> {
+    return $Call.ByID(2147671461, eventID, partstat);
 }
 
 export function RetryTaskLinkAttachment(linkID: number): $CancellablePromise<model$0.TaskLink> {
@@ -541,6 +605,10 @@ export function SaveContact(c: model$0.Contact): $CancellablePromise<model$0.Con
  */
 export function SaveDraft(id: number, req: model$0.SendRequest): $CancellablePromise<model$0.Draft> {
     return $Call.ByID(1483319153, id, req);
+}
+
+export function SaveEvent(req: model$0.EventSave): $CancellablePromise<model$0.CalendarEvent> {
+    return $Call.ByID(237120750, req);
 }
 
 export function SaveLocalTask(t: model$0.LocalTask): $CancellablePromise<model$0.LocalTask> {
@@ -709,12 +777,20 @@ export function TaskappDraftFor(messageID: number): $CancellablePromise<model$0.
     return $Call.ByID(1594410179, messageID);
 }
 
+export function TaskappMembers(workspaceID: number): $CancellablePromise<model$0.TaskappMember[] | null> {
+    return $Call.ByID(2596682608, workspaceID);
+}
+
 export function TaskappProjects(): $CancellablePromise<model$0.TaskappProject[] | null> {
     return $Call.ByID(2355920535);
 }
 
 export function TaskappStatus(): $CancellablePromise<model$0.TaskappStatus> {
     return $Call.ByID(3346678991);
+}
+
+export function TaskappWorkspaces(): $CancellablePromise<model$0.TaskappWorkspace[] | null> {
+    return $Call.ByID(3165223935);
 }
 
 export function TestAccount($in: model$0.AccountInput): $CancellablePromise<void> {

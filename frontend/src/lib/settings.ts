@@ -33,6 +33,7 @@ export async function saveSettings(
     autoBackupDir: "",
     theme: "",
     taskReminderMinutes: null,
+    eventReminderMinutes: null,
     taskappApiUrl: "",
     taskappWebUrl: "",
     ...current,

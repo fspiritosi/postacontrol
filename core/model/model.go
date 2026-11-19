@@ -513,7 +513,11 @@ type ICSCalendar struct {
 }
 
 // ICSImportResult cuenta lo que dejó importar .ics.
-type ICSImportResult struct{ Added, Updated, Skipped int }
+type ICSImportResult struct {
+	Added   int `json:"added"`
+	Updated int `json:"updated"`
+	Skipped int `json:"skipped"`
+}
 
 // TaskReminder es el aviso de una tarea próxima; At es su fecha y hora, no el
 // momento del aviso.

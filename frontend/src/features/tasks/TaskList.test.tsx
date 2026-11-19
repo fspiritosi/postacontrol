@@ -44,7 +44,7 @@ describe("TaskList", () => {
     vi.clearAllMocks();
     localStorage.clear();
     vi.mocked(svc.GetSettings).mockResolvedValue(SETTINGS as never);
-    vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected: true, userName: "Ana", userEmail: "a@b.c" });
+    vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected: true, userId: 0, userName: "Ana", userEmail: "a@b.c" });
     vi.mocked(svc.ListLocalTasks).mockResolvedValue([localTask({ dueDate: today })] as never);
     vi.mocked(svc.ListTaskappTasks).mockResolvedValue({
       tasks: [remoteTask({ dueDate: today })], fetchedAt: new Date().toISOString(), stale: false, error: "",
@@ -89,7 +89,7 @@ describe("TaskList", () => {
   });
 
   it("sin conectar a Taskapp ofrece conectar y no pide las remotas", async () => {
-    vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected: false, userName: "", userEmail: "" });
+    vi.mocked(svc.TaskappStatus).mockResolvedValue({ connected: false, userId: 0, userName: "", userEmail: "" });
     const { user } = setup();
     const link = await screen.findByRole("button", { name: /Conectá Taskapp para ver tus tareas/ });
     await screen.findByText("Llamar al banco");
